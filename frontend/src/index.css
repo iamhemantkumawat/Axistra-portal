@@ -1,115 +1,238 @@
+@import url('https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@400,500,700,800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-body {
-    margin: 0;
-    font-family:
-        -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen",
-        "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
-        sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
+:root {
+  --axistra-green: #0A5C3E;
+  --axistra-green-dark: #084a32;
+  --axistra-green-light: #e6efeb;
+  --axistra-gold: #D4AF37;
+  --axistra-gold-dark: #b8962c;
+  --axistra-gold-light: #fbf7e9;
+  --axistra-bg: #F8F9F7;
+  --axistra-surface: #FFFFFF;
+  --axistra-border: #E5E7EB;
+  --axistra-sidebar: #0A5C3E;
+  --axistra-sidebar-active: #084a32;
 }
 
-code {
-    font-family:
-        source-code-pro, Menlo, Monaco, Consolas, "Courier New", monospace;
+html, body {
+  background: var(--axistra-bg);
+  color: #111827;
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  margin: 0;
 }
 
-@layer base {
-    :root {
-        --background: 0 0% 100%;
-        --foreground: 0 0% 3.9%;
-        --card: 0 0% 100%;
-        --card-foreground: 0 0% 3.9%;
-        --popover: 0 0% 100%;
-        --popover-foreground: 0 0% 3.9%;
-        --primary: 0 0% 9%;
-        --primary-foreground: 0 0% 98%;
-        --secondary: 0 0% 96.1%;
-        --secondary-foreground: 0 0% 9%;
-        --muted: 0 0% 96.1%;
-        --muted-foreground: 0 0% 45.1%;
-        --accent: 0 0% 96.1%;
-        --accent-foreground: 0 0% 9%;
-        --destructive: 0 84.2% 60.2%;
-        --destructive-foreground: 0 0% 98%;
-        --border: 0 0% 89.8%;
-        --input: 0 0% 89.8%;
-        --ring: 0 0% 3.9%;
-        --chart-1: 12 76% 61%;
-        --chart-2: 173 58% 39%;
-        --chart-3: 197 37% 24%;
-        --chart-4: 43 74% 66%;
-        --chart-5: 27 87% 67%;
-        --radius: 0.5rem;
-    }
-    .dark {
-        --background: 0 0% 3.9%;
-        --foreground: 0 0% 98%;
-        --card: 0 0% 3.9%;
-        --card-foreground: 0 0% 98%;
-        --popover: 0 0% 3.9%;
-        --popover-foreground: 0 0% 98%;
-        --primary: 0 0% 98%;
-        --primary-foreground: 0 0% 9%;
-        --secondary: 0 0% 14.9%;
-        --secondary-foreground: 0 0% 98%;
-        --muted: 0 0% 14.9%;
-        --muted-foreground: 0 0% 63.9%;
-        --accent: 0 0% 14.9%;
-        --accent-foreground: 0 0% 98%;
-        --destructive: 0 62.8% 30.6%;
-        --destructive-foreground: 0 0% 98%;
-        --border: 0 0% 14.9%;
-        --input: 0 0% 14.9%;
-        --ring: 0 0% 83.1%;
-        --chart-1: 220 70% 50%;
-        --chart-2: 160 60% 45%;
-        --chart-3: 30 80% 55%;
-        --chart-4: 280 65% 60%;
-        --chart-5: 340 75% 55%;
-    }
+h1, h2, h3, h4, h5, h6, .font-display {
+  font-family: 'Cabinet Grotesk', 'IBM Plex Sans', sans-serif;
+  letter-spacing: -0.01em;
+}
+
+.font-mono, code, pre, .hash {
+  font-family: 'IBM Plex Mono', monospace;
 }
 
 @layer base {
-    * {
-        @apply border-border;
-    }
-    body {
-        @apply bg-background text-foreground;
-    }
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 152 80% 20%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 5% 96%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 240 5% 96%;
+    --muted-foreground: 240 4% 46%;
+    --accent: 45 65% 53%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 152 80% 20%;
+    --radius: 0.5rem;
+  }
 }
 
 @layer base {
-    [data-debug-wrapper="true"] {
-        display: contents !important;
-    }
-
-    [data-debug-wrapper="true"] > * {
-        margin-left: inherit;
-        margin-right: inherit;
-        margin-top: inherit;
-        margin-bottom: inherit;
-        padding-left: inherit;
-        padding-right: inherit;
-        padding-top: inherit;
-        padding-bottom: inherit;
-        column-gap: inherit;
-        row-gap: inherit;
-        gap: inherit;
-        border-left-width: inherit;
-        border-right-width: inherit;
-        border-top-width: inherit;
-        border-bottom-width: inherit;
-        border-left-style: inherit;
-        border-right-style: inherit;
-        border-top-style: inherit;
-        border-bottom-style: inherit;
-        border-left-color: inherit;
-        border-right-color: inherit;
-        border-top-color: inherit;
-        border-bottom-color: inherit;
-    }
+  * { @apply border-border; }
+  body { @apply bg-background text-foreground; }
 }
+
+/* Custom subtle scrollbar for sidebar */
+.sidebar-scroll::-webkit-scrollbar { width: 6px; }
+.sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
+.sidebar-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
+
+/* Brand utility classes */
+.bg-axistra-green { background-color: var(--axistra-green); }
+.bg-axistra-green-dark { background-color: var(--axistra-green-dark); }
+.bg-axistra-gold { background-color: var(--axistra-gold); }
+.text-axistra-green { color: var(--axistra-green); }
+.text-axistra-gold { color: var(--axistra-gold); }
+.border-axistra-green { border-color: var(--axistra-green); }
+
+.btn-primary {
+  background-color: var(--axistra-green);
+  color: white;
+  padding: 0.5rem 1rem;
+  border-radius: 0.375rem;
+  font-weight: 500;
+  font-size: 0.875rem;
+  transition: background-color 0.15s;
+}
+.btn-primary:hover { background-color: var(--axistra-green-dark); }
+.btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.btn-secondary {
+  background-color: white;
+  color: #374151;
+  border: 1px solid #D1D5DB;
+  padding: 0.5rem 1rem;
+  border-radius: 0.375rem;
+  font-weight: 500;
+  font-size: 0.875rem;
+  transition: all 0.15s;
+}
+.btn-secondary:hover { background-color: #F9FAFB; border-color: var(--axistra-green); }
+
+.btn-accent {
+  background-color: var(--axistra-gold);
+  color: white;
+  padding: 0.5rem 1rem;
+  border-radius: 0.375rem;
+  font-weight: 500;
+  font-size: 0.875rem;
+  transition: background-color 0.15s;
+}
+.btn-accent:hover { background-color: var(--axistra-gold-dark); }
+
+.label-xs {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #6B7280;
+  font-weight: 600;
+}
+
+.card-axistra {
+  background: white;
+  border: 1px solid var(--axistra-border);
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  transition: box-shadow 0.2s;
+}
+.card-axistra:hover { box-shadow: 0 4px 12px rgba(10,92,62,0.08); }
+
+.input-axistra {
+  background: white;
+  border: 1px solid #D1D5DB;
+  border-radius: 0.375rem;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.875rem;
+  width: 100%;
+  color: #111827;
+  font-family: 'IBM Plex Sans', sans-serif;
+}
+.input-axistra:focus {
+  outline: none;
+  border-color: var(--axistra-green);
+  box-shadow: 0 0 0 3px rgba(10, 92, 62, 0.12);
+}
+
+.table-axistra { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+.table-axistra thead { background: #F9FAFB; }
+.table-axistra th {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  color: #6B7280;
+  border-bottom: 1px solid var(--axistra-border);
+}
+.table-axistra td {
+  padding: 0.85rem 1rem;
+  color: #374151;
+  border-bottom: 1px solid #F3F4F6;
+}
+.table-axistra tbody tr:hover { background: #FAFAF9; }
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem 0.625rem;
+  border-radius: 9999px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.badge-success { background: #DCFCE7; color: #166534; border-color: #86EFAC; }
+.badge-warning { background: #FEF3C7; color: #92400E; border-color: #FDE047; }
+.badge-error { background: #FEE2E2; color: #991B1B; border-color: #FCA5A5; }
+.badge-info { background: #DBEAFE; color: #1E40AF; border-color: #93C5FD; }
+.badge-neutral { background: #F3F4F6; color: #374151; border-color: #E5E7EB; }
+.badge-gold { background: #fbf7e9; color: #92400E; border-color: #D4AF37; }
+
+.hash-pill {
+  font-family: 'IBM Plex Mono', monospace;
+  background: #F3F4F6;
+  border: 1px solid #E5E7EB;
+  border-radius: 0.25rem;
+  padding: 0.125rem 0.5rem;
+  font-size: 0.75rem;
+  color: #374151;
+}
+
+/* Audit chain stepper */
+.audit-step {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  z-index: 1;
+}
+.audit-step .node {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 9999px;
+  background: white;
+  border: 2px solid #D1D5DB;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: #9CA3AF;
+  z-index: 2;
+  position: relative;
+}
+.audit-step.done .node { background: var(--axistra-green); border-color: var(--axistra-green); color: white; }
+.audit-step.current .node { background: white; border-color: var(--axistra-gold); color: var(--axistra-gold); box-shadow: 0 0 0 4px rgba(212,175,55,0.18); }
+.audit-step .label { margin-top: 0.5rem; font-size: 0.75rem; color: #4B5563; text-align: center; font-weight: 500; max-width: 130px; }
+.audit-step.done .label, .audit-step.current .label { color: #111827; }
+.audit-line {
+  position: absolute;
+  top: 1.375rem;
+  left: 50%;
+  right: -50%;
+  height: 2px;
+  background: #E5E7EB;
+  z-index: 0;
+}
+.audit-step.done .audit-line { background: var(--axistra-green); }
+
+.fade-in { animation: fadeIn 0.3s ease-out; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }

@@ -1,0 +1,15 @@
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { Invoice } from '../entities/invoice.entity';
+import { Customer } from '../entities/customer.entity';
+import { InvoicesService } from './invoices.service';
+import { InvoicesController } from './invoices.controller';
+import { AuditModule } from '../audit/audit.module';
+
+@Module({
+  imports: [TypeOrmModule.forFeature([Invoice, Customer]), AuditModule],
+  providers: [InvoicesService],
+  controllers: [InvoicesController],
+  exports: [InvoicesService],
+})
+export class InvoicesModule {}

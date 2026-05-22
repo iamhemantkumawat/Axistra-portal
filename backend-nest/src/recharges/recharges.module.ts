@@ -1,0 +1,23 @@
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { Recharge } from '../entities/recharge.entity';
+import { Invoice } from '../entities/invoice.entity';
+import { Customer } from '../entities/customer.entity';
+import { CryptoTransaction } from '../entities/crypto-transaction.entity';
+import { TreasuryMovement } from '../entities/treasury-movement.entity';
+import { MagnusSyncLog } from '../entities/magnus-sync-log.entity';
+import { RechargesService } from './recharges.service';
+import { RechargesController } from './recharges.controller';
+import { AuditModule } from '../audit/audit.module';
+import { InvoicesModule } from '../invoices/invoices.module';
+
+@Module({
+  imports: [
+    TypeOrmModule.forFeature([Recharge, Invoice, Customer, CryptoTransaction, TreasuryMovement, MagnusSyncLog]),
+    AuditModule, InvoicesModule,
+  ],
+  providers: [RechargesService],
+  controllers: [RechargesController],
+  exports: [RechargesService],
+})
+export class RechargesModule {}
