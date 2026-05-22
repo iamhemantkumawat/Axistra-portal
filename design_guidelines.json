@@ -1,0 +1,118 @@
+{
+  "theme": "light",
+  "archetype": "Archetype 4 (Swiss & High-Contrast) optimized for UAE Corporate Finance with Luxury Trust Accents",
+  "colors": {
+    "primary": {
+      "DEFAULT": "#0A5C3E",
+      "hover": "#084a32",
+      "light": "#e6efeb",
+      "description": "Axistra Green - Used for Sidebar, primary buttons, and key highlights."
+    },
+    "accent": {
+      "DEFAULT": "#D4AF37",
+      "hover": "#b8962c",
+      "light": "#fbf7e9",
+      "description": "Axistra Gold - Used for active states, premium indicators, and CTA accents."
+    },
+    "background": {
+      "DEFAULT": "#F8F9F7",
+      "description": "Slightly green-tinted off-white for main content background to soften contrast and look premium."
+    },
+    "surface": {
+      "DEFAULT": "#FFFFFF",
+      "description": "Pure white for cards, panels, and dropdowns."
+    },
+    "text": {
+      "primary": "#111827",
+      "secondary": "#4B5563",
+      "tertiary": "#9CA3AF"
+    },
+    "border": {
+      "DEFAULT": "#E5E7EB",
+      "focus": "#0A5C3E"
+    },
+    "status": {
+      "success": { "bg": "#DCFCE7", "text": "#166534", "border": "#86EFAC" },
+      "warning": { "bg": "#FEF3C7", "text": "#92400E", "border": "#FDE047" },
+      "error": { "bg": "#FEE2E2", "text": "#991B1B", "border": "#FCA5A5" },
+      "info": { "bg": "#DBEAFE", "text": "#1E40AF", "border": "#93C5FD" }
+    },
+    "sidebar": {
+      "bg": "#0A5C3E",
+      "text": "#D1D5DB",
+      "active_bg": "#084a32",
+      "active_text": "#D4AF37",
+      "border": "#117852"
+    }
+  },
+  "typography": {
+    "fonts": {
+      "heading": "'Cabinet Grotesk', sans-serif",
+      "body": "'IBM Plex Sans', sans-serif",
+      "mono": "'IBM Plex Mono', monospace"
+    },
+    "hierarchy": {
+      "h1": "text-3xl sm:text-4xl font-bold tracking-tight text-gray-900",
+      "h2": "text-2xl sm:text-3xl font-semibold tracking-tight text-gray-900",
+      "h3": "text-xl sm:text-2xl font-semibold text-gray-900",
+      "h4": "text-lg font-semibold text-gray-900",
+      "body": "text-sm sm:text-base leading-relaxed text-gray-700",
+      "label": "text-xs font-semibold uppercase tracking-[0.15em] text-gray-500",
+      "hash": "text-sm font-mono text-gray-600 bg-gray-100 px-2 py-1 rounded border border-gray-200"
+    }
+  },
+  "layout": {
+    "global": "LIGHT THEME ONLY. Do not apply dark mode classes for anything other than specific inverse sections like the sidebar.",
+    "container": "w-full max-w-[1600px] mx-auto",
+    "sidebar": "fixed left-0 top-0 h-screen w-64 bg-[#0A5C3E] text-white flex flex-col z-50 border-r border-[#117852]",
+    "main_content": "ml-64 p-6 sm:p-8 min-h-screen bg-[#F8F9F7]",
+    "grid": {
+      "dashboard_kpis": "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6",
+      "bento_charts": "grid grid-cols-1 lg:grid-cols-3 gap-6",
+      "details_view": "grid grid-cols-1 lg:grid-cols-12 gap-8"
+    },
+    "spacing_system": "Professional generous padding. p-6 or p-8 for large cards. Use gap-4 for related data elements."
+  },
+  "components": {
+    "cards": "bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200. Internal padding MUST be p-6.",
+    "buttons": {
+      "primary": "bg-[#0A5C3E] text-white hover:bg-[#084a32] px-4 py-2 rounded-md font-medium transition-colors focus:ring-2 focus:ring-[#D4AF37] focus:outline-none",
+      "secondary": "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 px-4 py-2 rounded-md font-medium transition-colors",
+      "accent": "bg-[#D4AF37] text-white hover:bg-[#b8962c] px-4 py-2 rounded-md font-medium transition-colors"
+    },
+    "tables": "w-full text-left text-sm text-gray-600. Headers must be bg-gray-50 text-xs uppercase tracking-wider text-gray-500 font-semibold p-4. Cells p-4 border-b border-gray-100.",
+    "badges": "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border",
+    "audit_stepper": "Horizontal flex container. Steps connected by absolute positioned 2px line (bg-gray-200). Active lines bg-[#0A5C3E]. Nodes: w-10 h-10 rounded-full flex items-center justify-center border-2 border-[#0A5C3E] bg-white z-10 font-bold.",
+    "inputs": "bg-white border border-gray-300 text-gray-900 text-sm rounded-md focus:ring-[#0A5C3E] focus:border-[#0A5C3E] block w-full p-2.5 shadow-sm"
+  },
+  "icons": {
+    "library": "@phosphor-icons/react",
+    "instruction": "Use Phosphor icons. Use 'duotone' weight for major navigational items or dashboard visual interest. Use 'regular' for dense tables and small buttons.",
+    "installation": "yarn add @phosphor-icons/react"
+  },
+  "media": {
+    "logos": [
+      {
+        "url": "https://customer-assets.emergentagent.com/job_77b30401-d314-4df8-b00a-60fb542707e3/artifacts/h18tejg9_ChatGPT%20Image%20May%2022%2C%202026%2C%2002_57_55%20PM.png",
+        "category": "primary_logo",
+        "description": "Axistra Technologies Shield and Wordmark. To be used in the top of the dark green sidebar and login screen."
+      },
+      {
+        "url": "https://customer-assets.emergentagent.com/job_77b30401-d314-4df8-b00a-60fb542707e3/artifacts/gzs8xexa_ChatGPT%20Image%20May%2022%2C%202026%2C%2002_57_04%20PM.png",
+        "category": "secondary_logo",
+        "description": "Alternate Axistra Logo. Use when a lighter or alternative context is needed (e.g., printed invoices/PDFs)."
+      }
+    ]
+  },
+  "instructions_to_main_agent": [
+    "1. THEME CONSTRAINT: Implement a strictly LIGHT THEME interface. Dark mode logic should be removed/omitted. The background should be a very subtle warm gray/green (#F8F9F7).",
+    "2. BRANDING: Anchor the application with the Axistra Green (#0A5C3E) sidebar and primary actions. Use Axistra Gold (#D4AF37) for highlights, active sidebar states, and premium CTAs.",
+    "3. TYPOGRAPHY: Include Google Fonts/Fontshare links for Cabinet Grotesk (Headings), IBM Plex Sans (Body), and IBM Plex Mono (for Crypto TX hashes/IDs). Avoid Inter/Roboto entirely.",
+    "4. AUDIT CHAIN STEPPER: The Recharges detail page MUST have a horizontal stepper visualization (Customer -> Invoice -> Crypto TX Hash -> Magnus Credit -> OKX -> Wio Bank). This is the 'hero' element of the page. Make it structural, indisputable, and clear.",
+    "5. DATA DISPLAY: Present Crypto TX Hashes, Invoice IDs, and Recharges with mono-spaced fonts. Provide 1-click 'Copy' buttons (using Phosphor Copy icon) next to all hashes and IDs.",
+    "6. TABLES & FILTERS: Build robust table components with Shadcn (customized to remove generic Vercel looks) for Customers, Recharges, and Compliance Logs. Add clear search and filter inputs above tables.",
+    "7. EXPORTS: Use secondary buttons for PDF/CSV/Excel exports with distinct icons (FilePdf, FileCsv).",
+    "8. TESTING ATTRIBUTES: It is CRITICAL to apply kebab-case `data-testid` attributes to every single button, form input, table row, and navigational link (e.g., `data-testid=\"export-pdf-btn\"`, `data-testid=\"sidebar-nav-invoices\"`).",
+    "9. ICONS: Utilize @phosphor-icons/react. Ensure professional, geometric icon representation fitting a finance and compliance auditing tool."
+  ]
+}
