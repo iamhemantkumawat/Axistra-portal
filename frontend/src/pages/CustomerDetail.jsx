@@ -1,15 +1,35 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import api from '../lib/api';
-import { PageHeader, Badge, Field, Hash } from '../components/Atoms';
-import { RISK_META, KYC_META, fmtDate, fmtMoney } from '../lib/format';
+import api, { API_BASE } from '../lib/api';
+import { PageHeader, Badge, Field, Modal } from '../components/Atoms';
+import { RISK_META, KYC_META, fmtDate, fmtDateTime } from '../lib/format';
 import { toast } from 'sonner';
+import { CloudArrowUp, FilePdf, Image as ImageIcon, CheckCircle, XCircle, DownloadSimple } from '@phosphor-icons/react';
+
+const DOC_TYPES = [
+  { value: 'passport', label: 'Passport / National ID' },
+  { value: 'company_doc', label: 'Company Document' },
+  { value: 'address_proof', label: 'Address Proof' },
+  { value: 'source_of_funds', label: 'Source of Funds' },
+  { value: 'other', label: 'Other' },
+];
+
+const STATUS_META = {
+  submitted: 'badge-info',
+  approved: 'badge-success',
+  rejected: 'badge-error',
+};
 
 export default function CustomerDetail() {
   const { id } = useParams();
   const [c, setC] = useState(null);
   const [edit, setEdit] = useState(false);
   const [form, setForm] = useState({});
+  const [docType, setDocType] = useState('passport');
+  const [uploading, setUploading] = useState(false);
+  const [reviewDoc, setReviewDoc] = useState(null);
+  const [reviewComment, setReviewComment] = useState('');
+  const fileRef = useRef(null);
 
   const load = () => api.get(`/customers/${id}`).then((r) => { setC(r.data); setForm(r.data); });
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
@@ -21,7 +41,46 @@ export default function CustomerDetail() {
       await api.patch(`/customers/${id}`, form);
       toast.success('Customer updated');
       setEdit(false); load();
-    } catch (e) { toast.error('Update failed'); }
+    } catch { toast.error('Update failed'); }
+  };
+
+  const handleUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { toast.error('Max 10 MB'); return; }
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('document_type', docType);
+    setUploading(true);
+    try {
+      await api.post(`/kyc/${id}/upload`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      toast.success('Document uploaded');
+      load();
+      if (fileRef.current) fileRef.current.value = '';
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const submitReview = async (status) => {
+    try {
+      await api.patch(`/kyc/document/${reviewDoc.id}`, { status, comment: reviewComment });
+      toast.success(`Document ${status}`);
+      setReviewDoc(null); setReviewComment(''); load();
+    } catch { toast.error('Failed'); }
+  };
+
+  const downloadDoc = async (doc) => {
+    const url = `${API_BASE}${doc.file_url.replace('/api', '')}`;
+    const token = localStorage.getItem('axistra_token');
+    const res = await fetch(`${API_BASE}/kyc/${id}/file/${doc.file_url.split('/').pop()}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = doc.file_name; a.click();
   };
 
   return (
@@ -87,18 +146,81 @@ export default function CustomerDetail() {
             </div>
           </div>
 
-          <div className="card-axistra p-6">
+          {/* KYC Upload */}
+          <div className="card-axistra p-6" data-testid="kyc-upload-card">
             <div className="label-xs mb-3">KYC Documents</div>
-            {c.kyc_documents?.length === 0 && <div className="text-sm text-gray-500">No documents uploaded.</div>}
-            {c.kyc_documents?.map((k) => (
-              <div key={k.id} className="text-sm border-b last:border-0 py-2">
-                <div className="font-medium">{k.document_type}</div>
-                <div className="text-xs text-gray-500">{k.file_name} · {fmtDate(k.created_at)}</div>
-              </div>
-            ))}
+
+            <div className="border-2 border-dashed border-gray-300 rounded-md p-4 text-center hover:border-[var(--axistra-green)] transition-colors">
+              <select value={docType} onChange={(e) => setDocType(e.target.value)} className="input-axistra mb-2 text-sm" data-testid="kyc-doc-type">
+                {DOC_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+              </select>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg,.webp"
+                onChange={handleUpload}
+                className="hidden"
+                id="kyc-upload"
+                data-testid="kyc-file-input"
+              />
+              <label htmlFor="kyc-upload" className="cursor-pointer inline-flex items-center gap-2 text-sm text-axistra-green hover:underline">
+                <CloudArrowUp size={20} weight="duotone" />
+                {uploading ? 'Uploading…' : 'Click to upload (PDF/PNG/JPG, max 10 MB)'}
+              </label>
+            </div>
+
+            <div className="mt-4 space-y-2">
+              {c.kyc_documents?.length === 0 && <div className="text-sm text-gray-500">No documents uploaded.</div>}
+              {c.kyc_documents?.map((k) => {
+                const isPdf = k.file_name.toLowerCase().endsWith('.pdf');
+                return (
+                  <div key={k.id} className="border border-gray-200 rounded-md p-3" data-testid={`kyc-doc-${k.id}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        {isPdf ? <FilePdf size={18} className="text-red-600 shrink-0" weight="duotone" /> : <ImageIcon size={18} className="text-axistra-green shrink-0" weight="duotone" />}
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-medium truncate">{k.file_name}</div>
+                          <div className="text-[10px] text-gray-500">{DOC_TYPES.find((d) => d.value === k.document_type)?.label || k.document_type} · {fmtDateTime(k.created_at)}</div>
+                        </div>
+                      </div>
+                      <Badge className={STATUS_META[k.status]}>{k.status}</Badge>
+                    </div>
+                    {k.admin_comment && <div className="text-[11px] text-gray-600 mt-2 italic">"{k.admin_comment}"</div>}
+                    <div className="flex gap-2 mt-2">
+                      <button onClick={() => downloadDoc(k)} className="text-[11px] text-axistra-green hover:underline inline-flex items-center gap-1" data-testid={`kyc-download-${k.id}`}><DownloadSimple size={12} /> Download</button>
+                      {k.status === 'submitted' && (
+                        <>
+                          <button onClick={() => setReviewDoc({ ...k, action: 'approved' })} className="text-[11px] text-green-700 hover:underline inline-flex items-center gap-1" data-testid={`kyc-approve-${k.id}`}><CheckCircle size={12} /> Approve</button>
+                          <button onClick={() => setReviewDoc({ ...k, action: 'rejected' })} className="text-[11px] text-red-700 hover:underline inline-flex items-center gap-1" data-testid={`kyc-reject-${k.id}`}><XCircle size={12} /> Reject</button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>
+
+      <Modal open={!!reviewDoc} onClose={() => setReviewDoc(null)} title={`Review document — ${reviewDoc?.action === 'approved' ? 'Approve' : 'Reject'}`} testId="kyc-review-modal">
+        <div className="space-y-4">
+          <div className="text-sm"><strong>{reviewDoc?.file_name}</strong></div>
+          <Field label="Admin Comment">
+            <textarea rows={3} className="input-axistra" value={reviewComment} onChange={(e) => setReviewComment(e.target.value)} data-testid="kyc-review-comment" placeholder="Reason / verification notes…" />
+          </Field>
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setReviewDoc(null)} className="btn-secondary">Cancel</button>
+            <button
+              onClick={() => submitReview(reviewDoc.action)}
+              className={reviewDoc?.action === 'approved' ? 'btn-primary' : 'btn-accent'}
+              data-testid="kyc-review-submit"
+            >
+              Confirm {reviewDoc?.action}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

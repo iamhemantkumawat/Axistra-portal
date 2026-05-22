@@ -1,0 +1,94 @@
+# Axistra Portal — production docker-compose
+#
+# Run on the VPS:
+#   docker compose --env-file .env up -d
+#
+# The .env file MUST define every variable referenced here (see DEPLOYMENT.md).
+# Nginx runs on the host (recommended) — this stack exposes only 127.0.0.1
+# ports, so the host's nginx terminates SSL and reverse-proxies into the
+# containers. If you prefer everything in docker, uncomment the nginx service.
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DATABASE_NAME}
+      POSTGRES_USER: ${DATABASE_USER}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER} -d ${DATABASE_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [axistra]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    networks: [axistra]
+
+  backend:
+    build:
+      context: ./backend-nest
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      PORT: 9001
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      NODE_ENV: production
+    ports:
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - ./uploads:/app/uploads
+    networks: [axistra]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9001/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+    ports:
+      - "127.0.0.1:3000:3000"
+    networks: [axistra]
+    depends_on: [backend]
+
+  # Optional containerised nginx — uncomment to run nginx inside docker.
+  # nginx:
+  #   image: nginx:1.27-alpine
+  #   restart: unless-stopped
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+  #     - /etc/letsencrypt:/etc/letsencrypt:ro
+  #     - /var/www/certbot:/var/www/certbot:ro
+  #   depends_on: [backend, frontend]
+  #   networks: [axistra]
+
+volumes:
+  postgres-data:
+  redis-data:
+
+networks:
+  axistra:
+    driver: bridge

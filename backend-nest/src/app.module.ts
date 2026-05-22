@@ -27,6 +27,7 @@ import { MagnusModule } from './magnus/magnus.module';
 import { AuditModule } from './audit/audit.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { SeedModule } from './seed/seed.module';
+import { KycModule } from './kyc/kyc.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -59,6 +60,7 @@ import { HealthController } from './health.controller';
     AuditModule,
     DashboardModule,
     SeedModule,
+    KycModule,
   ],
   controllers: [HealthController],
 })

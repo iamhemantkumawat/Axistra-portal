@@ -1,0 +1,37 @@
+{
+  "summary": "Phase 2 add-on testing: KYC document upload/review + live MagnusBilling integration. Backend: 13/13 new tests PASS in /app/backend/tests/test_kyc_magnus.py (PNG/PDF upload, list DESC order, unsupported .txt rejected, 404 for missing customer, file streaming, approve/reject KYC status propagation rejected/approved on customer, magnus mode=live + configured=true, sync_user / fetch_user / fetch_cdr logs created in magnus_sync_logs, live HMAC-SHA512 requests reach cyberxcalls.com — sync log status=success returned). Frontend: KYC card on /customers/:id works end-to-end (upload tiny PNG → doc appears in list with status badge → Reject button opens kyc-review-modal → comment + submit → 'Document rejected' toast shown → status updates to REJECTED on customer status panel). Magnus page lookup also works and the JSON response contains mode=live; Configured/Mode badges correctly show YES + LIVE. However, the top warning card header still hardcodes 'Placeholder mode' and the lookup success toast says 'Magnus lookup queued (placeholder)' — both ignore the live mode flag.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "MagnusSync.jsx (line ~42)", "issue": "Header card still labels integration 'Placeholder mode' even when backend returns mode='live'. Should read 'Live mode' (or be hidden) when status.mode === 'live'.", "selector": "/app/frontend/src/pages/MagnusSync.jsx — div with hardcoded 'Placeholder mode' text", "priority": "MEDIUM"},
+      {"component": "MagnusSync.jsx — lookup toast", "issue": "After clicking Lookup in live mode, toast still says 'Magnus lookup queued (placeholder)' — message is stale and contradicts actual live response (which contained mode='live' and real upstream data).", "selector": "toast handler in lookup() function", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_kyc_magnus.py", "/app/test_reports/pytest/kyc_magnus_results.xml"],
+  "action_items": [
+    "Drive the Magnus page warning header from status.mode (e.g. show green 'Live mode' card when mode==='live', amber 'Placeholder mode' card when mode==='placeholder'). Currently 'Placeholder mode' label is hardcoded in MagnusSync.jsx line ~42.",
+    "Update Magnus lookup success toast in MagnusSync.jsx — drop the '(placeholder)' suffix and instead show 'Magnus lookup complete' or include the returned mode."
+  ],
+  "critical_code_review_comments": [
+    "KYC controller correctly returns 404 via NotFoundException for missing customer (verified in test).",
+    "KYC service: customer.kyc_status propagation is well-implemented — promotes not_required/requested → submitted on upload, and re-computes (anyRejected → rejected, else anyApproved → approved, else submitted) on review. Verified both transitions in test.",
+    "Multer disk storage in kyc.module.ts uses per-customer subdir with sanitized + UUID-prefixed filename — safe from path traversal. fs.mkdirSync recursive ensures upload root + per-customer dir always exist.",
+    "Multer fileFilter rejects unsupported extensions; backend returns HTTP 500 with Multer error wrapped — works but a dedicated BadRequestException (HTTP 400) would be cleaner UX. Current behavior: .txt upload returns 500. Acceptable but consider explicit 400.",
+    "MagnusClient correctly signs requests: HMAC-SHA512 over urlencoded body using api_secret, headers Key + Sign, 15s AbortSignal timeout — matches official PHP wrapper convention. Live upstream cyberxcalls.com IS reachable from this env and returns parseable JSON.",
+    "Every Magnus call (sync_user / fetch_user / fetch_cdr / add_credit) writes a magnus_sync_log row with status success|failed|partial — verified via GET /api/magnus/logs.",
+    "Frontend MagnusSync.jsx still references 'Placeholder mode' as static UI text — does not consume status.mode for that block. Functional regression for the explicit Phase 2 requirement that live mode should be reflected in UI."
+  ],
+  "updated_files": ["/app/backend/tests/test_kyc_magnus.py"],
+  "success_rate": {"backend": "100% (13/13 new + 46/46 prior)", "frontend": "~85% — KYC end-to-end OK; Magnus lookup OK but two UI strings still say 'placeholder'"},
+  "test_credentials": "admin@axistratech.com / admin123 (seeded)",
+  "seed_data_creation": "Created TEST_KYC_* customer + 2 KYC documents (PNG passport, PDF source_of_funds) per test run; magnus_sync_logs gained 3 live entries per run (sync_user, fetch_user, fetch_cdr) — all status=success.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "New regression file: /app/backend/tests/test_kyc_magnus.py — run with `REACT_APP_BACKEND_URL=https://crypto-audit-chain.preview.emergentagent.com python -m pytest backend/tests/test_kyc_magnus.py -v`. Magnus upstream (cyberxcalls.com/mbilling) IS reachable from preview env and returns valid JSON (HTTP 200, parseable). Tests do not depend on upstream having matching users — they only verify mode=live, log persisted, status=success|failed. KYC docs are stored at /app/uploads/kyc/{customerId}/{ts-uuid-name}. Frontend Magnus page has 2 cosmetic-but-wrong strings flagged — main agent should drive them off status.mode.",
+  "rca_of_the_issue": "Magnus 'Placeholder mode' header label and lookup toast message in MagnusSync.jsx were authored during Phase 1 placeholder implementation and never updated when live mode was wired up. Backend reports mode='live' correctly (verified via /api/magnus/status), and the Configured/Mode badge sub-card correctly displays YES + LIVE, but the top warning card text + lookup toast string are hardcoded. Fix: replace literal 'Placeholder mode' / '(placeholder)' with conditional rendering based on status.mode === 'live'."
+}

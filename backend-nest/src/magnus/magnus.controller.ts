@@ -33,7 +33,7 @@ export class MagnusController {
   }
 
   @Get('cdr/:username')
-  cdr(@Param('username') username: string) {
-    return this.svc.cdr(username);
+  cdr(@Param('username') username: string, @Query('from') from?: string, @Query('to') to?: string) {
+    return this.svc.cdr(username, from, to);
   }
 }

@@ -1,23 +1,29 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { MagnusSyncLog } from '../entities/magnus-sync-log.entity';
 import { AuditService } from '../audit/audit.service';
+import { MagnusClient } from './magnus.client';
 
 @Injectable()
 export class MagnusService {
+  private logger = new Logger('MagnusService');
+
   constructor(
     @InjectRepository(MagnusSyncLog) private repo: Repository<MagnusSyncLog>,
     private audit: AuditService,
+    private client: MagnusClient,
   ) {}
 
   status() {
     return {
-      configured: !!process.env.MAGNUS_API_KEY,
+      configured: this.client.isConfigured(),
       base_url: process.env.MAGNUS_PUBLIC_URL,
-      api_key_preview: (process.env.MAGNUS_API_KEY || '').slice(0, 8) + '...',
-      mode: 'placeholder',
-      note: 'MagnusBilling API integration is a placeholder. Live API calls will be wired in a follow-up phase.',
+      api_key_preview: (process.env.MAGNUS_API_KEY || '').slice(0, 8) + '…',
+      mode: this.client.isConfigured() ? 'live' : 'placeholder',
+      note: this.client.isConfigured()
+        ? 'Live mode: requests are signed (HMAC-SHA512) and sent directly to MagnusBilling.'
+        : 'Placeholder mode: set MAGNUS_API_KEY, MAGNUS_API_SECRET, MAGNUS_PUBLIC_URL to enable live calls.',
     };
   }
 
@@ -25,58 +31,90 @@ export class MagnusService {
     return this.repo.find({ order: { created_at: 'DESC' }, take: limit });
   }
 
-  // PLACEHOLDER endpoints — return mock-style responses, log everything for audit chain.
-  async syncUser(body: { magnus_username: string }, actor?: any) {
-    const log = this.repo.create({
-      magnus_username: body.magnus_username,
-      action: 'sync_user',
-      status: 'placeholder',
-      request_payload: JSON.stringify(body),
-      response_payload: JSON.stringify({ note: 'Placeholder response — Magnus API not wired yet.' }),
-    });
-    await this.repo.save(log);
-    await this.audit.log({
-      actor_id: actor?.id, actor_email: actor?.email,
-      action: 'magnus_sync_user', entity_type: 'magnus_username', entity_id: body.magnus_username,
-    });
-    return { ok: true, mode: 'placeholder', magnus_username: body.magnus_username };
+  private async record(log: Partial<MagnusSyncLog>) {
+    return this.repo.save(this.repo.create(log));
   }
 
-  async addCredit(body: { magnus_username: string; amount: number; reference?: string }, actor?: any) {
-    const reference = body.reference || `MAG-MANUAL-${Date.now()}`;
-    const log = this.repo.create({
-      magnus_username: body.magnus_username,
-      action: 'add_credit',
-      status: 'placeholder',
-      request_payload: JSON.stringify(body),
-      response_payload: JSON.stringify({ reference }),
-    });
-    await this.repo.save(log);
-    await this.audit.log({
-      actor_id: actor?.id, actor_email: actor?.email,
-      action: 'magnus_add_credit', entity_type: 'magnus_username', entity_id: body.magnus_username,
-      details: `Add credit ${body.amount}`,
-    });
-    return { ok: true, mode: 'placeholder', reference };
+  // ----- Public actions ----------------------------------------------------
+
+  async syncUser(body: { magnus_username: string }, actor?: any) {
+    const u = body.magnus_username;
+    try {
+      const data = await this.client.getBalance(u);
+      await this.record({
+        magnus_username: u, action: 'sync_user', status: 'success',
+        request_payload: JSON.stringify(body),
+        response_payload: JSON.stringify(data).slice(0, 4000),
+      });
+      await this.audit.log({
+        actor_id: actor?.id, actor_email: actor?.email,
+        action: 'magnus_sync_user', entity_type: 'magnus_username', entity_id: u,
+      });
+      return { ok: true, mode: 'live', data };
+    } catch (e: any) {
+      await this.record({
+        magnus_username: u, action: 'sync_user', status: 'failed',
+        request_payload: JSON.stringify(body), error_message: e.message,
+      });
+      return { ok: false, mode: 'live', error: e.message };
+    }
+  }
+
+  async addCredit(body: { magnus_username: string; amount: number; description?: string }, actor?: any) {
+    const u = body.magnus_username;
+    try {
+      const data = await this.client.addCredit(u, body.amount, body.description);
+      await this.record({
+        magnus_username: u, action: 'add_credit', status: data?.success ? 'success' : 'partial',
+        request_payload: JSON.stringify(body),
+        response_payload: JSON.stringify(data).slice(0, 4000),
+      });
+      await this.audit.log({
+        actor_id: actor?.id, actor_email: actor?.email,
+        action: 'magnus_add_credit', entity_type: 'magnus_username', entity_id: u,
+        details: `Add credit ${body.amount}`,
+      });
+      const reference = data?.rows?.id || data?.id || `MAG-${Date.now()}`;
+      return { ok: !!data?.success || !!data?.rows, mode: 'live', reference, raw: data };
+    } catch (e: any) {
+      await this.record({
+        magnus_username: u, action: 'add_credit', status: 'failed',
+        request_payload: JSON.stringify(body), error_message: e.message,
+      });
+      return { ok: false, mode: 'live', error: e.message };
+    }
   }
 
   async user(username: string) {
-    return {
-      mode: 'placeholder',
-      username,
-      balance: null,
-      plan: null,
-      status: 'unknown',
-      note: 'Live data will appear once Magnus API integration is enabled.',
-    };
+    try {
+      const data = await this.client.getBalance(username);
+      await this.record({
+        magnus_username: username, action: 'fetch_user', status: 'success',
+        response_payload: JSON.stringify(data).slice(0, 4000),
+      });
+      return { mode: 'live', ...data };
+    } catch (e: any) {
+      await this.record({
+        magnus_username: username, action: 'fetch_user', status: 'failed',
+        error_message: e.message,
+      });
+      return { mode: 'live', error: e.message, username };
+    }
   }
 
-  async cdr(username: string) {
-    return {
-      mode: 'placeholder',
-      username,
-      cdrs: [],
-      note: 'Live CDR data will appear once Magnus API integration is enabled.',
-    };
+  async cdr(username: string, dateFrom?: string, dateTo?: string) {
+    try {
+      const data = await this.client.getCDR(username, dateFrom, dateTo);
+      await this.record({
+        magnus_username: username, action: 'fetch_cdr', status: 'success',
+        response_payload: JSON.stringify({ count: data?.rows?.length || 0 }),
+      });
+      return { mode: 'live', username, cdrs: data?.rows || [], total: data?.results || 0 };
+    } catch (e: any) {
+      await this.record({
+        magnus_username: username, action: 'fetch_cdr', status: 'failed', error_message: e.message,
+      });
+      return { mode: 'live', error: e.message, username, cdrs: [] };
+    }
   }
 }
