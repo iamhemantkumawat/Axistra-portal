@@ -21,7 +21,8 @@ export default function MagnusSync() {
     try {
       const { data } = await api.get(`/magnus/user/${user}`);
       setInfo(data);
-      toast.success('Magnus lookup queued (placeholder)');
+      if (data?.error) toast.error(`Magnus error: ${data.error}`);
+      else toast.success(data?.mode === 'live' ? 'Magnus lookup complete' : 'Magnus lookup queued (placeholder)');
     } catch { toast.error('Lookup failed'); }
   };
 
@@ -35,11 +36,13 @@ export default function MagnusSync() {
         subtitle="Direct sync with MagnusBilling for balances, credits and CDRs."
       />
 
-      <div className="card-axistra p-6 mb-6 border-l-4 border-[var(--axistra-gold)]">
+      <div className={`card-axistra p-6 mb-6 border-l-4 ${status.mode === 'live' ? 'border-[var(--axistra-green)]' : 'border-[var(--axistra-gold)]'}`}>
         <div className="flex items-start gap-3">
-          <Warning size={22} className="text-axistra-gold mt-0.5" weight="duotone" />
+          {status.mode === 'live'
+            ? <Plug size={22} className="text-axistra-green mt-0.5" weight="duotone" />
+            : <Warning size={22} className="text-axistra-gold mt-0.5" weight="duotone" />}
           <div>
-            <div className="font-display text-base font-semibold">Placeholder mode</div>
+            <div className="font-display text-base font-semibold">{status.mode === 'live' ? 'Live mode' : 'Placeholder mode'}</div>
             <div className="text-sm text-gray-600 mt-1">{status.note}</div>
           </div>
         </div>

@@ -46,6 +46,23 @@ Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corpora
 - Auto-advancing recharge status based on treasury movement state
 - 46/46 backend tests passing, frontend end-to-end verified
 
+## Phase 2 — Implemented (22 May 2026)
+- **KYC document upload** (local filesystem at `/app/uploads/kyc/{customer_id}/`)
+  - Multer-based multipart upload, 10 MB limit, PDF/PNG/JPG/JPEG/WEBP only
+  - Admin review (approve/reject with comment), customer kyc_status auto-propagation
+  - Per-customer download endpoint
+- **MagnusBilling LIVE integration** — HMAC-SHA512 signed REST client matching official PHP wrapper
+  - getUser, addCredit (auto-resolves id_user), getCDR, getBalance
+  - Every call written to `magnus_sync_logs` with status
+  - Live upstream `cyberxcalls.com/mbilling` reachable from environment
+- **Deployment package** in `/app/deploy/`:
+  - `backup.sh` + `backup.env.example` — encrypted pg_dump → gzip → gpg AES256, retention + offsite upload
+  - `nginx.conf` — production reverse proxy with Cloudflare real-IP, HSTS, security headers
+  - `docker-compose.yml` + Dockerfiles (backend with Chromium for Puppeteer, frontend on nginx)
+  - `cloudflare-setup.md` — DNS, SSL/TLS, WAF rules, origin lockdown, rate limits
+  - `DEPLOYMENT.md` — full Ubuntu 22.04 step-by-step deployment guide
+- 13/13 new tests + 46/46 prior tests still passing
+
 ## Backlog (P1)
 - **MagnusBilling live wiring** — replace placeholder with real API calls (user provides production credentials)
 - **2FA enforcement** — currently placeholder
