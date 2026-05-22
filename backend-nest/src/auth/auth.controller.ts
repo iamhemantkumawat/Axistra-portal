@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { AuthService } from './auth.service';
 
@@ -6,6 +6,7 @@ import { AuthService } from './auth.service';
 export class AuthController {
   constructor(private auth: AuthService) {}
 
+  @HttpCode(200)
   @Post('login')
   async login(@Body() body: { email: string; password: string }, @Req() req: any) {
     const ip = req.headers['x-forwarded-for'] || req.ip || req.socket?.remoteAddress;

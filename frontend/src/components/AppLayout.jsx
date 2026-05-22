@@ -14,13 +14,13 @@ const NAV = [
   { to: '/invoices', label: 'Invoices', icon: FileText, tid: 'sidebar-nav-invoices' },
   { to: '/treasury', label: 'Crypto Treasury', icon: Wallet, tid: 'sidebar-nav-treasury' },
   { to: '/expenses', label: 'Expenses', icon: Receipt, tid: 'sidebar-nav-expenses' },
-  { to: '/profit-loss', label: 'Profit & Loss', icon: ChartLineUp, tid: 'sidebar-nav-pl' },
+  { to: '/profit-loss', label: 'Profit & Loss', icon: ChartLineUp, tid: 'sidebar-nav-profit-loss' },
   { to: '/reports', label: 'Reports', icon: FileCsv, tid: 'sidebar-nav-reports' },
   { to: '/compliance', label: 'Compliance', icon: Shield, tid: 'sidebar-nav-compliance' },
   { to: '/magnus', label: 'Magnus Sync', icon: Plug, tid: 'sidebar-nav-magnus' },
   { to: '/settings', label: 'Settings', icon: Gear, tid: 'sidebar-nav-settings' },
   { to: '/admins', label: 'Admin Users', icon: UserCircleGear, tid: 'sidebar-nav-admins' },
-  { to: '/audit-logs', label: 'Audit Logs', icon: ClockCounterClockwise, tid: 'sidebar-nav-audit' },
+  { to: '/audit-logs', label: 'Audit Logs', icon: ClockCounterClockwise, tid: 'sidebar-nav-audit-logs' },
 ];
 
 const LOGO_URL =
