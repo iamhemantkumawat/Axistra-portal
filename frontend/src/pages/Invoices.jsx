@@ -1,12 +1,23 @@
 import React, { useEffect, useState } from 'react';
 import api, { API_BASE } from '../lib/api';
 import { PageHeader } from '../components/Atoms';
-import { fmtDate, fmtMoney, downloadBlob } from '../lib/format';
-import { DownloadSimple, FileText } from '@phosphor-icons/react';
+import { fmtDate, downloadBlob } from '../lib/format';
+import { useCurrency } from '../lib/currency';
+import { DownloadSimple, FileText, Eye } from '@phosphor-icons/react';
 import { Link } from 'react-router-dom';
+
+// Open a protected file in a new tab by fetching with Bearer token, then blob URL.
+const openProtectedTab = async (url) => {
+  const token = localStorage.getItem('axistra_token');
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  const blob = await res.blob();
+  const blobUrl = URL.createObjectURL(blob);
+  window.open(blobUrl, '_blank', 'noopener,noreferrer');
+};
 
 export default function Invoices() {
   const [items, setItems] = useState([]);
+  const { format } = useCurrency();
   useEffect(() => { api.get('/invoices').then((r) => setItems(r.data)); }, []);
 
   return (
@@ -19,7 +30,7 @@ export default function Invoices() {
       <div className="card-axistra overflow-x-auto">
         <table className="table-axistra">
           <thead>
-            <tr><th>Invoice #</th><th>Customer</th><th>Amount</th><th>Method</th><th>Status</th><th>Issued</th><th></th></tr>
+            <tr><th>Invoice #</th><th>Customer</th><th>Amount</th><th>Method</th><th>Status</th><th>Issued</th><th>Actions</th></tr>
           </thead>
           <tbody>
             {items.length === 0 && <tr><td colSpan="7" className="text-center text-gray-500 py-10">Invoices will appear here once you create recharges.</td></tr>}
@@ -27,13 +38,21 @@ export default function Invoices() {
               <tr key={i.id} data-testid={`invoice-row-${i.invoice_number}`}>
                 <td className="font-mono font-medium text-axistra-green"><FileText size={14} className="inline mr-1" />{i.invoice_number}</td>
                 <td>{i.customer_name}<div className="text-xs text-gray-500">{i.customer_email}</div></td>
-                <td className="font-mono font-semibold">{fmtMoney(i.amount, i.currency)}</td>
+                <td className="font-mono font-semibold">{format(i.amount, i.currency)}</td>
                 <td className="text-xs">{i.payment_method || '—'}</td>
                 <td>
                   <span className={`badge ${i.status === 'paid' ? 'badge-success' : 'badge-warning'}`}>{i.status}</span>
                 </td>
                 <td className="text-xs text-gray-500">{fmtDate(i.issued_date)}</td>
-                <td>
+                <td className="flex gap-1">
+                  <button
+                    onClick={() => openProtectedTab(`${API_BASE}/invoices/${i.id}/pdf`)}
+                    className="btn-secondary text-xs inline-flex items-center gap-1"
+                    title="View in new tab"
+                    data-testid={`invoice-view-${i.invoice_number}`}
+                  >
+                    <Eye size={14} /> View
+                  </button>
                   <button
                     onClick={() => downloadBlob(`${API_BASE}/invoices/${i.id}/pdf`, `${i.invoice_number}.pdf`)}
                     className="btn-secondary text-xs inline-flex items-center gap-1"

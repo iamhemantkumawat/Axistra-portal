@@ -92,6 +92,16 @@ export class MagnusClient {
     });
   }
 
+  async listUsers(page = 1, limit = 50, search?: string) {
+    const filter: any[] = [];
+    if (search) filter.push({ type: 'string', field: 'username', value: search, comparison: 'st' });
+    return this.query({
+      module: 'user', action: 'read',
+      page, start: (page - 1) * limit, limit,
+      filter: JSON.stringify(filter),
+    });
+  }
+
   async getBalance(username: string) {
     const u = await this.getUser(username);
     const row = u?.rows?.[0];

@@ -36,4 +36,9 @@ export class MagnusController {
   cdr(@Param('username') username: string, @Query('from') from?: string, @Query('to') to?: string) {
     return this.svc.cdr(username, from, to);
   }
+
+  @Get('users')
+  users(@Query('page') page?: string, @Query('limit') limit?: string, @Query('search') search?: string) {
+    return this.svc.listUsers(page ? parseInt(page, 10) : 1, limit ? parseInt(limit, 10) : 50, search);
+  }
 }

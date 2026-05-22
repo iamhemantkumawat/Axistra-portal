@@ -86,12 +86,19 @@ export default function Expenses() {
           <Field label="Payment Method"><select className="input-axistra" value={form.payment_method} onChange={(e) => setForm({ ...form, payment_method: e.target.value, paid_in_usdt: e.target.value === 'USDT' })} data-testid="exp-form-method"><option>Bank</option><option>Card</option><option>USDT</option><option>Cash</option><option>Other</option></select></Field>
           <Field label="Amount *"><input required type="number" step="0.01" className="input-axistra" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} data-testid="exp-form-amount" /></Field>
           <Field label="Currency"><select className="input-axistra" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })} data-testid="exp-form-currency"><option>AED</option><option>USD</option><option>EUR</option><option>USDT</option></select></Field>
-          {form.payment_method === 'USDT' && (
+          {(form.payment_method === 'USDT' || form.payment_method === 'BinancePay') && (
             <>
-              <Field label="Vendor Wallet" span={2}><input className="input-axistra font-mono" value={form.vendor_wallet} onChange={(e) => setForm({ ...form, vendor_wallet: e.target.value })} data-testid="exp-form-wallet" /></Field>
-              <Field label="Network"><select className="input-axistra" value={form.crypto_network} onChange={(e) => setForm({ ...form, crypto_network: e.target.value })}><option>TRC20</option><option>ERC20</option><option>BEP20</option></select></Field>
-              <Field label="TX Hash"><input className="input-axistra font-mono" value={form.tx_hash} onChange={(e) => setForm({ ...form, tx_hash: e.target.value })} data-testid="exp-form-tx" /></Field>
+              <Field label="Vendor Wallet / Pay ID" span={2}><input className="input-axistra font-mono" value={form.vendor_wallet} onChange={(e) => setForm({ ...form, vendor_wallet: e.target.value })} data-testid="exp-form-wallet" /></Field>
+              <Field label="Network">
+                <select className="input-axistra" value={form.crypto_network} onChange={(e) => setForm({ ...form, crypto_network: e.target.value })}>
+                  <option>TRC20</option><option>ERC20</option><option>BEP20</option><option>BinancePay</option>
+                </select>
+              </Field>
+              <Field label="TX Hash / Order ID"><input className="input-axistra font-mono" value={form.tx_hash} onChange={(e) => setForm({ ...form, tx_hash: e.target.value })} data-testid="exp-form-tx" /></Field>
             </>
+          )}
+          {form.payment_method === 'Card' && (
+            <Field label="Card Reference / Last 4" span={2}><input className="input-axistra font-mono" value={form.bank_reference} onChange={(e) => setForm({ ...form, bank_reference: e.target.value })} placeholder="**** 1234 / receipt #" data-testid="exp-form-card-ref" /></Field>
           )}
           <Field label="AED Rate"><input className="input-axistra" value={form.aed_rate} onChange={(e) => setForm({ ...form, aed_rate: e.target.value })} placeholder="3.67" data-testid="exp-form-rate" /></Field>
           <Field label="Bank Reference"><input className="input-axistra" value={form.bank_reference} onChange={(e) => setForm({ ...form, bank_reference: e.target.value })} /></Field>

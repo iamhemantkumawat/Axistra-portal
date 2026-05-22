@@ -6,7 +6,7 @@ import AuditChain from '../components/AuditChain';
 import { RECHARGE_STATUS_META, fmtMoney, fmtDateTime, downloadBlob } from '../lib/format';
 import { API_BASE } from '../lib/api';
 import { toast } from 'sonner';
-import { Receipt, DownloadSimple, Plug, CurrencyCircleDollar, Bank } from '@phosphor-icons/react';
+import { Receipt, DownloadSimple, Plug, CurrencyCircleDollar, Bank, Eye } from '@phosphor-icons/react';
 
 export default function RechargeDetail() {
   const { id } = useParams();
@@ -76,6 +76,14 @@ export default function RechargeDetail() {
     downloadBlob(`${API_BASE}/invoices/${r.invoice_id}/pdf`, `${r.invoice_number}.pdf`);
   };
 
+  const viewInvoice = async () => {
+    if (!r.invoice_id) return;
+    const token = localStorage.getItem('axistra_token');
+    const res = await fetch(`${API_BASE}/invoices/${r.invoice_id}/pdf`, { headers: { Authorization: `Bearer ${token}` } });
+    const blob = await res.blob();
+    window.open(URL.createObjectURL(blob), '_blank', 'noopener,noreferrer');
+  };
+
   return (
     <div>
       <PageHeader
@@ -86,9 +94,14 @@ export default function RechargeDetail() {
           <>
             <Link to="/recharges" className="btn-secondary">← Back</Link>
             {r.invoice_id && (
-              <button onClick={downloadInvoice} className="btn-secondary inline-flex items-center gap-2" data-testid="download-invoice-btn">
-                <DownloadSimple size={16} /> Invoice PDF
-              </button>
+              <>
+                <button onClick={viewInvoice} className="btn-secondary inline-flex items-center gap-2" data-testid="view-invoice-btn">
+                  <Eye size={16} /> View Invoice
+                </button>
+                <button onClick={downloadInvoice} className="btn-secondary inline-flex items-center gap-2" data-testid="download-invoice-btn">
+                  <DownloadSimple size={16} /> Download PDF
+                </button>
+              </>
             )}
           </>
         }

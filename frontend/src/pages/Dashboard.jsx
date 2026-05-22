@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import api from '../lib/api';
 import { PageHeader, KpiCard } from '../components/Atoms';
 import { fmtMoney, fmtNumber } from '../lib/format';
+import { useCurrency } from '../lib/currency';
 import { CurrencyCircleDollar, Wallet, Users, Warning, Bank, ChartLineUp, Receipt, ShieldWarning } from '@phosphor-icons/react';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid, AreaChart, Area } from 'recharts';
 import { Link } from 'react-router-dom';
@@ -10,6 +11,7 @@ export default function Dashboard() {
   const [kpis, setKpis] = useState(null);
   const [chart, setChart] = useState([]);
   const [recent, setRecent] = useState({ recharges: [], compliance: [] });
+  const { format, display } = useCurrency();
 
   useEffect(() => {
     Promise.all([
@@ -33,17 +35,17 @@ export default function Dashboard() {
       />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-6">
-        <KpiCard label="Today's Sales" value={fmtMoney(kpis.daily.sales)} sub={`${kpis.daily.count} recharges`} icon={CurrencyCircleDollar} testId="kpi-daily-sales" />
-        <KpiCard label="Monthly Sales" value={fmtMoney(kpis.monthly.sales)} sub={`Profit: ${fmtMoney(kpis.monthly.profit)}`} icon={ChartLineUp} testId="kpi-monthly-sales" />
+        <KpiCard label="Today's Sales" value={format(kpis.daily.sales, 'USD')} sub={`${kpis.daily.count} recharges`} icon={CurrencyCircleDollar} testId="kpi-daily-sales" />
+        <KpiCard label="Monthly Sales" value={format(kpis.monthly.sales, 'USD')} sub={`Profit: ${format(kpis.monthly.profit, 'USD')}`} icon={ChartLineUp} testId="kpi-monthly-sales" />
         <KpiCard label="Crypto Received (USDT)" value={fmtNumber(kpis.treasury.total_crypto_received)} sub={`${fmtNumber(kpis.treasury.total_aed_converted)} AED converted`} icon={Wallet} testId="kpi-crypto-received" />
         <KpiCard label="Wio Deposits (AED)" value={fmtNumber(kpis.treasury.total_wio_deposits)} sub="Bank reconciled" icon={Bank} accent testId="kpi-wio-deposits" />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
-        <KpiCard label="Yearly Sales" value={fmtMoney(kpis.yearly.sales)} sub={`Gross profit ${fmtMoney(kpis.yearly.gross_profit)}`} icon={ChartLineUp} testId="kpi-yearly-sales" />
+        <KpiCard label="Yearly Sales" value={format(kpis.yearly.sales, 'USD')} sub={`Gross profit ${format(kpis.yearly.gross_profit, 'USD')}`} icon={ChartLineUp} testId="kpi-yearly-sales" />
         <KpiCard label="Pending Reconciliation" value={kpis.reconciliation.pending} sub={`${kpis.reconciliation.mismatch} mismatches`} icon={Warning} testId="kpi-pending-recon" />
         <KpiCard label="Customers" value={kpis.customers.total} sub={`${kpis.customers.high_risk} high-risk`} icon={Users} testId="kpi-customers" />
-        <KpiCard label="Monthly Expenses" value={fmtMoney(kpis.monthly.expenses)} sub="AED equivalent" icon={Receipt} testId="kpi-monthly-expenses" />
+        <KpiCard label="Monthly Expenses" value={format(kpis.monthly.expenses, 'AED')} sub="AED equivalent" icon={Receipt} testId="kpi-monthly-expenses" />
       </div>
 
       {/* Chart + VAT tracker */}
@@ -108,7 +110,7 @@ export default function Dashboard() {
                   <div className="text-sm font-medium text-gray-900">{r.customer?.full_name || '—'}</div>
                 </div>
                 <div className="text-right">
-                  <div className="font-mono text-sm font-semibold">{fmtMoney(r.amount, r.currency)}</div>
+                  <div className="font-mono text-sm font-semibold">{format(r.amount, r.currency)}</div>
                   <div className="text-[10px] uppercase tracking-wider text-gray-500">{r.status.replace(/_/g, ' ')}</div>
                 </div>
               </Link>

@@ -117,4 +117,35 @@ export class MagnusService {
       return { mode: 'live', error: e.message, username, cdrs: [] };
     }
   }
+
+  async listUsers(page = 1, limit = 50, search?: string) {
+    try {
+      const data = await this.client.listUsers(page, limit, search);
+      await this.record({
+        action: 'list_users', status: 'success',
+        response_payload: JSON.stringify({ count: data?.rows?.length || 0, total: data?.results || 0 }),
+      });
+      return {
+        mode: 'live',
+        users: (data?.rows || []).map((r: any) => ({
+          id: r.id,
+          username: r.username,
+          first_name: r.firstname,
+          last_name: r.lastname,
+          email: r.email,
+          credit: r.credit,
+          plan_id: r.id_plan,
+          active: r.active,
+          created: r.creationdate,
+        })),
+        total: data?.results || 0,
+        page, limit,
+      };
+    } catch (e: any) {
+      await this.record({
+        action: 'list_users', status: 'failed', error_message: e.message,
+      });
+      return { mode: 'live', error: e.message, users: [], total: 0 };
+    }
+  }
 }

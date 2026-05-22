@@ -14,6 +14,7 @@ import { AuditLog } from './entities/audit-log.entity';
 import { MagnusSyncLog } from './entities/magnus-sync-log.entity';
 import { KycDocument } from './entities/kyc-document.entity';
 import { Setting } from './entities/settings.entity';
+import { Lead } from './entities/lead.entity';
 
 import { AuthModule } from './auth/auth.module';
 import { CustomersModule } from './customers/customers.module';
@@ -28,6 +29,7 @@ import { AuditModule } from './audit/audit.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { SeedModule } from './seed/seed.module';
 import { KycModule } from './kyc/kyc.module';
+import { LeadsModule } from './leads/leads.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -43,7 +45,7 @@ import { HealthController } from './health.controller';
       entities: [
         AdminUser, Customer, Recharge, Invoice, CryptoTransaction,
         TreasuryMovement, Expense, ComplianceLog, AuditLog,
-        MagnusSyncLog, KycDocument, Setting,
+        MagnusSyncLog, KycDocument, Setting, Lead,
       ],
       synchronize: true,
       logging: false,
@@ -61,6 +63,7 @@ import { HealthController } from './health.controller';
     DashboardModule,
     SeedModule,
     KycModule,
+    LeadsModule,
   ],
   controllers: [HealthController],
 })

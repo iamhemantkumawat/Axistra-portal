@@ -1,0 +1,46 @@
+{
+  "summary": "Phase 3 add-ons testing: Leads (public POST + authed GET/PATCH), Magnus listUsers, Landing page, Currency toggle, Invoice View/Download, Expense payment methods, Leads admin page. Backend: 7/7 NEW + 46/46 regression = 53/53 PASS. Frontend: Landing renders professionally with all CTAs; Sign Up modal posts to /api/leads successfully (verified end-to-end — submitted lead appeared in /leads admin page with captured IP 203.0.113.45); login works; sidebar Magnus Users + Leads links present; Magnus Users page lists 50 live users with search; Invoices page shows 7 'invoice-view-*' + 7 'invoice-download-*' buttons. THREE Phase 3 frontend regressions found: (1) Currency toggle does NOT actually convert KPI/Recharges amounts — switching USD→EUR shows identical numbers; (2) Expense payment_method dropdown only has 5 short-label options ['Bank','Card','USDT','Cash','Other'] — MISSING 'Binance Pay' entirely, and labels don't match spec ('Bank Transfer', 'Credit/Debit Card', 'USDT Crypto', 'Binance Pay'); (3) Recharge Detail view-invoice-btn / download-invoice-btn not reachable via tbody row click (selector may need a dedicated link; needs main-agent verification).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "CurrencyContext / Dashboard.jsx + Recharges.jsx", "issue": "Switching currency-toggle from USD to EUR (or AED) does NOT change the displayed amounts on Dashboard KPIs and Recharges table. Captured numbers are identical pre/post switch. Either useCurrency().format() is not being consumed by the rendered amounts, or the conversion rates are not applied. Also no currency symbol prefix observed.", "selector": "[data-testid='currency-toggle-EUR'] click + Dashboard KPI cards", "priority": "CRITICAL"},
+      {"component": "Expenses.jsx — payment_method dropdown", "issue": "exp-form-method <select> options are ['Bank','Card','USDT','Cash','Other'] (5 short codes). Spec requires 6 labelled options: 'Bank Transfer', 'Credit/Debit Card', 'USDT Crypto', 'Binance Pay', 'Cash', 'Other'. 'Binance Pay' is COMPLETELY MISSING. Conditional vendor wallet / Card-Last-4 fields cannot be exercised correctly because the option values are wrong.", "selector": "[data-testid='exp-form-method'] option list", "priority": "HIGH"},
+      {"component": "RechargeDetail.jsx", "issue": "Could not verify view-invoice-btn / download-invoice-btn from /recharges → row click flow (clicking first tbody row did not navigate to /recharges/:id). Needs explicit row link/click handler with href, or the buttons themselves may not render when there's an invoice. Counts came back 0.", "selector": "/recharges tbody tr click → /recharges/:id has [data-testid='view-invoice-btn']", "priority": "MEDIUM"},
+      {"component": "Sign Up modal toast", "issue": "After submitting Sign Up form (which DOES POST to /api/leads successfully — verified in Leads admin), no visible success toast/text containing 'Thank you' was rendered on the page. Backend returns the canonical message 'Thank you. Our team will reach out shortly.' but the UI either does not surface it or it auto-dismissed quicker than the 2.5s poll.", "selector": "after [data-testid='lead-submit-btn'] click", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "Public lead capture", "issue": "WORKS end-to-end: POST /api/leads from unauth modal → row appears in /leads admin with x-forwarded-for IP 203.0.113.45 captured. Only the success toast UX is missing/short-lived.", "affected_selectors": ["[data-testid='signup-modal']", "[data-testid='lead-submit-btn']"]}
+    ],
+    "design_issues": [
+      {"screen": "Landing page", "issues": ["Looks clean and professional — Axistra branding, hero with green gradient, 'Enterprise Cloud Infrastructure for Global Business' headline, Explore Solutions + Contact Sales CTAs, Sign Up / Login top-right are all rendered correctly. No contrast issues seen."]},
+      {"screen": "Leads admin page", "issues": ["Clean table with Date, Name, Email, Company, Message, Status (select), IP columns. Status dropdown is a native <select> with 5 options (new/contacted/qualified/converted/rejected) — works but could be a styled Select for consistency with other pages."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_leads_magnus_users.py",
+    "/app/test_reports/pytest/phase3_results.xml",
+    "/app/test_reports/pytest/regression_phase3.xml"
+  ],
+  "action_items": [
+    "Fix currency conversion: ensure Dashboard.jsx KPI cards + Recharges.jsx table use useCurrency().format(amount) and that the format() helper actually multiplies by the inverse rate (USD=3.6725 / EUR=3.99 vs AED=1) and prefixes the chosen currency symbol. Right now switching the pill leaves numbers untouched.",
+    "Expand Expenses payment_method <select> to the 6 spec options with full labels: 'Bank Transfer', 'Credit/Debit Card', 'USDT Crypto', 'Binance Pay', 'Cash', 'Other'. Wire conditional fields: USDT/Binance Pay → vendor wallet + network + tx hash; Card → Card Reference / Last 4.",
+    "Make /recharges table rows navigable to /recharges/:id (clickable link with href) so View Invoice / Download PDF buttons on the detail page are reachable.",
+    "Improve Sign Up modal: render a persistent success state (toast OR inline) using the backend's returned message after successful POST /api/leads."
+  ],
+  "critical_code_review_comments": [
+    "Leads controller correctly leaves @Post() PUBLIC (no @UseGuards) while GET and PATCH /:id/status are JWT-guarded — matches spec.",
+    "Leads service captures ip_address from x-forwarded-for header (verified — '203.0.113.45' persisted to DB and shown in admin). Audit log row created on create.",
+    "Magnus listUsers returns mode:'live' with mapped users array (id/username/credit/email/plan_id/active) — verified live against cyberxcalls.com.",
+    "Magnus search uses comparison:'st' (starts-with) — endpoint does not error on non-matching term ('hem').",
+    "Currency provider rates AED=1/USD=3.6725/EUR=3.99 are correct constants per spec — but verify they're applied at render time. The KPI numbers did not change on toggle, suggesting Dashboard/Recharges still use the static fmtMoney helper instead of useCurrency().format().",
+    "Expenses.jsx payment_method options drifted from spec (5 short codes instead of 6 full labels, Binance Pay missing) — needs immediate fix."
+  ],
+  "updated_files": ["/app/backend/tests/test_leads_magnus_users.py"],
+  "success_rate": {"backend": "100% (53/53)", "frontend": "~70% — landing+leads+magnus-users+invoices OK; currency conversion broken; expenses dropdown drifted; recharge-detail nav unverified"},
+  "test_credentials": "admin@axistratech.com / admin123 (seeded). Public POST /api/leads needs no token.",
+  "seed_data_creation": "Created 1 TEST_Lead row via public POST (IP 203.0.113.45). Plus regression suite added TEST_Customer_* / RCH-* / treasury / expenses rows.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: REACT_APP_BACKEND_URL=https://crypto-audit-chain.preview.emergentagent.com python -m pytest backend/tests/test_leads_magnus_users.py backend/tests/backend_test.py -v. All 53 backend tests pass. Frontend retest must verify (a) currency-toggle actually re-renders amounts (USD '$2,600.00' → EUR '€708.27' approx via /3.6725*3.99 inverse), (b) Expenses exp-form-method has 6 options including Binance Pay, (c) /recharges/:id page surfaces view-invoice-btn + download-invoice-btn.",
+  "rca_of_the_issue": "Currency toggle: AppLayout topbar mounts CurrencyToggle and stores selection in localStorage (axistra_currency key was not even present in localStorage after toggling — only axistra_token + axistra_user). This suggests either useCurrency() context is not persisting OR Dashboard/Recharges are still importing the old fmtMoney() helper that returns plain unformatted values. Fix: confirm in Dashboard.jsx and Recharges.jsx that amount cells use `const { format } = useCurrency(); ...format(row.amount)` and that CurrencyContext writes to localStorage on setCurrency. Expense payment_method: current Expenses.jsx <select><option> list was clearly not updated to the Phase 3 spec — quick fix is to update the option list + conditional render blocks."
+}

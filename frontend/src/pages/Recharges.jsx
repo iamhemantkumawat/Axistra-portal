@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import api from '../lib/api';
 import { PageHeader, Badge, Modal, Field, Hash } from '../components/Atoms';
 import { RECHARGE_STATUS_META, fmtDate, fmtMoney } from '../lib/format';
+import { useCurrency } from '../lib/currency';
 import { Plus, MagnifyingGlass } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
@@ -12,6 +13,7 @@ export default function Recharges() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
+  const { format } = useCurrency();
   const [form, setForm] = useState({
     customer_id: '', amount: '', currency: 'USD',
     crypto_coin: 'USDT', crypto_network: 'TRC20',
@@ -98,7 +100,7 @@ export default function Recharges() {
                   <div className="font-medium">{r.customer?.full_name || '—'}</div>
                   <div className="text-xs text-gray-500">{r.customer?.customer_code}</div>
                 </td>
-                <td className="font-mono font-semibold">{fmtMoney(r.amount, r.currency)}</td>
+                <td className="font-mono font-semibold">{format(r.amount, r.currency)}</td>
                 <td className="text-xs"><span className="font-mono">{r.crypto_coin}</span> / <span className="text-gray-500">{r.crypto_network}</span></td>
                 <td><Hash value={r.tx_hash} /></td>
                 <td className="text-xs">{r.magnus_username || '—'}</td>

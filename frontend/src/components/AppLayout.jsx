@@ -4,8 +4,9 @@ import { useAuth } from '../lib/auth';
 import {
   ChartPieSlice, Users, CurrencyCircleDollar, FileText, Wallet, Receipt,
   ChartLineUp, FileCsv, Shield, Plug, Gear, UserCircleGear, ClockCounterClockwise,
-  SignOut, List, Bell,
+  SignOut, List, Bell, IdentificationCard, ChatCircleDots,
 } from '@phosphor-icons/react';
+import CurrencyToggle from './CurrencyToggle';
 
 const NAV = [
   { to: '/dashboard', label: 'Dashboard', icon: ChartPieSlice, tid: 'sidebar-nav-dashboard' },
@@ -18,6 +19,8 @@ const NAV = [
   { to: '/reports', label: 'Reports', icon: FileCsv, tid: 'sidebar-nav-reports' },
   { to: '/compliance', label: 'Compliance', icon: Shield, tid: 'sidebar-nav-compliance' },
   { to: '/magnus', label: 'Magnus Sync', icon: Plug, tid: 'sidebar-nav-magnus' },
+  { to: '/magnus-users', label: 'Magnus Users', icon: IdentificationCard, tid: 'sidebar-nav-magnus-users' },
+  { to: '/leads', label: 'Leads', icon: ChatCircleDots, tid: 'sidebar-nav-leads' },
   { to: '/settings', label: 'Settings', icon: Gear, tid: 'sidebar-nav-settings' },
   { to: '/admins', label: 'Admin Users', icon: UserCircleGear, tid: 'sidebar-nav-admins' },
   { to: '/audit-logs', label: 'Audit Logs', icon: ClockCounterClockwise, tid: 'sidebar-nav-audit-logs' },
@@ -99,6 +102,7 @@ export default function AppLayout() {
             <span>Compliance + Accounting Portal</span>
           </div>
           <div className="flex items-center gap-3">
+            <CurrencyToggle />
             <Bell size={18} className="text-gray-500" />
             <div className="text-right">
               <div className="text-xs font-semibold text-gray-900" data-testid="topbar-user-name">{user?.full_name}</div>
