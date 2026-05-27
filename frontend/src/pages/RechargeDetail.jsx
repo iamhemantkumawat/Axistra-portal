@@ -17,10 +17,16 @@ export default function RechargeDetail() {
   const [tForm, setTForm] = useState({});
   const [cryptoOpen, setCryptoOpen] = useState(false);
   const [cForm, setCForm] = useState({
-    received_wallet: 'BINANCE', coin: 'USDT', network: 'TRC20',
-    crypto_amount: '', tx_hash: '', receiving_wallet: '',
-    aed_rate_at_payment: '', aed_value: '', notes: '',
+    payment_gateway: 'Binance',
+    received_wallet: 'BINANCE',
+    coin: 'USDT',
+    network: 'TRC20',
+    crypto_amount: '',
+    tx_hash: '',
+    receiving_wallet: '',
+    notes: '',
   });
+  const [receivingWallets, setReceivingWallets] = useState([]);
   const [invoicePreview, setInvoicePreview] = useState(null);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
 
@@ -31,6 +37,23 @@ export default function RechargeDetail() {
     setCForm({ ...cForm, crypto_amount: r.data.crypto_amount || r.data.amount, tx_hash: r.data.tx_hash || '' });
   });
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
+  useEffect(() => {
+    api.get('/settings/receiving-wallets').then((r) => setReceivingWallets(r.data)).catch(() => {});
+  }, []);
+
+  // Auto-fill saved receiving wallet when gateway+coin+network match
+  useEffect(() => {
+    const match = receivingWallets.find(
+      (w) => w.is_active && w.gateway === cForm.payment_gateway && w.coin === cForm.coin && w.network === cForm.network,
+    );
+    if (match) {
+      setCForm((f) => (f.receiving_wallet ? f : { ...f, receiving_wallet: match.address }));
+    }
+  /* eslint-disable-next-line */ }, [cForm.payment_gateway, cForm.coin, cForm.network, receivingWallets]);
+
+  const matchedWallet = receivingWallets.find(
+    (w) => w.is_active && w.gateway === cForm.payment_gateway && w.coin === cForm.coin && w.network === cForm.network,
+  );
 
   if (!data) return <div className="text-gray-500">Loading…</div>;
 
@@ -214,30 +237,61 @@ export default function RechargeDetail() {
       {/* Crypto modal */}
       <Modal open={cryptoOpen} onClose={() => setCryptoOpen(false)} title="Record Crypto Transaction" testId="crypto-modal" size="lg">
         <form onSubmit={submitCrypto} className="grid grid-cols-2 gap-4">
-          <Field label="Received In Wallet" span={2}>
+          <Field label="Payment Gateway *">
             <select
-              data-testid="crypto-form-received-wallet"
               required
               className="input-axistra"
-              value={cForm.received_wallet}
-              onChange={(e) => setCForm({ ...cForm, received_wallet: e.target.value })}
+              value={cForm.payment_gateway}
+              onChange={(e) => {
+                const gw = e.target.value;
+                const walletCode = gw === 'Binance' ? 'BINANCE' : gw === 'OKX' ? 'OKX' : gw === 'OxaPay' ? 'OXAPAY' : 'BTCPAY';
+                setCForm({ ...cForm, payment_gateway: gw, received_wallet: walletCode, receiving_wallet: '' });
+              }}
+              data-testid="crypto-form-gateway"
             >
-              <option value="BINANCE">Binance (exchange)</option>
-              <option value="OKX">OKX (exchange)</option>
-              <option value="OXAPAY">OxaPay (merchant)</option>
-              <option value="BTCPAY">BTCPay (merchant)</option>
-              <option value="WIO_BANK">Wio Bank (fiat)</option>
+              <option>Binance</option><option>OKX</option><option>OxaPay</option><option>BTCPay</option>
             </select>
-            <div className="text-[11px] text-gray-500 mt-1">Where the payment actually landed. Sets the destination ledger row.</div>
           </Field>
-          <Field label="Coin"><input data-testid="crypto-form-coin" required className="input-axistra" value={cForm.coin} onChange={(e) => setCForm({ ...cForm, coin: e.target.value })} placeholder="USDT / BTC / ETH" /></Field>
-          <Field label="Network"><input data-testid="crypto-form-network" className="input-axistra" value={cForm.network} onChange={(e) => setCForm({ ...cForm, network: e.target.value })} placeholder="TRC20 / ERC20 / BEP20 / BTC" /></Field>
-          <Field label="Crypto Amount"><input required className="input-axistra font-mono" value={cForm.crypto_amount} onChange={(e) => setCForm({ ...cForm, crypto_amount: e.target.value })} data-testid="crypto-form-amount" /></Field>
-          <Field label="TX Hash"><input required className="input-axistra font-mono" value={cForm.tx_hash} onChange={(e) => setCForm({ ...cForm, tx_hash: e.target.value })} data-testid="crypto-form-tx" /></Field>
-          <Field label="Receiving Address (optional)" span={2}><input className="input-axistra font-mono" value={cForm.receiving_wallet} onChange={(e) => setCForm({ ...cForm, receiving_wallet: e.target.value })} data-testid="crypto-form-wallet" placeholder="On-chain destination address" /></Field>
-          <Field label="AED Rate at Payment"><input required className="input-axistra" value={cForm.aed_rate_at_payment} onChange={(e) => setCForm({ ...cForm, aed_rate_at_payment: e.target.value })} data-testid="crypto-form-rate" /></Field>
-          <Field label="AED Value"><input required className="input-axistra" value={cForm.aed_value} onChange={(e) => setCForm({ ...cForm, aed_value: e.target.value })} data-testid="crypto-form-aed" /></Field>
-          <Field label="Notes" span={2}><textarea rows={2} className="input-axistra" value={cForm.notes} onChange={(e) => setCForm({ ...cForm, notes: e.target.value })} /></Field>
+          <Field label="Coin *">
+            <select required className="input-axistra" value={cForm.coin} onChange={(e) => setCForm({ ...cForm, coin: e.target.value, receiving_wallet: '' })} data-testid="crypto-form-coin">
+              <option>BTC</option><option>USDT</option><option>ETH</option><option>USDC</option><option>BNB</option><option>TRX</option>
+            </select>
+          </Field>
+          <Field label="Network *">
+            <select required className="input-axistra" value={cForm.network} onChange={(e) => setCForm({ ...cForm, network: e.target.value, receiving_wallet: '' })} data-testid="crypto-form-network">
+              <option>BTC</option><option>TRC20</option><option>ERC20</option><option>BEP20</option><option>Polygon</option><option>Solana</option><option>OFF_CHAIN</option>
+            </select>
+          </Field>
+          <Field label="Crypto Amount *">
+            <input required className="input-axistra font-mono" value={cForm.crypto_amount} onChange={(e) => setCForm({ ...cForm, crypto_amount: e.target.value })} data-testid="crypto-form-amount" />
+          </Field>
+
+          <div className="col-span-2">
+            {matchedWallet ? (
+              <div className="rounded-md border border-axistra-green/30 bg-[var(--axistra-green-light)] p-3 text-sm" data-testid="crypto-matched-wallet-hint">
+                <div className="font-semibold text-axistra-green">Saved address auto-filled</div>
+                <div className="text-xs text-gray-600 mt-0.5">{matchedWallet.label || `${matchedWallet.gateway} ${matchedWallet.coin}/${matchedWallet.network}`}</div>
+                <div className="font-mono text-xs break-all mt-1">{matchedWallet.address}</div>
+              </div>
+            ) : (
+              <div className="rounded-md border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600">
+                No saved wallet for <strong>{cForm.payment_gateway} · {cForm.coin}/{cForm.network}</strong>. Save it under Settings → Receiving Wallets to auto-fill future records.
+              </div>
+            )}
+          </div>
+
+          <Field label="Receiving Address" span={2}>
+            <input className="input-axistra font-mono" value={cForm.receiving_wallet} onChange={(e) => setCForm({ ...cForm, receiving_wallet: e.target.value })} data-testid="crypto-form-wallet" placeholder={matchedWallet ? matchedWallet.address : 'On-chain destination address'} />
+          </Field>
+          <Field label={cForm.network === 'OFF_CHAIN' ? 'Internal TX ID *' : 'TX Hash *'} span={2}>
+            <input required className="input-axistra font-mono" value={cForm.tx_hash} onChange={(e) => setCForm({ ...cForm, tx_hash: e.target.value })} data-testid="crypto-form-tx" placeholder={cForm.network === 'OFF_CHAIN' ? 'Binance internal txid' : 'On-chain transaction hash'} />
+          </Field>
+          <Field label="Notes" span={2}>
+            <textarea rows={2} className="input-axistra" value={cForm.notes} onChange={(e) => setCForm({ ...cForm, notes: e.target.value })} />
+          </Field>
+          <div className="col-span-2 text-xs text-gray-500 -mt-2">
+            AED value at payment is auto-computed from the live FX feed.
+          </div>
           <div className="col-span-2 flex gap-2 justify-end">
             <button type="button" onClick={() => setCryptoOpen(false)} className="btn-secondary">Cancel</button>
             <button type="submit" className="btn-primary" data-testid="crypto-form-submit">Record TX</button>

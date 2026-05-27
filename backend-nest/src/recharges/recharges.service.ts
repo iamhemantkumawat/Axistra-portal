@@ -291,9 +291,8 @@ export class RechargesService implements OnModuleInit {
       throw new BadRequestException('Either receiving address or destination wallet (Binance/OKX/…) is required');
     }
     if (!this.isPositiveNumber(data.crypto_amount || r.crypto_amount)) throw new BadRequestException('Crypto amount must be greater than zero');
-    if (!this.isPositiveNumber(data.aed_rate_at_payment) || !this.isPositiveNumber(data.aed_value)) {
-      throw new BadRequestException('AED rate and AED value at payment time are required');
-    }
+    // AED values: auto-compute from FX feed if not provided
+    const aed = await this.resolveAedValues(data, r);
     const existingTx = await this.cryptoRepo.findOne({ where: { tx_hash: data.tx_hash.trim() } });
     if (existingTx) throw new BadRequestException('Payment TX hash is already recorded');
     const tx = this.cryptoRepo.create({
@@ -305,8 +304,8 @@ export class RechargesService implements OnModuleInit {
       receiving_wallet_tag: data.received_wallet || data.wallet_tag,
       tx_hash: data.tx_hash.trim(),
       wallet_balance_after: data.wallet_balance_after,
-      aed_rate_at_payment: data.aed_rate_at_payment,
-      aed_value: data.aed_value,
+      aed_rate_at_payment: aed.rate,
+      aed_value: aed.value,
       status: 'received',
       notes: data.notes,
     });
