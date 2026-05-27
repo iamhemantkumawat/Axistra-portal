@@ -5,13 +5,12 @@ import { WalletLedger, WalletCode } from '../entities/wallet-ledger.entity';
 import { Recharge } from '../entities/recharge.entity';
 import { AuditService } from '../audit/audit.service';
 
-export const WALLETS: { code: WalletCode; label: string; type: 'crypto' | 'exchange' | 'bank' | 'manual'; default_coin: string }[] = [
+export const WALLETS: { code: WalletCode; label: string; type: 'crypto' | 'exchange' | 'bank'; default_coin: string }[] = [
   { code: 'OXAPAY',   label: 'OxaPay',   type: 'crypto',   default_coin: 'USDT' },
   { code: 'BTCPAY',   label: 'BTCPay',   type: 'crypto',   default_coin: 'BTC' },
   { code: 'BINANCE',  label: 'Binance',  type: 'exchange', default_coin: 'USDT' },
   { code: 'OKX',      label: 'OKX',      type: 'exchange', default_coin: 'USDT' },
   { code: 'WIO_BANK', label: 'Wio Bank', type: 'bank',     default_coin: 'AED' },
-  { code: 'MANUAL',   label: 'Manual',   type: 'manual',   default_coin: 'USDT' },
 ];
 
 function nextCode(prefix: string) {
@@ -276,6 +275,10 @@ export class WalletsService {
     aed_value?: string;
     event_at?: Date;
     notes?: string;
+    /** Explicit override of the ledger wallet (BINANCE/OKX/OXAPAY/BTCPAY). */
+    received_wallet?: WalletCode;
+    /** Free-text hint from webhook payloads (e.g. "binance-pay", "okx") */
+    wallet_tag?: string;
   }, actor?: any) {
     const amt = parseFloat(input.amount || '0');
     if (!(amt > 0)) return null;
@@ -286,7 +289,9 @@ export class WalletsService {
       });
       if (existing) return existing;
     }
-    const wallet = this.pickWalletForGateway(input.payment_gateway, input.coin);
+    const wallet = input.received_wallet
+      || this.pickWalletFromTag(input.wallet_tag)
+      || this.pickWalletForGateway(input.payment_gateway, input.coin);
     return this.ledger.save(this.ledger.create({
       wallet, coin: (input.coin || 'USDT').toUpperCase(), network: input.network,
       amount: amt.toFixed(8), tx_type: 'deposit',
@@ -299,6 +304,17 @@ export class WalletsService {
     }));
   }
 
+  private pickWalletFromTag(tag?: string): WalletCode | null {
+    const t = (tag || '').toLowerCase();
+    if (!t) return null;
+    if (t.includes('binance')) return 'BINANCE';
+    if (t.includes('okx')) return 'OKX';
+    if (t.includes('oxapay')) return 'OXAPAY';
+    if (t.includes('btcpay')) return 'BTCPAY';
+    if (t.includes('wio') || t.includes('bank')) return 'WIO_BANK';
+    return null;
+  }
+
   private pickWalletForGateway(payment_gateway: string, coin: string): WalletCode {
     const g = (payment_gateway || '').toLowerCase();
     if (g.includes('oxapay')) return 'OXAPAY';
@@ -307,6 +323,7 @@ export class WalletsService {
     if (g.includes('okx')) return 'OKX';
     if ((coin || '').toUpperCase() === 'BTC') return 'BTCPAY';
     if ((coin || '').toUpperCase() === 'USDT') return 'OXAPAY';
-    return 'MANUAL';
+    // Default for manual payments (no MANUAL wallet anymore — exchanges only)
+    return 'OKX';
   }
 }

@@ -16,7 +16,11 @@ export default function RechargeDetail() {
   const [treasuryOpen, setTreasuryOpen] = useState(false);
   const [tForm, setTForm] = useState({});
   const [cryptoOpen, setCryptoOpen] = useState(false);
-  const [cForm, setCForm] = useState({ crypto_amount: '', tx_hash: '', receiving_wallet: '', aed_rate_at_payment: '', aed_value: '', notes: '' });
+  const [cForm, setCForm] = useState({
+    received_wallet: 'BINANCE', coin: 'USDT', network: 'TRC20',
+    crypto_amount: '', tx_hash: '', receiving_wallet: '',
+    aed_rate_at_payment: '', aed_value: '', notes: '',
+  });
   const [invoicePreview, setInvoicePreview] = useState(null);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
 
@@ -201,19 +205,36 @@ export default function RechargeDetail() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <button onClick={() => setCryptoOpen(true)} className="btn-secondary inline-flex items-center justify-center gap-2" data-testid="action-record-crypto"><Receipt size={16} /> Record Crypto TX</button>
           <button onClick={() => setMagnusOpen(true)} className="btn-secondary inline-flex items-center justify-center gap-2" data-testid="action-magnus-credit"><Plug size={16} /> Add Magnus Credit</button>
-          <button onClick={() => setTreasuryOpen(true)} className="btn-secondary inline-flex items-center justify-center gap-2" data-testid="action-okx-wio"><Bank size={16} /> OKX / Wio Step</button>
+          <Link to="/wallets" className="btn-secondary inline-flex items-center justify-center gap-2" data-testid="action-treasury"><Bank size={16} /> Treasury Movement</Link>
           <button onClick={() => updateStatus('refunded', 'Manually refunded')} className="btn-secondary inline-flex items-center justify-center gap-2 text-red-700" data-testid="action-refund"><CurrencyCircleDollar size={16} /> Mark Refunded</button>
         </div>
-        <div className="mt-4 text-xs text-gray-500">Status flow advances automatically based on chain actions. Use <em>Mark Refunded</em> for explicit refunds.</div>
+        <div className="mt-4 text-xs text-gray-500">Status flow advances automatically. For multi-step treasury (transfer → convert → bank), use the <Link to="/wallets" className="text-axistra-green hover:underline">Wallet Ledger</Link> — each step is independent.</div>
       </div>
 
       {/* Crypto modal */}
-      <Modal open={cryptoOpen} onClose={() => setCryptoOpen(false)} title="Record Crypto Transaction" testId="crypto-modal">
+      <Modal open={cryptoOpen} onClose={() => setCryptoOpen(false)} title="Record Crypto Transaction" testId="crypto-modal" size="lg">
         <form onSubmit={submitCrypto} className="grid grid-cols-2 gap-4">
-          <Field label="Crypto Amount"><input required className="input-axistra" value={cForm.crypto_amount} onChange={(e) => setCForm({ ...cForm, crypto_amount: e.target.value })} data-testid="crypto-form-amount" /></Field>
-          <Field label="Coin"><input className="input-axistra" value={cForm.coin || r.crypto_coin} onChange={(e) => setCForm({ ...cForm, coin: e.target.value })} data-testid="crypto-form-coin" /></Field>
-          <Field label="Receiving Wallet" span={2}><input required className="input-axistra font-mono" value={cForm.receiving_wallet} onChange={(e) => setCForm({ ...cForm, receiving_wallet: e.target.value })} data-testid="crypto-form-wallet" /></Field>
-          <Field label="TX Hash" span={2}><input required className="input-axistra font-mono" value={cForm.tx_hash} onChange={(e) => setCForm({ ...cForm, tx_hash: e.target.value })} data-testid="crypto-form-tx" /></Field>
+          <Field label="Received In Wallet" span={2}>
+            <select
+              data-testid="crypto-form-received-wallet"
+              required
+              className="input-axistra"
+              value={cForm.received_wallet}
+              onChange={(e) => setCForm({ ...cForm, received_wallet: e.target.value })}
+            >
+              <option value="BINANCE">Binance (exchange)</option>
+              <option value="OKX">OKX (exchange)</option>
+              <option value="OXAPAY">OxaPay (merchant)</option>
+              <option value="BTCPAY">BTCPay (merchant)</option>
+              <option value="WIO_BANK">Wio Bank (fiat)</option>
+            </select>
+            <div className="text-[11px] text-gray-500 mt-1">Where the payment actually landed. Sets the destination ledger row.</div>
+          </Field>
+          <Field label="Coin"><input data-testid="crypto-form-coin" required className="input-axistra" value={cForm.coin} onChange={(e) => setCForm({ ...cForm, coin: e.target.value })} placeholder="USDT / BTC / ETH" /></Field>
+          <Field label="Network"><input data-testid="crypto-form-network" className="input-axistra" value={cForm.network} onChange={(e) => setCForm({ ...cForm, network: e.target.value })} placeholder="TRC20 / ERC20 / BEP20 / BTC" /></Field>
+          <Field label="Crypto Amount"><input required className="input-axistra font-mono" value={cForm.crypto_amount} onChange={(e) => setCForm({ ...cForm, crypto_amount: e.target.value })} data-testid="crypto-form-amount" /></Field>
+          <Field label="TX Hash"><input required className="input-axistra font-mono" value={cForm.tx_hash} onChange={(e) => setCForm({ ...cForm, tx_hash: e.target.value })} data-testid="crypto-form-tx" /></Field>
+          <Field label="Receiving Address (optional)" span={2}><input className="input-axistra font-mono" value={cForm.receiving_wallet} onChange={(e) => setCForm({ ...cForm, receiving_wallet: e.target.value })} data-testid="crypto-form-wallet" placeholder="On-chain destination address" /></Field>
           <Field label="AED Rate at Payment"><input required className="input-axistra" value={cForm.aed_rate_at_payment} onChange={(e) => setCForm({ ...cForm, aed_rate_at_payment: e.target.value })} data-testid="crypto-form-rate" /></Field>
           <Field label="AED Value"><input required className="input-axistra" value={cForm.aed_value} onChange={(e) => setCForm({ ...cForm, aed_value: e.target.value })} data-testid="crypto-form-aed" /></Field>
           <Field label="Notes" span={2}><textarea rows={2} className="input-axistra" value={cForm.notes} onChange={(e) => setCForm({ ...cForm, notes: e.target.value })} /></Field>

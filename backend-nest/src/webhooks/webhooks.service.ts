@@ -328,8 +328,8 @@ export class WebhooksService {
       : source === 'oxapay'
         ? 'OxaPay'
         : source === 'telegram_manual'
-          ? exchangeGateway || 'Manual'
-          : this.first(p.payment_gateway, p.gateway, 'Manual');
+        ? exchangeGateway || 'Binance'
+        : this.first(p.payment_gateway, p.gateway, 'Binance');
 
     return {
       external_event_id: eventId || gatewayInvoiceId || txHash,

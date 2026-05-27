@@ -14,7 +14,6 @@ const WALLET_ICONS = {
   BINANCE: { icon: Buildings,  hint: 'Binance exchange wallet',  type: 'exchange' },
   OKX:     { icon: Buildings,  hint: 'OKX exchange wallet',      type: 'exchange' },
   WIO_BANK:{ icon: Bank,       hint: 'Wio AED settlement bank',  type: 'bank' },
-  MANUAL:  { icon: Wallet,     hint: 'Manual / Card / Cash',     type: 'manual' },
 };
 
 const TX_TYPE_META = {
@@ -168,9 +167,9 @@ export default function WalletLedger() {
         subtitle="Double-entry ledger across OxaPay, BTCPay, Binance, OKX and Wio Bank. Every deposit, transfer, conversion, expense and bank settlement lands as a signed row here."
         actions={(
           <>
-            <button data-testid="btn-send-batch" className="btn-primary" onClick={openBatch}><PaperPlaneTilt size={16} className="inline mr-1" /> Send Batch</button>
-            <button data-testid="btn-convert" className="btn-secondary" onClick={openConvert}><ArrowsLeftRight size={16} className="inline mr-1" /> Convert</button>
-            <button data-testid="btn-cashout" className="btn-secondary" onClick={openCashout}><Bank size={16} className="inline mr-1" /> Cashout to Wio</button>
+            <button data-testid="btn-send-batch" className="btn-primary" onClick={openBatch}><PaperPlaneTilt size={16} className="inline mr-1" /> Transfer Crypto</button>
+            <button data-testid="btn-convert" className="btn-secondary" onClick={openConvert}><ArrowsLeftRight size={16} className="inline mr-1" /> Convert Coin</button>
+            <button data-testid="btn-cashout" className="btn-secondary" onClick={openCashout}><Bank size={16} className="inline mr-1" /> Withdraw AED to Wio</button>
           </>
         )}
       />
@@ -287,7 +286,10 @@ export default function WalletLedger() {
       </div>
 
       {/* Send batch modal */}
-      <Modal open={batchOpen} onClose={() => setBatchOpen(false)} title="Send Batch Transfer" size="lg" testId="modal-send-batch">
+      <Modal open={batchOpen} onClose={() => setBatchOpen(false)} title="Step 1 · Transfer Crypto Between Wallets" size="lg" testId="modal-send-batch">
+        <div className="mb-3 rounded-md border border-axistra-green/30 bg-[var(--axistra-green-light)] p-3 text-xs text-gray-700">
+          <strong className="text-axistra-green">Crypto-to-crypto only.</strong> Moves the same coin from one wallet to another (e.g. OxaPay → Binance, BTCPay → OKX). No conversion happens here — the coin stays as it is. Use Step 2 (Convert) to swap coins inside the exchange.
+        </div>
         <form onSubmit={submitBatch} className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Field label="From Wallet">
             <select className="input-axistra" value={batchForm.from_wallet} onChange={(e) => setBatchForm({ ...batchForm, from_wallet: e.target.value })}>
@@ -314,7 +316,10 @@ export default function WalletLedger() {
       </Modal>
 
       {/* Convert modal */}
-      <Modal open={convertOpen} onClose={() => setConvertOpen(false)} title="Convert Coins Inside Wallet" size="lg" testId="modal-convert">
+      <Modal open={convertOpen} onClose={() => setConvertOpen(false)} title="Step 2 · Convert Coin Inside Wallet" size="lg" testId="modal-convert">
+        <div className="mb-3 rounded-md border border-axistra-green/30 bg-[var(--axistra-green-light)] p-3 text-xs text-gray-700">
+          <strong className="text-axistra-green">Same-wallet swap.</strong> Swaps one coin for another inside an exchange (e.g. BTC → USDT, USDT → AED). Funds stay inside the same wallet — they do <em>not</em> move to bank. Use Step 3 (Withdraw to Wio) once your AED balance is large enough.
+        </div>
         <form onSubmit={submitConvert} className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Field label="Wallet">
             <select className="input-axistra" value={convertForm.wallet} onChange={(e) => setConvertForm({ ...convertForm, wallet: e.target.value })}>
@@ -337,7 +342,10 @@ export default function WalletLedger() {
       </Modal>
 
       {/* Cashout modal */}
-      <Modal open={cashoutOpen} onClose={() => setCashoutOpen(false)} title="Cashout to Wio Bank" size="lg" testId="modal-cashout">
+      <Modal open={cashoutOpen} onClose={() => setCashoutOpen(false)} title="Step 3 · Withdraw AED to Wio Bank" size="lg" testId="modal-cashout">
+        <div className="mb-3 rounded-md border border-axistra-green/30 bg-[var(--axistra-green-light)] p-3 text-xs text-gray-700">
+          <strong className="text-axistra-green">AED-only bank withdrawal.</strong> Moves AED from Binance/OKX → Wio Bank. Net deposit = AED amount − bank fee. Only do this after converting your crypto to AED in Step 2.
+        </div>
         <form onSubmit={submitCashout} className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Field label="From Wallet">
             <select className="input-axistra" value={cashoutForm.from_wallet} onChange={(e) => setCashoutForm({ ...cashoutForm, from_wallet: e.target.value })}>

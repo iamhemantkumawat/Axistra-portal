@@ -1,0 +1,36 @@
+{
+  "summary": "Phase 1 wallet ledger rebuild fixes verified end-to-end. 13/13 backend pytest cases passed and all frontend checks (5 wallet cards, 3 relabeled buttons, 3 step modals with correct titles + banners, Record Crypto TX modal with received_wallet dropdown + Treasury Movement link) passed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase1_wallets.py",
+    "/app/test_reports/pytest/phase1_wallets.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "wallets.service.ts pickWalletForGateway correctly defaults unknown gateways to OKX (line ~327); WALLETS array has the expected 5 codes only.",
+    "recharges.service.ts addCryptoTx now accepts received_wallet override and properly routes the deposit ledger row to the chosen wallet; 400 still returned when neither receiving_wallet nor received_wallet is provided.",
+    "webhooks.service.ts telegram_manual defaults gateway to 'Binance' as required.",
+    "expenses.service.ts pickWallet routes Card/Cash → WIO_BANK with no MANUAL fallback.",
+    "WalletLedger.jsx renders all 3 new step modals with explicit copy ('Step 1 · Transfer Crypto Between Wallets', 'Step 2 · Convert Coin Inside Wallet', 'Step 3 · Withdraw AED to Wio Bank') and matching guidance banners.",
+    "RechargeDetail.jsx 'Record Crypto TX' modal has a 'Received In Wallet' dropdown with all 5 wallet codes plus separate Coin + Network fields; old 'OKX / Wio Step' button replaced by a /wallets Link as expected."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase1_wallets.py (new)",
+    "/app/test_reports/pytest/phase1_wallets.xml (new)"
+  ],
+  "success_rate": {"backend": "100% (13/13)", "frontend": "100%"},
+  "test_credentials": "admin@axistratech.com / admin123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Tests created TEST_0xphase1_* customers, recharges, invoices, expenses, send-batch/convert/cashout ledger rows. Cleanup not automated — recommend purging rows tagged 0xphase1_* / TEST_ prefix after this iteration.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All Phase 1 acceptance criteria from the brief are met. Backend test file /app/backend/tests/test_phase1_wallets.py can be reused as regression for Phase 2. Telegram-manual webhook lives at POST /api/webhooks/telegram-manual (not /telegram) and requires header x-axistra-webhook-secret = PAYMENT_WEBHOOK_SECRET; payload must use amount+currency (not amount_aed) and status='paid' to trigger recharge creation. The 9 ETH that migrated from MANUAL to OKX is confirmed present on OKX/ETH (>=9.0). Wallet ledger UI uses Modal with title strings 'Step 1 · ...', 'Step 2 · ...', 'Step 3 · ...' and the 'Cancel' button closes the modal (Escape was unreliable). Record Crypto TX dropdown options = ['BINANCE','OKX','OXAPAY','BTCPAY','WIO_BANK'].",
+  "rca_of_the_issue": "N/A — verification iteration; no bugs detected."
+}

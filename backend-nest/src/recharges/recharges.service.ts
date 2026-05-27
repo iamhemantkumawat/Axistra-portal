@@ -139,13 +139,13 @@ export class RechargesService {
       crypto_coin: data.crypto_coin || data.coin || 'BTC',
       crypto_network: data.crypto_network || data.network || data.coin || 'BTC',
       wallet_address: data.wallet_address || data.receiving_wallet,
-      payment_gateway: data.payment_gateway || 'Manual',
+      payment_gateway: data.payment_gateway || this.inferGatewayFromWallet(data) || 'Binance',
       payment_date: data.payment_date || data.paid_at || new Date(),
       admin_notes: data.admin_notes,
     }, actor);
 
     if (data.tx_hash || data.gateway_transactions?.length) {
-      await this.addGatewayCryptoTx(recharge.id, data, actor);
+      await this.addGatewayCryptoTx(recharge.id, { ...data, received_wallet: data.received_wallet, wallet_tag: data.wallet_tag }, actor);
     }
     if (data.magnus_credit_added || data.magnus_reference_id) {
       const latest = await this.repo.findOne({ where: { id: recharge.id } });
@@ -256,7 +256,10 @@ export class RechargesService {
       throw new BadRequestException('Invoice amount does not match recharge amount');
     }
     if (!data.tx_hash?.trim()) throw new BadRequestException('Payment TX hash is required');
-    if (!data.receiving_wallet?.trim()) throw new BadRequestException('Receiving wallet is required');
+    // Either an on-chain receiving address OR an explicit ledger wallet code must be present.
+    if (!data.receiving_wallet?.trim() && !data.received_wallet) {
+      throw new BadRequestException('Either receiving address or destination wallet (Binance/OKX/…) is required');
+    }
     if (!this.isPositiveNumber(data.crypto_amount || r.crypto_amount)) throw new BadRequestException('Crypto amount must be greater than zero');
     if (!this.isPositiveNumber(data.aed_rate_at_payment) || !this.isPositiveNumber(data.aed_value)) {
       throw new BadRequestException('AED rate and AED value at payment time are required');
@@ -268,7 +271,8 @@ export class RechargesService {
       crypto_amount: data.crypto_amount || r.crypto_amount,
       coin: data.coin || r.crypto_coin,
       network: data.network || r.crypto_network,
-      receiving_wallet: data.receiving_wallet,
+      receiving_wallet: data.receiving_wallet || data.received_wallet,
+      receiving_wallet_tag: data.received_wallet || data.wallet_tag,
       tx_hash: data.tx_hash.trim(),
       wallet_balance_after: data.wallet_balance_after,
       aed_rate_at_payment: data.aed_rate_at_payment,
@@ -308,6 +312,8 @@ export class RechargesService {
       aed_value: saved.aed_value,
       event_at: r.payment_date,
       notes: `${r.payment_gateway} manual deposit`,
+      received_wallet: data.received_wallet,
+      wallet_tag: data.wallet_tag,
     }, actor);
     return saved;
   }
@@ -575,6 +581,17 @@ export class RechargesService {
   private isPositiveNumber(value: any) {
     const n = parseFloat(value);
     return Number.isFinite(n) && n > 0;
+  }
+
+  private inferGatewayFromWallet(data: any): string | null {
+    const w = String(data.received_wallet || data.wallet_tag || '').toLowerCase();
+    if (!w) return null;
+    if (w.includes('binance')) return 'Binance';
+    if (w.includes('okx')) return 'OKX';
+    if (w.includes('oxapay')) return 'OxaPay';
+    if (w.includes('btcpay')) return 'BTCPay';
+    if (w.includes('wio') || w.includes('bank')) return 'Wio Bank';
+    return null;
   }
 
   private async findOrCreateCustomerFromPayment(data: any) {

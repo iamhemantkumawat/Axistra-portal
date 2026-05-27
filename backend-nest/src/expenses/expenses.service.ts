@@ -49,14 +49,13 @@ export class ExpensesService {
     if (method.includes('okx') || wallet.includes('okx')) return { wallet: 'OKX', coin: 'USDT' };
     if (method.includes('oxapay') || wallet.includes('oxapay')) return { wallet: 'OXAPAY', coin: 'USDT' };
     if (method === 'usdt' || data.paid_in_usdt) {
-      // Default to OKX for USDT payments if not specified
+      // USDT payments default to OKX if not specified
       return { wallet: 'OKX', coin: 'USDT' };
     }
-    if (method === 'card') return { wallet: 'MANUAL', coin: currency || 'AED' };
-    if (method === 'cash') return { wallet: 'MANUAL', coin: currency || 'AED' };
+    if (method === 'card' || method === 'cash') return { wallet: 'WIO_BANK', coin: currency || 'AED' };
     if (network) {
-      // crypto network given without explicit wallet => assume manual
-      return { wallet: 'MANUAL', coin: currency || 'USDT' };
+      // crypto network given without explicit wallet => default to OKX
+      return { wallet: 'OKX', coin: currency || 'USDT' };
     }
     return null;
   }
