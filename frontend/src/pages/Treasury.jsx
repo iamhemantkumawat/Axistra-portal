@@ -910,11 +910,11 @@ export default function Treasury() {
                       <div className="font-mono text-xs">{orderId || '—'}</div>
                       <div className="text-xs text-gray-500">{txs.length} transaction{txs.length === 1 ? '' : 's'}</div>
                     </td>
-                    <td className="min-w-[360px]">
+                    <td className="min-w-[360px] max-w-[440px]">
                       <div className="space-y-2">
                         {txs.length === 0 && <div className="text-xs text-gray-500">No detailed TX rows stored yet.</div>}
                         {txs.map((tx) => (
-                          <div key={tx.id} className="rounded-md border border-gray-100 bg-gray-50 px-3 py-2">
+                          <div key={tx.id} className="rounded-md border border-gray-100 bg-gray-50 px-3 py-2 overflow-hidden">
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <div className="font-mono text-xs text-gray-900">
                                 {fmtCrypto(tx.crypto_amount || tx.received_amount || tx.sent_amount)} {tx.coin} <span className="text-gray-400">{tx.network}</span>
@@ -926,8 +926,8 @@ export default function Treasury() {
                             <div className="mt-1 grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-gray-600">
                               <div>Sent: <span className="font-mono">{tx.sent_amount || '—'}</span></div>
                               <div>Received: <span className="font-mono">{tx.received_amount || tx.received_value || '—'}</span></div>
-                              <div>Sender: <span className="font-mono">{tx.sender_address || '—'}</span></div>
-                              <div>Wallet: <span className="font-mono">{tx.receiving_wallet || '—'}</span></div>
+                              <div className="md:col-span-2 min-w-0">Sender: <span className="font-mono break-all">{tx.sender_address || '—'}</span></div>
+                              <div className="md:col-span-2 min-w-0">Wallet: <span className="font-mono break-all">{tx.receiving_wallet || '—'}</span></div>
                               <div>Auto convert: <span className="font-mono">{tx.auto_convert_amount || '0'} {tx.auto_convert_currency || ''}</span></div>
                               <div>Confirmations: <span className="font-mono">{tx.confirmations || '—'}</span></div>
                             </div>
@@ -1334,8 +1334,8 @@ export default function Treasury() {
                       <Badge className={String(tx.gateway_tx_status || '').toLowerCase() === 'confirmed' ? 'badge-success' : 'badge-neutral'}>{tx.gateway_tx_status || tx.status || 'received'}</Badge>
                     </div>
                     <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-gray-500">
-                      <div>Sender: <span className="font-mono">{tx.sender_address || '—'}</span></div>
-                      <div>Receiver: <span className="font-mono">{tx.receiving_wallet || '—'}</span></div>
+                      <div className="md:col-span-2 min-w-0">Sender: <span className="font-mono break-all">{tx.sender_address || '—'}</span></div>
+                      <div className="md:col-span-2 min-w-0">Receiver: <span className="font-mono break-all">{tx.receiving_wallet || '—'}</span></div>
                       <div>Final USDT: <span className="font-mono">{txFinalUsdt(tx) ? `${fmtCrypto(txFinalUsdt(tx))} USDT` : '—'}</span></div>
                       <div>Confirmations: <span className="font-mono">{tx.confirmations || '—'}</span></div>
                     </div>

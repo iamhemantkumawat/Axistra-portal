@@ -132,20 +132,25 @@ h1, h2, h3, h4, h5, h6, .font-display {
 }
 .card-axistra:hover { box-shadow: 0 4px 12px rgba(10,92,62,0.08); }
 
-.input-axistra {
-  background: white;
-  border: 1px solid #D1D5DB;
-  border-radius: 0.375rem;
-  padding: 0.55rem 0.75rem;
-  font-size: 0.875rem;
-  width: 100%;
-  color: #111827;
-  font-family: 'IBM Plex Sans', sans-serif;
-}
-.input-axistra:focus {
-  outline: none;
-  border-color: var(--axistra-green);
-  box-shadow: 0 0 0 3px rgba(10, 92, 62, 0.12);
+@layer components {
+  .input-axistra {
+    background: white;
+    border: 1px solid #D1D5DB;
+    border-radius: 0.375rem;
+    padding-top: 0.55rem;
+    padding-right: 0.75rem;
+    padding-bottom: 0.55rem;
+    padding-left: 0.75rem;
+    font-size: 0.875rem;
+    width: 100%;
+    color: #111827;
+    font-family: 'IBM Plex Sans', sans-serif;
+  }
+  .input-axistra:focus {
+    outline: none;
+    border-color: var(--axistra-green);
+    box-shadow: 0 0 0 3px rgba(10, 92, 62, 0.12);
+  }
 }
 
 .table-axistra { width: 100%; border-collapse: collapse; font-size: 0.875rem; }

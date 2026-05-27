@@ -55,6 +55,13 @@ Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corpora
   - PAID/UNPAID/FAILED status badge in top-right corner
   - **Guaranteed single A4 page** via `@page A4` + `pageRanges:'1'` in Puppeteer
   - Endpoints: `GET /api/invoices/:id/pdf` (defaults to minimal) and `?style=branded` for the legacy Branded Hero
+- **UPDATE (May 27, 2026): UI polish sweep**
+  - Sidebar header: removed "AXISTRA / Compliance Portal" text → now shows the full landscape wordmark (`axistra-wordmark-darkbg.png`) on the dark green sidebar.
+  - Topbar: replaced the text "Axistra Technologies FZCO | Compliance + Accounting Portal" with the landscape logo (`axistra-landscape-logo-2026.png`) and a small subtitle.
+  - **Icon-text overlap on search inputs fixed**: `.input-axistra` moved into `@layer components` so Tailwind utilities (`pl-9`, `pl-10`) properly override the default left padding. Affected pages: Audit Chain Search, Recharges, Customers, Magnus Users.
+  - Crypto Treasury OxaPay (and BTCPay/OKX/Binance) tab: long wallet & sender addresses now wrap inside their card (`break-all` + `max-w` on the `<td>` cell). No more overflow into the Final USDT column.
+  - Landing footer: bigger landscape logo, cleaned-up Company Details column with aligned `LICENSE / REG. NO / TRN / GIBAN` labels.
+
 - **NEW (May 27, 2026): Receiving Wallets & Vendors CRUD + Gateway Auto-Detection**
   - Settings → Receiving Wallets table (CRUD): admins register every Axistra-owned address per `{Gateway, Coin, Network, Address, Label}`. Seeds Binance BTC `129ifR1iQyY…ZZHhqfkt` + OKX BTC `bc1q3a4gsk…ksx38sjj` idempotently on boot.
   - Settings → Vendors table (CRUD): reusable payee directory (name, type, contact, default wallet, default method). Eliminates free-text vendor entry on expenses.

@@ -29,7 +29,8 @@ const NAV = [
   { to: '/audit-logs', label: 'Audit Logs', icon: ClockCounterClockwise, tid: 'sidebar-nav-audit-logs' },
 ];
 
-const LOGO_URL = '/axistra-logo.png';
+const LOGO_DARK_URL = '/axistra-wordmark-darkbg.png';
+const LOGO_LIGHT_URL = '/axistra-landscape-logo-2026.png';
 
 export default function AppLayout() {
   const { user, logout } = useAuth();
@@ -43,12 +44,13 @@ export default function AppLayout() {
         className={`fixed top-0 left-0 h-screen w-64 bg-[var(--axistra-sidebar)] text-white flex flex-col z-40 transform transition-transform sidebar-scroll overflow-y-auto ${mobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}
         data-testid="app-sidebar"
       >
-        <div className="px-5 py-6 border-b border-[#117852] flex items-center gap-3">
-          <img src={LOGO_URL} alt="Axistra" className="w-11 h-11 rounded bg-white p-1" />
-          <div>
-            <div className="font-display text-lg font-bold tracking-tight leading-none">AXISTRA</div>
-            <div className="text-[10px] uppercase tracking-[0.18em] text-[var(--axistra-gold)] mt-0.5">Compliance Portal</div>
-          </div>
+        <div className="px-5 py-5 border-b border-[#117852] flex items-center justify-center">
+          <img
+            src={LOGO_DARK_URL}
+            alt="Axistra Technologies"
+            className="h-12 w-auto object-contain"
+            data-testid="sidebar-logo"
+          />
         </div>
 
         <nav className="flex-1 py-3">
@@ -97,11 +99,15 @@ export default function AppLayout() {
 
       {/* Main content */}
       <main className="md:ml-64 min-h-screen">
-        <div className="hidden md:flex items-center justify-between px-8 py-4 border-b border-gray-200 bg-white">
-          <div className="font-display text-sm text-gray-500">
-            <span className="text-axistra-green font-semibold">Axistra Technologies FZCO</span>
-            <span className="mx-2 text-gray-300">|</span>
-            <span>Compliance + Accounting Portal</span>
+        <div className="hidden md:flex items-center justify-between px-8 py-3 border-b border-gray-200 bg-white">
+          <div className="flex items-center gap-3">
+            <img
+              src={LOGO_LIGHT_URL}
+              alt="Axistra Technologies"
+              className="h-9 w-auto object-contain"
+              data-testid="topbar-logo"
+            />
+            <span className="hidden lg:inline text-xs text-gray-400 tracking-wide uppercase">Compliance + Accounting Portal</span>
           </div>
           <div className="flex items-center gap-3">
             <CurrencyToggle />

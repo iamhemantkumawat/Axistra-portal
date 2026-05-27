@@ -7,10 +7,10 @@ const LOGO_URL = '/axistra-wordmark-darkbg.png';
 export default function PublicFooter() {
   return (
     <footer className="bg-[var(--axistra-green)] text-white py-12">
-      <div className="max-w-7xl mx-auto px-6 lg:px-10 grid gap-8 md:grid-cols-2 lg:grid-cols-4">
+      <div className="max-w-7xl mx-auto px-6 lg:px-10 grid gap-10 md:grid-cols-2 lg:grid-cols-4">
         <div>
           <div className="flex items-center">
-            <img src={LOGO_URL} alt="Axistra Technologies" className="h-14 w-auto object-contain" />
+            <img src={LOGO_URL} alt="Axistra Technologies" className="h-16 w-auto object-contain" />
           </div>
           <p className="text-sm text-gray-300 mt-4 max-w-sm leading-relaxed">
             Innovate · Connect · Grow.<br />Cloud communications software, SaaS infrastructure, IT consulting, and digital technology services.
@@ -18,12 +18,14 @@ export default function PublicFooter() {
         </div>
 
         <div className="text-sm text-gray-300 leading-relaxed">
-          <div className="font-display text-white mb-2">Company Details</div>
-          {COMPANY.address}<br />
-          <span className="font-mono text-xs text-axistra-gold mt-2 block">License {COMPANY.license}</span>
-          <span className="font-mono text-xs text-axistra-gold block">Registration {COMPANY.registration}</span>
-          <span className="font-mono text-xs text-axistra-gold block">TRN {COMPANY.trn}</span>
-          <span className="font-mono text-xs text-axistra-gold block">GIBAN {COMPANY.giban}</span>
+          <div className="font-display text-white mb-3 uppercase tracking-wider text-xs">Company Details</div>
+          <div className="mb-3">{COMPANY.address}</div>
+          <dl className="space-y-1.5 text-xs">
+            <div className="flex gap-2"><dt className="text-axistra-gold w-20 uppercase tracking-wider">License</dt><dd className="font-mono">{COMPANY.license}</dd></div>
+            <div className="flex gap-2"><dt className="text-axistra-gold w-20 uppercase tracking-wider">Reg. No</dt><dd className="font-mono">{COMPANY.registration}</dd></div>
+            <div className="flex gap-2"><dt className="text-axistra-gold w-20 uppercase tracking-wider">TRN</dt><dd className="font-mono">{COMPANY.trn}</dd></div>
+            <div className="flex gap-2"><dt className="text-axistra-gold w-20 uppercase tracking-wider">GIBAN</dt><dd className="font-mono break-all">{COMPANY.giban}</dd></div>
+          </dl>
         </div>
 
         <div className="text-sm text-gray-300 leading-relaxed">
