@@ -9,7 +9,7 @@ export default function Invoices() {
   const [items, setItems] = useState([]);
   const [preview, setPreview] = useState(null);
   const [loadingId, setLoadingId] = useState(null);
-  const [style, setStyle] = useState(() => localStorage.getItem('axistra_invoice_style') || 'branded');
+  const [style, setStyle] = useState(() => localStorage.getItem('axistra_invoice_style') || 'minimal');
   const { format } = useCurrency();
   useEffect(() => { api.get('/invoices').then((r) => setItems(r.data)); }, []);
   useEffect(() => { localStorage.setItem('axistra_invoice_style', style); }, [style]);

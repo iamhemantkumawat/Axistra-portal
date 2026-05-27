@@ -170,12 +170,12 @@ export class InvoicesService {
     return inv;
   }
 
-  async html(id: string, style: 'branded' | 'minimal' = 'branded') {
+  async html(id: string, style: 'branded' | 'minimal' = 'minimal') {
     const inv = await this.get(id);
     return style === 'minimal' ? renderMinimalInvoiceHtml(inv) : renderInvoiceHtml(inv);
   }
 
-  async pdf(id: string, style: 'branded' | 'minimal' = 'branded'): Promise<Buffer> {
+  async pdf(id: string, style: 'branded' | 'minimal' = 'minimal'): Promise<Buffer> {
     const inv = await this.get(id);
     return style === 'minimal' ? renderMinimalInvoicePdf(inv) : renderInvoicePdf(inv);
   }

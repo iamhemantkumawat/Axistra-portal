@@ -43,6 +43,18 @@ Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corpora
 - **NEW: Legal Page** at `/legal` — privacy + terms
 - **NEW: Currency toggle** (USD/EUR/AED) — top-bar pill, client-side conversion via FX module
 
+- **NEW (May 2026): Invoice Premium Minimal — pixel-perfect match to user-provided sample**
+  - Set as the default style (was Branded Hero)
+  - Manrope / Plus Jakarta Sans typography via Google Fonts
+  - Logo + AXISTRA wordmark on left, company contact block with icons on right
+  - Gold gradient divider; Bill To + giant green INVOICE word + gold invoice number
+  - Green table header with alternating cream rows (Description with subdetail, Qty, Unit Price, Amount)
+  - Payment Information bank block + Subtotal/Discount/VAT rows + dark-green TOTAL bar
+  - "Amount in Words" italic green (English number-to-words for AED/USD/EUR)
+  - Green footer bar: "Thank You For Your Business" + 3 features (Reliable Support, Secure Solutions, Driving Growth) + TRN/License footer
+  - PAID/UNPAID/FAILED status badge in top-right corner
+  - **Guaranteed single A4 page** via `@page A4` + `pageRanges:'1'` in Puppeteer
+  - Endpoints: `GET /api/invoices/:id/pdf` (defaults to minimal) and `?style=branded` for the legacy Branded Hero
 - **NEW: Invoice PDF A/B Templates** — two production-grade templates wired to `?style=branded|minimal`:
   - **Branded Hero** (default) — green/gold gradient hero, ornate header, dense compliance details
   - **Premium Minimal** — clean white, thin Axistra accents, large typography, structured payment-trace table, accountant-ready
