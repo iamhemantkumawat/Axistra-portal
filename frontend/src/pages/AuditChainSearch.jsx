@@ -101,7 +101,7 @@ export default function AuditChainSearch() {
                   )}
                 </ChainNode>
 
-                {(chain.ledger_entries || []).length > 0 && (
+                {(chain.ledger_entries || []).length > 0 ? (
                   <ChainNode icon={Wallet} title="Wallet Ledger" done sub={`${chain.ledger_entries.length} entr${chain.ledger_entries.length === 1 ? 'y' : 'ies'}`}>
                     <div className="rounded-md border border-gray-200 divide-y divide-gray-100">
                       {chain.ledger_entries.map((e) => {
@@ -118,6 +118,8 @@ export default function AuditChainSearch() {
                       })}
                     </div>
                   </ChainNode>
+                ) : (
+                  <ChainNode icon={Wallet} title="Wallet Ledger" sub="No on-chain movements linked to this recharge yet" />
                 )}
               </div>
             ) : (

@@ -224,15 +224,15 @@ export default function WalletLedger() {
           {activeWallet?.label || active} <span className="text-gray-400 font-normal">— ledger</span>
         </div>
         <div className="flex-1" />
-        <div className="relative">
+        <div className="relative w-full md:w-auto md:flex-1 md:max-w-sm">
           <MagnifyingGlass size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             data-testid="ledger-search"
-            placeholder="Search tx hash, batch, customer…"
+            placeholder="Search hash, ref, customer…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') loadLedger(); }}
-            className="input-axistra pl-7 w-72"
+            className="input-axistra pl-7 w-full"
           />
         </div>
         <select data-testid="ledger-coin-filter" value={coinFilter} onChange={(e) => setCoinFilter(e.target.value)} className="input-axistra w-32">

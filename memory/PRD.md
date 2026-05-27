@@ -43,6 +43,16 @@ Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corpora
 - **NEW: Legal Page** at `/legal` — privacy + terms
 - **NEW: Currency toggle** (USD/EUR/AED) — top-bar pill, client-side conversion via FX module
 
+- **NEW (Feb 2026): Wallet Ledger (Option B Treasury rebuild)** — strict double-entry ledger across 6 wallets (`OXAPAY`, `BTCPAY`, `BINANCE`, `OKX`, `WIO_BANK`, `MANUAL`). Auto-migrator imports all 86 historical recharges into `wallet_ledgers` on startup. Operations:
+  - `POST /api/wallets/:wallet/send-batch` — moves crypto between wallets (batch_out + batch_in + optional fee). Generates batch codes like `OXA-BIN-260527-XXXX` and `BPAY-2605-NNNNN`.
+  - `POST /api/wallets/:wallet/convert` — same-wallet coin swap (convert_from + convert_to + fee). Persists `rate_used` for audit.
+  - `POST /api/wallets/:wallet/cashout` — sells AED out of OKX/Binance and deposits into Wio Bank (cashout + bank_deposit, net = amount − bank_fee).
+  - Expenses now write a negative ledger row on the matching wallet (Binance/OKX/OxaPay/Wio/Manual) and are idempotently re-flowed on PATCH/DELETE.
+  - Recharges auto-write a `deposit` ledger row on `addCryptoTx` and `addGatewayCryptoTx` (deduped by tx_hash).
+- **NEW: Audit Chain Search** (`/audit-chain`) — universal search by tx hash, batch code, invoice, recharge, customer or magnus user. Returns the full Customer → Invoice → Recharge → Wallet Ledger chain plus counters.
+- **NEW: Daily Snapshot** (`/api/snapshot/daily`) — opening + activity + closing balances per wallet+coin for any date.
+- **NEW: Onchain Verifier** (`/api/onchain/verify/:network/:hash`) — Blockstream/etherscan-style confirmations check, graceful on rate-limits.
+
 ### Skipped per user
 - 2FA enforcement
 
@@ -85,7 +95,10 @@ AUTHED (JWT)
 See `/app/deploy-fork/` (or `/opt/axistra/deploy` on the VPS): `backup.sh`, `nginx.conf`, `docker-compose.yml`, `cloudflare-setup.md`, `DEPLOYMENT.md`.
 
 ## Backlog
+- Fix Reports and Invoice PDF design (user-requested)
+- Advanced exports (VAT threshold PDF, Corporate tax PDF, Bank reconciliation PDF, Accountant-ready export)
 - Wire OXAPAY_HISTORY_DELAY_MS background poller into recharge reconciliation
 - Show webhook signature errors prominently in `/webhook-logs`
 - Add latency analytics ("Reconciliation Health") to dashboard
 - Live FX feed already wired (ECB) — extend to lock the rate per recharge at payment time
+- 2FA enforcement for Admin accounts
