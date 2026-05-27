@@ -55,10 +55,13 @@ Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corpora
   - PAID/UNPAID/FAILED status badge in top-right corner
   - **Guaranteed single A4 page** via `@page A4` + `pageRanges:'1'` in Puppeteer
   - Endpoints: `GET /api/invoices/:id/pdf` (defaults to minimal) and `?style=branded` for the legacy Branded Hero
-- **NEW: Invoice PDF A/B Templates** — two production-grade templates wired to `?style=branded|minimal`:
-  - **Branded Hero** (default) — green/gold gradient hero, ornate header, dense compliance details
-  - **Premium Minimal** — clean white, thin Axistra accents, large typography, structured payment-trace table, accountant-ready
-  - Invoices page exposes a Branded ↔ Minimal toggle (persisted to `localStorage.axistra_invoice_style`) plus A/B compare inside the preview modal.
+- **UPDATE (May 27, 2026): Invoice = Premium Minimal ONLY**
+  - Compare button and Branded/Minimal toggle removed from Invoices UI (already cleaned)
+  - Backend `/api/invoices/:id/pdf` and `/html` default to the Premium Minimal renderer
+  - Payment Information block now renders dynamic on-chain data: Method, Service, Coin, Network, TX Hash + per-transaction From/To addresses pulled from `crypto_transactions`
+  - Digital seal (`digital-stamp.png`) rendered above footer with "Digitally certified · <date>"
+  - Green footer pinned absolutely at A4 bottom; verified single-page render via Puppeteer
+  - Visually validated: single A4, no overflow, seal + footer + payment info present
 - **NEW: Reports — full redesign with charts**
   - KPI tiles (Total Sales, Total Expenses, Net Profit, VAT Progress)
   - Charts: Monthly Sales (area), Top 10 Customers (horizontal bar), Coin/Payment-Method split (donut), Gateway Split (pie) — powered by Recharts
