@@ -6,6 +6,7 @@ import { Customer } from '../entities/customer.entity';
 import { Recharge } from '../entities/recharge.entity';
 import { CryptoTransaction } from '../entities/crypto-transaction.entity';
 import { renderInvoiceHtml, renderInvoicePdf } from './invoice-template';
+import { renderMinimalInvoiceHtml, renderMinimalInvoicePdf } from './invoice-template-minimal';
 import { AuditService } from '../audit/audit.service';
 
 @Injectable()
@@ -169,13 +170,13 @@ export class InvoicesService {
     return inv;
   }
 
-  async html(id: string) {
+  async html(id: string, style: 'branded' | 'minimal' = 'branded') {
     const inv = await this.get(id);
-    return renderInvoiceHtml(inv);
+    return style === 'minimal' ? renderMinimalInvoiceHtml(inv) : renderInvoiceHtml(inv);
   }
 
-  async pdf(id: string): Promise<Buffer> {
+  async pdf(id: string, style: 'branded' | 'minimal' = 'branded'): Promise<Buffer> {
     const inv = await this.get(id);
-    return renderInvoicePdf(inv);
+    return style === 'minimal' ? renderMinimalInvoicePdf(inv) : renderInvoicePdf(inv);
   }
 }

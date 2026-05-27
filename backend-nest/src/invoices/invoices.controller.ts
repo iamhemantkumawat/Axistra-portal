@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Response } from 'express';
 import { InvoicesService } from './invoices.service';
@@ -24,20 +24,21 @@ export class InvoicesController {
   }
 
   @Get(':id/html')
-  async html(@Param('id') id: string, @Res() res: Response) {
-    const html = await this.svc.html(id);
+  async html(@Param('id') id: string, @Query('style') style: string, @Res() res: Response) {
+    const html = await this.svc.html(id, (style === 'minimal' ? 'minimal' : 'branded'));
     res.setHeader('Content-Type', 'text/html');
     res.send(html);
   }
 
   @Get(':id/pdf')
-  async pdf(@Param('id') id: string, @Res() res: Response) {
-    const buf = await this.svc.pdf(id);
+  async pdf(@Param('id') id: string, @Query('style') style: string, @Res() res: Response) {
+    const variant = (style === 'minimal' ? 'minimal' : 'branded') as 'minimal' | 'branded';
+    const buf = await this.svc.pdf(id, variant);
     const inv = await this.svc.get(id);
     const isPdf = buf.slice(0, 4).toString() === '%PDF';
     res.setHeader('Content-Type', isPdf ? 'application/pdf' : 'text/html');
     if (isPdf) {
-      res.setHeader('Content-Disposition', `attachment; filename="${inv.invoice_number}.pdf"`);
+      res.setHeader('Content-Disposition', `attachment; filename="${inv.invoice_number}-${variant}.pdf"`);
     }
     res.send(buf);
   }

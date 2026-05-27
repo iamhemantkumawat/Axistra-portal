@@ -1,26 +1,42 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import api, { API_BASE } from '../lib/api';
 import { PageHeader, KpiCard } from '../components/Atoms';
-import { FilePdf, FileXls, FileCsv, ChartBar } from '@phosphor-icons/react';
 import { downloadBlob, fmtMoney } from '../lib/format';
+import {
+  FileXls, FileCsv, FilePdf, ChartBar, ChartLine, ChartPie, CurrencyDollar,
+  TrendUp, Bank, Coins, Package, Receipt, Wallet, Sparkle,
+} from '@phosphor-icons/react';
+import {
+  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
+  BarChart, Bar, PieChart, Pie, Cell, Legend,
+} from 'recharts';
 
 const REPORTS = [
-  { key: 'monthly-sales', name: 'Monthly Sales' },
-  { key: 'quarterly-sales', name: 'Quarterly Sales' },
-  { key: 'yearly-pl', name: 'Yearly P&L' },
-  { key: 'customer-recharge', name: 'Customer Recharge' },
-  { key: 'crypto-to-aed', name: 'Crypto → AED Conversion' },
-  { key: 'bank-reconciliation', name: 'Bank Reconciliation' },
-  { key: 'vat-threshold', name: 'VAT Threshold' },
-  { key: 'corporate-tax', name: 'Corporate Tax' },
-  { key: 'expenses', name: 'Expense Report' },
-  { key: 'suspicious', name: 'Suspicious Activity' },
+  { key: 'monthly-sales',       name: 'Monthly Sales',          icon: ChartLine },
+  { key: 'quarterly-sales',     name: 'Quarterly Sales',        icon: ChartBar },
+  { key: 'yearly-pl',           name: 'Yearly P&L',             icon: TrendUp },
+  { key: 'customer-recharge',   name: 'Customer Recharge',      icon: Receipt },
+  { key: 'crypto-to-aed',       name: 'Crypto → AED Conversion', icon: Coins },
+  { key: 'bank-reconciliation', name: 'Bank Reconciliation',    icon: Bank },
+  { key: 'vat-threshold',       name: 'VAT Threshold',          icon: Wallet },
+  { key: 'corporate-tax',       name: 'Corporate Tax',          icon: CurrencyDollar },
+  { key: 'expenses',            name: 'Expense Report',         icon: Receipt },
+  { key: 'suspicious',          name: 'Suspicious Activity',    icon: ChartPie },
 ];
+
+const COLORS = ['#0A5C3E', '#C6A14B', '#1E7D5C', '#E0BC4F', '#3D9974', '#F0D88A', '#5BB58C', '#996A1F', '#80C99F', '#705425'];
 
 export default function Reports() {
   const [year, setYear] = useState(new Date().getFullYear());
+  const [month, setMonth] = useState(String(new Date().getMonth() + 1).padStart(2, '0'));
+  const [charts, setCharts] = useState(null);
   const [preview, setPreview] = useState(null);
   const [loading, setLoading] = useState('');
+  const [bundling, setBundling] = useState(false);
+
+  useEffect(() => {
+    api.get(`/reports/dashboard/charts?year=${year}`).then((r) => setCharts(r.data)).catch(() => setCharts(null));
+  }, [year]);
 
   const view = async (key) => {
     setLoading(key);
@@ -30,41 +46,183 @@ export default function Reports() {
     } finally { setLoading(''); }
   };
 
-  const csv = (key) => downloadBlob(`${API_BASE}/reports/export/csv?report=${key}&year=${year}`, `${key}-${year}.csv`);
+  const csv = (key)  => downloadBlob(`${API_BASE}/reports/export/csv?report=${key}&year=${year}`,  `${key}-${year}.csv`);
   const excel = (key) => downloadBlob(`${API_BASE}/reports/export/excel?report=${key}&year=${year}`, `${key}-${year}.xlsx`);
+  const pdf = (key)   => downloadBlob(`${API_BASE}/reports/export/pdf?report=${key}&year=${year}`,   `${key}-${year}.pdf`);
+
+  const downloadBundle = async () => {
+    setBundling(true);
+    try {
+      await downloadBlob(`${API_BASE}/reports/bundle/month-end?year=${year}&month=${month}`, `axistra-month-end-${year}-${month}.zip`);
+    } finally { setBundling(false); }
+  };
+
+  const kpis = charts?.kpis;
 
   return (
-    <div>
+    <div data-testid="reports-page">
       <PageHeader
         eyebrow="Audit & Accountant Ready"
         title="Reports"
-        subtitle="Generate accountant-ready exports for sales, P&L, treasury, tax, and compliance."
+        subtitle="Live KPI dashboard with charts plus one-click PDF / Excel / CSV exports and an end-of-month accountant bundle."
         actions={
-          <select value={year} onChange={(e) => setYear(parseInt(e.target.value, 10))} className="input-axistra w-32" data-testid="reports-year">
-            {[year + 1, year, year - 1, year - 2].map((y) => <option key={y}>{y}</option>)}
-          </select>
+          <div className="flex flex-wrap items-center gap-2">
+            <select value={year} onChange={(e) => setYear(parseInt(e.target.value, 10))} className="input-axistra w-28" data-testid="reports-year">
+              {[year + 1, year, year - 1, year - 2].map((y) => <option key={y}>{y}</option>)}
+            </select>
+            <select value={month} onChange={(e) => setMonth(e.target.value)} className="input-axistra w-28" data-testid="reports-month">
+              {Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0')).map((m) => (
+                <option key={m} value={m}>{new Date(2000, parseInt(m, 10) - 1, 1).toLocaleString('en', { month: 'short' })}</option>
+              ))}
+            </select>
+            <button onClick={downloadBundle} disabled={bundling} className="btn-primary inline-flex items-center gap-2 disabled:opacity-50" data-testid="reports-bundle">
+              <Package size={16} /> {bundling ? 'Building…' : `Month-End ZIP`}
+            </button>
+          </div>
         }
       />
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mb-6">
-        {REPORTS.map((r) => (
-          <div key={r.key} className="card-axistra p-5" data-testid={`report-card-${r.key}`}>
-            <div className="flex items-start justify-between">
-              <div>
-                <div className="label-xs">Report</div>
-                <h3 className="font-display text-lg font-semibold mt-0.5">{r.name}</h3>
-              </div>
-              <ChartBar size={22} weight="duotone" className="text-axistra-green" />
+      {/* KPI tiles */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-6">
+        <KpiCard label="Total Sales" testId="kpi-sales" icon={TrendUp} value={kpis ? fmtMoney(kpis.total_sales, 'AED') : '…'} />
+        <KpiCard label="Total Expenses" testId="kpi-expenses" icon={Receipt} value={kpis ? fmtMoney(kpis.total_expenses, 'AED') : '…'} />
+        <KpiCard label="Net Profit" testId="kpi-net-profit" icon={CurrencyDollar} accent value={kpis ? fmtMoney(kpis.net_profit, 'AED') : '…'} />
+        <KpiCard label="VAT Progress" testId="kpi-vat" icon={Wallet} value={kpis ? `${kpis.vat_progress_pct.toFixed(1)}% of 375K` : '…'} sub={kpis ? `Remaining ${fmtMoney(kpis.vat_remaining_aed, 'AED')}` : ''} />
+      </div>
+
+      {/* Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-6">
+        <div className="card-axistra p-5 lg:col-span-2" data-testid="chart-monthly-trend">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <div className="label-xs">Trend</div>
+              <h3 className="font-display text-lg font-semibold">Monthly Sales — {year}</h3>
             </div>
-            <div className="flex gap-2 mt-4">
-              <button onClick={() => view(r.key)} disabled={loading === r.key} className="btn-secondary text-xs flex-1" data-testid={`report-view-${r.key}`}>
-                {loading === r.key ? 'Loading…' : 'View'}
-              </button>
-              <button onClick={() => csv(r.key)} className="btn-secondary text-xs inline-flex items-center gap-1" data-testid={`report-csv-${r.key}`}><FileCsv size={14} /> CSV</button>
-              <button onClick={() => excel(r.key)} className="btn-accent text-xs inline-flex items-center gap-1" data-testid={`report-excel-${r.key}`}><FileXls size={14} /> Excel</button>
-            </div>
+            <ChartLine size={22} weight="duotone" className="text-axistra-green" />
           </div>
-        ))}
+          <div style={{ width: '100%', height: 260 }}>
+            <ResponsiveContainer>
+              <AreaChart data={charts?.monthly_trend || []}>
+                <defs>
+                  <linearGradient id="trendGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#0A5C3E" stopOpacity={0.4} />
+                    <stop offset="100%" stopColor="#0A5C3E" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#EEF1EF" />
+                <XAxis dataKey="month" stroke="#6B7B75" fontSize={11} />
+                <YAxis stroke="#6B7B75" fontSize={11} />
+                <Tooltip contentStyle={{ background: '#fff', border: '1px solid #E3E7E5', borderRadius: 6, fontSize: 12 }} />
+                <Area type="monotone" dataKey="sales" stroke="#0A5C3E" strokeWidth={2.4} fill="url(#trendGrad)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="card-axistra p-5" data-testid="chart-method-split">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <div className="label-xs">Mix</div>
+              <h3 className="font-display text-lg font-semibold">Payment Method</h3>
+            </div>
+            <ChartPie size={22} weight="duotone" className="text-axistra-green" />
+          </div>
+          <div style={{ width: '100%', height: 260 }}>
+            <ResponsiveContainer>
+              <PieChart>
+                <Pie
+                  data={charts?.payment_method_split || []}
+                  dataKey="total"
+                  nameKey="method"
+                  innerRadius={48}
+                  outerRadius={88}
+                  paddingAngle={2}
+                >
+                  {(charts?.payment_method_split || []).map((entry, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                </Pie>
+                <Tooltip contentStyle={{ background: '#fff', border: '1px solid #E3E7E5', borderRadius: 6, fontSize: 12 }} />
+                <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-8">
+        <div className="card-axistra p-5 lg:col-span-2" data-testid="chart-top-customers">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <div className="label-xs">Top 10</div>
+              <h3 className="font-display text-lg font-semibold">Top Customers — {year}</h3>
+            </div>
+            <ChartBar size={22} weight="duotone" className="text-axistra-green" />
+          </div>
+          <div style={{ width: '100%', height: 300 }}>
+            <ResponsiveContainer>
+              <BarChart data={charts?.top_customers || []} layout="vertical" margin={{ left: 20, right: 20 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#EEF1EF" />
+                <XAxis type="number" stroke="#6B7B75" fontSize={11} />
+                <YAxis type="category" dataKey="name" stroke="#6B7B75" fontSize={11} width={140} />
+                <Tooltip contentStyle={{ background: '#fff', border: '1px solid #E3E7E5', borderRadius: 6, fontSize: 12 }} />
+                <Bar dataKey="total" fill="#0A5C3E" radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="card-axistra p-5" data-testid="chart-gateway-split">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <div className="label-xs">Mix</div>
+              <h3 className="font-display text-lg font-semibold">Gateway Split</h3>
+            </div>
+            <Sparkle size={22} weight="duotone" className="text-axistra-gold" />
+          </div>
+          <div style={{ width: '100%', height: 300 }}>
+            <ResponsiveContainer>
+              <PieChart>
+                <Pie
+                  data={charts?.gateway_split || []}
+                  dataKey="total"
+                  nameKey="gateway"
+                  outerRadius={104}
+                >
+                  {(charts?.gateway_split || []).map((entry, i) => <Cell key={i} fill={COLORS[(i + 2) % COLORS.length]} />)}
+                </Pie>
+                <Tooltip contentStyle={{ background: '#fff', border: '1px solid #E3E7E5', borderRadius: 6, fontSize: 12 }} />
+                <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+
+      {/* Report cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mb-6">
+        {REPORTS.map((r) => {
+          const Icon = r.icon;
+          return (
+            <div key={r.key} className="card-axistra p-5" data-testid={`report-card-${r.key}`}>
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="label-xs">Report</div>
+                  <h3 className="font-display text-lg font-semibold mt-0.5">{r.name}</h3>
+                </div>
+                <div className="flex h-9 w-9 items-center justify-center rounded-md bg-[var(--axistra-green-light)] text-axistra-green">
+                  <Icon size={18} weight="duotone" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 mt-4">
+                <button onClick={() => view(r.key)} disabled={loading === r.key} className="btn-secondary text-xs disabled:opacity-50" data-testid={`report-view-${r.key}`}>
+                  {loading === r.key ? 'Loading…' : 'View'}
+                </button>
+                <button onClick={() => pdf(r.key)} className="btn-secondary text-xs inline-flex items-center justify-center gap-1" data-testid={`report-pdf-${r.key}`}><FilePdf size={14} /> PDF</button>
+                <button onClick={() => excel(r.key)} className="btn-secondary text-xs inline-flex items-center justify-center gap-1" data-testid={`report-excel-${r.key}`}><FileXls size={14} /> Excel</button>
+                <button onClick={() => csv(r.key)} className="btn-secondary text-xs inline-flex items-center justify-center gap-1" data-testid={`report-csv-${r.key}`}><FileCsv size={14} /> CSV</button>
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {preview && (

@@ -109,6 +109,7 @@ async function getBrowser() {
     const puppeteer = require('puppeteer');
     browserPromise = puppeteer.launch({
       headless: 'new',
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome',
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
     });
   }

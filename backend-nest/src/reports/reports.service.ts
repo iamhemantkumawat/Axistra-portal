@@ -73,6 +73,77 @@ export class ReportsService {
     return this.recharges.createQueryBuilder('r').leftJoinAndSelect('r.customer', 'c').orderBy('r.created_at', 'DESC').getMany();
   }
 
+  /**
+   * Aggregated chart data for the Reports dashboard.
+   * Returns: kpis + monthly trend + top customers + payment method + gateway breakdown
+   */
+  async chartsDashboard(year?: number) {
+    const y = year || new Date().getFullYear();
+    const yStart = new Date(`${y}-01-01T00:00:00Z`);
+    const yEnd = new Date(`${y}-12-31T23:59:59Z`);
+
+    // Monthly trend
+    const monthly = await this.recharges
+      .createQueryBuilder('r')
+      .select("TO_CHAR(DATE_TRUNC('month', r.created_at), 'YYYY-MM')", 'month')
+      .addSelect('SUM(r.amount::numeric)', 'sales')
+      .addSelect('COUNT(*)', 'count')
+      .where('EXTRACT(YEAR FROM r.created_at) = :y', { y })
+      .groupBy('month').orderBy('month', 'ASC').getRawMany();
+
+    // Top 10 customers
+    const topCustomers = await this.recharges
+      .createQueryBuilder('r')
+      .leftJoin('r.customer', 'c')
+      .select('COALESCE(c.full_name, r.magnus_username)', 'name')
+      .addSelect('c.customer_code', 'code')
+      .addSelect('SUM(r.amount::numeric)', 'total')
+      .addSelect('COUNT(*)', 'recharges')
+      .where('EXTRACT(YEAR FROM r.created_at) = :y', { y })
+      .groupBy('name').addGroupBy('c.customer_code')
+      .orderBy('total', 'DESC').limit(10)
+      .getRawMany();
+
+    // Coin split (recharges don't carry payment_method — coin is the meaningful axis)
+    const methodSplit = await this.recharges
+      .createQueryBuilder('r')
+      .select('COALESCE(r.crypto_coin, $$Other$$)', 'method')
+      .addSelect('SUM(r.amount::numeric)', 'total')
+      .addSelect('COUNT(*)', 'count')
+      .where('EXTRACT(YEAR FROM r.created_at) = :y', { y })
+      .groupBy('method').orderBy('total', 'DESC').getRawMany();
+
+    // Gateway split
+    const gatewaySplit = await this.recharges
+      .createQueryBuilder('r')
+      .select('COALESCE(r.payment_gateway, $$Other$$)', 'gateway')
+      .addSelect('SUM(r.amount::numeric)', 'total')
+      .addSelect('COUNT(*)', 'count')
+      .where('EXTRACT(YEAR FROM r.created_at) = :y', { y })
+      .groupBy('gateway').orderBy('total', 'DESC').getRawMany();
+
+    // KPIs from yearly P&L
+    const pl = await this.yearlyPl(y);
+    const vat = await this.vatThreshold();
+
+    return {
+      year: y,
+      kpis: {
+        total_sales: pl.total_sales,
+        total_expenses: pl.total_expenses,
+        gross_profit: pl.gross_profit,
+        net_profit: pl.net_profit,
+        estimated_corp_tax: pl.estimated_corp_tax,
+        vat_progress_pct: vat.progress_pct,
+        vat_remaining_aed: vat.remaining,
+      },
+      monthly_trend: monthly.map((r) => ({ month: r.month, sales: parseFloat(r.sales || '0'), count: parseInt(r.count || '0', 10) })),
+      top_customers: topCustomers.map((r) => ({ name: r.name || '—', code: r.code || '—', total: parseFloat(r.total || '0'), recharges: parseInt(r.recharges || '0', 10) })),
+      payment_method_split: methodSplit.map((r) => ({ method: r.method || 'Other', total: parseFloat(r.total || '0'), count: parseInt(r.count || '0', 10) })),
+      gateway_split: gatewaySplit.map((r) => ({ gateway: r.gateway || 'Other', total: parseFloat(r.total || '0'), count: parseInt(r.count || '0', 10) })),
+    };
+  }
+
   async cryptoToAed() {
     const movements = await this.treasury.find({ where: { converted_to_aed: true }, order: { conversion_date: 'DESC' } });
     const total_usdt = movements.reduce((s, m) => s + parseFloat(m.usdt_converted || '0'), 0);
