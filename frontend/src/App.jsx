@@ -14,6 +14,8 @@ import Recharges from './pages/Recharges';
 import RechargeDetail from './pages/RechargeDetail';
 import Invoices from './pages/Invoices';
 import Treasury from './pages/Treasury';
+import WalletLedger from './pages/WalletLedger';
+import AuditChainSearch from './pages/AuditChainSearch';
 import Expenses from './pages/Expenses';
 import ProfitLoss from './pages/ProfitLoss';
 import Reports from './pages/Reports';
@@ -54,6 +56,8 @@ function App() {
               <Route path="/recharges/:id" element={<RechargeDetail />} />
               <Route path="/invoices" element={<Invoices />} />
               <Route path="/treasury" element={<Treasury />} />
+              <Route path="/wallets" element={<WalletLedger />} />
+              <Route path="/audit-chain" element={<AuditChainSearch />} />
               <Route path="/expenses" element={<Expenses />} />
               <Route path="/profit-loss" element={<ProfitLoss />} />
               <Route path="/reports" element={<Reports />} />

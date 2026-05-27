@@ -4,9 +4,10 @@ import { Expense } from '../entities/expense.entity';
 import { ExpensesService } from './expenses.service';
 import { ExpensesController } from './expenses.controller';
 import { AuditModule } from '../audit/audit.module';
+import { WalletsModule } from '../wallets/wallets.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Expense]), AuditModule],
+  imports: [TypeOrmModule.forFeature([Expense]), AuditModule, WalletsModule],
   providers: [ExpensesService],
   controllers: [ExpensesController],
   exports: [ExpensesService],

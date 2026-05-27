@@ -11,6 +11,7 @@ import { AuditService } from '../audit/audit.service';
 import { InvoicesService } from '../invoices/invoices.service';
 import { MagnusService } from '../magnus/magnus.service';
 import { FxService } from '../fx/fx.service';
+import { WalletsService } from '../wallets/wallets.service';
 
 @Injectable()
 export class RechargesService {
@@ -25,6 +26,7 @@ export class RechargesService {
     private invoiceSvc: InvoicesService,
     private magnusSvc: MagnusService,
     private fxSvc: FxService,
+    private wallets: WalletsService,
   ) {}
 
   private async nextCode() {
@@ -293,6 +295,20 @@ export class RechargesService {
       action: 'add_crypto_tx', entity_type: 'recharge', entity_id: id,
       details: `Crypto TX recorded ${saved.tx_hash}`,
     });
+    await this.wallets.recordRechargeDeposit({
+      recharge_id: id,
+      invoice_id: r.invoice_id,
+      payment_gateway: r.payment_gateway,
+      coin: saved.coin || r.crypto_coin,
+      network: saved.network || r.crypto_network,
+      amount: String(saved.crypto_amount || '0'),
+      tx_hash: saved.tx_hash,
+      external_ref: r.recharge_code,
+      counterparty: r.magnus_username,
+      aed_value: saved.aed_value,
+      event_at: r.payment_date,
+      notes: `${r.payment_gateway} manual deposit`,
+    }, actor);
     return saved;
   }
 
@@ -492,6 +508,29 @@ export class RechargesService {
       entity_id: id,
       details: `Gateway crypto TX recorded ${savedTransactions.map((tx) => tx.tx_hash).join(', ')}`,
     });
+
+    // Wallet ledger deposit (idempotent on tx_hash + recharge)
+    for (const tx of savedTransactions) {
+      const depositAmount = (tx.final_usdt_amount && (tx.coin || '').toUpperCase() !== 'USDT')
+        ? tx.final_usdt_amount
+        : (tx.received_amount || tx.crypto_amount);
+      const depositCoin = tx.final_usdt_amount ? 'USDT' : tx.coin;
+      await this.wallets.recordRechargeDeposit({
+        recharge_id: id,
+        invoice_id: r.invoice_id,
+        payment_gateway: data.payment_gateway || r.payment_gateway,
+        coin: depositCoin || 'USDT',
+        network: tx.network || r.crypto_network,
+        amount: String(depositAmount || '0'),
+        tx_hash: tx.tx_hash,
+        external_ref: r.recharge_code,
+        counterparty: r.magnus_username,
+        aed_value: tx.aed_value,
+        event_at: r.payment_date || new Date(),
+        notes: `${data.payment_gateway || r.payment_gateway} deposit`,
+      }, actor);
+    }
+
     return savedTransactions[0];
   }
 

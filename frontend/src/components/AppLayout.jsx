@@ -14,6 +14,8 @@ const NAV = [
   { to: '/recharges', label: 'Recharges', icon: CurrencyCircleDollar, tid: 'sidebar-nav-recharges' },
   { to: '/invoices', label: 'Invoices', icon: FileText, tid: 'sidebar-nav-invoices' },
   { to: '/treasury', label: 'Crypto Treasury', icon: Wallet, tid: 'sidebar-nav-treasury' },
+  { to: '/wallets', label: 'Wallet Ledger', icon: Wallet, tid: 'sidebar-nav-wallets' },
+  { to: '/audit-chain', label: 'Audit Chain', icon: Shield, tid: 'sidebar-nav-audit-chain' },
   { to: '/expenses', label: 'Expenses', icon: Receipt, tid: 'sidebar-nav-expenses' },
   { to: '/profit-loss', label: 'Profit & Loss', icon: ChartLineUp, tid: 'sidebar-nav-profit-loss' },
   { to: '/reports', label: 'Reports', icon: FileCsv, tid: 'sidebar-nav-reports' },

@@ -1,0 +1,43 @@
+{
+  "summary": "Option B Crypto Treasury (Wallet Ledger + Audit Chain + Snapshot + Onchain) - BACKEND 18/18 NEW PASS; FRONTEND verified end-to-end. Wallet config returns 6 wallets; overview & ledger filtering (coin/tx_type/pagination) work; send-batch (OxaPay->Binance) creates correct batch_out+batch_in+fee rows and balances move exactly by amt+fee/amt-fee; convert(BTC->USDT@60000) decreases from_coin by 0.001 BTC and increases to_coin by 59.5 USDT (after 0.5 fee); cashout creates cashout + bank_deposit pair with net (1000-5=995) AED into Wio; expense create with method='Binance Pay' + paid_in_usdt=true debits BINANCE USDT by 25; PATCH expense (25->30) re-flows ledger (delta -5); DELETE expense restores full 30 USDT; /api/chain/search?q=<recharge_code> returns counts and chain {customer, invoice, recharge, ledger_entries}; /api/snapshot/daily returns opening/activity/closing per wallet+coin; /api/onchain/verify/btc/<hash> returns no-5xx with network='btc'. Frontend /wallets renders 6 wallet cards (CRYPTO/EXCHANGE/BANK/MANUAL pills) with live balances exactly matching the backend (OXAPAY 2378.21 USDT, BTCPAY 1.06293472 BTC, BINANCE -1005 AED/0.0389 BTC/108.5 USDT, OKX 0.00453 BTC, WIO 995 AED/-50 USDT, MANUAL 9 ETH), top-action buttons Send Batch / Convert / Cashout to Wio present, ledger table renders with coin/type filters & Apply. /audit-chain page renders with data-testid='audit-chain-input' + 'audit-chain-submit'; searching 'RCH-2605-00088' returns counts {ledger:0, recharges:1, ...} and renders Customer + Invoice + Recharge panel with TX hash & copy button + right side counters for Recharges/Customers/Ledger/Expenses. Sidebar has Wallet Ledger and Audit Chain links. Existing pages (Dashboard, Customers, Recharges, Invoices, Treasury, Expenses) load without regression (Recharges shows pre-existing 'Mismatch' badges - by design).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/wallets ledger search input", "issues": ["Search input placeholder on per-wallet ledger panel is clipped/overflowing inside the right-aligned input ('Search tx hash, batch, cu...') - consider widening or shortening placeholder."]},
+      {"screen": "/audit-chain", "issues": ["When chain has 0 ledger entries (e.g. Manual-gateway recharge with mismatched TX), the Ledger entries panel says 'None' which is correct but could be more descriptive ('No on-chain movements linked to this recharge yet')."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_wallets_chain.py",
+    "/app/test_reports/pytest/wallets_chain.xml"
+  ],
+  "action_items": [
+    "(Optional) Pre-existing backend_test.py::TestRecharges and TestTreasury fixtures use stricter-than-current payloads and fail because the service now requires 'AED rate and AED value at payment time' on crypto recharges and 'OKX deposit TX hash' - update fixtures or accept as expected behavior (these are NOT regressions from the Wallet Ledger rebuild).",
+    "(Optional UX) Widen the ledger panel search input or shorten its placeholder so it doesn't clip.",
+    "(Optional) Clean up the 6 TEST_ ledger rows created during this run (external_ref OXA-BIN-260527-6888, BIN-CONV-..., CASH-..., plus the -50 USDT WIO_BANK row from a previous run). Migrator on next startup will repopulate the real 86 deposits but will not auto-remove these manual TEST rows."
+  ],
+  "critical_code_review_comments": [
+    "WalletsService.sendBatch correctly creates a balanced pair (batch_out negative on source + batch_in positive on dest = received_amount), tags ledger_ids with linked_batch_id for traceability and writes a separate FEE row on the source when fee_amount > 0. Verified mathematically: 50 USDT send w/ 1 USDT fee => source -51, dest +49.",
+    "WalletsService.convert correctly handles same-wallet from->to via convert_from + convert_to with rate_used persisted; optional fee row added in fee_currency. Verified: 0.001 BTC * 60000 - 0.5 fee = 59.5 USDT in.",
+    "WalletsService.cashout writes cashout (negative AED on source) + bank_deposit (positive net AED into WIO_BANK). Verified: 1000 AED with 5 AED fee => Wio +995 AED.",
+    "ExpensesService.update calls wallets.removeExpenseLedger then recordLedger, achieving idempotent re-record. Verified end-to-end with PATCH amount 25->30.",
+    "ExpensesService.delete also removes linked ledger rows so balances are properly restored. Verified.",
+    "ChainController.search composes the 5-table search (ledger/recharges/invoices/customers/expenses) and conditionally builds a chain payload when exactly one recharge matches OR a ledger row links to a recharge. Good. Edge: when ledgerRows[0] has linked_recharge_id but multiple recharges also matched, the chain still gets built from ledger - acceptable.",
+    "SnapshotController.daily uses opening = sum(amount before start) and adds day activity grouped by tx_type. Closing recomputed deterministically as opening+ins+outs. Correct.",
+    "OnchainController gracefully degrades on rate-limit by returning {ok:false, error} instead of 500. Confirmed by test (status < 500).",
+    "All wallet routes correctly JWT-guarded (@UseGuards(AuthGuard('jwt'))).",
+    "Migrator backfills 86 recharges into wallet_ledgers on startup - verified by overview totals matching production figures.",
+    "Frontend WalletLedger.jsx uses data-testid='wallet-card-*' on all 6 cards and surfaces Send Batch / Convert / Cashout to Wio buttons. AuditChainSearch.jsx uses data-testid='audit-chain-input' and 'audit-chain-submit'. Good test coverage.",
+    "Minor: WIO_BANK shows -50 USDT balance from a leftover TEST ledger row created by a previous run - should be cleaned up before delivery."
+  ],
+  "updated_files": ["/app/backend/tests/test_wallets_chain.py"],
+  "success_rate": {"backend": "100% (18/18 NEW) + 50/53 regression (3 pre-existing fixture mismatches, not regressions)", "frontend": "100% on the new flows (Wallet Ledger page renders 6 cards with live balances, Audit Chain search renders chain with customer/invoice/recharge/ledger panels, sidebar has both new links, existing pages still load)"},
+  "test_credentials": "admin@axistratech.com / admin123 (seeded). Login form requires checking the 'I agree to Terms & Conditions' checkbox before clicking Sign In.",
+  "seed_data_creation": "Tests created 1 TEST batch (OXA-BIN-* external_ref, ~51 USDT moved out of OxaPay, ~49 into Binance), 1 BTC->USDT conversion on Binance (0.001 BTC -> 59.5 USDT), 1 cashout (1000 AED -> Wio 995 AED), 1 TEST_VENDOR_BIN expense (created+patched+deleted - net zero). These remain in wallet_ledgers and should be cleaned up.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: REACT_APP_BACKEND_URL=https://crypto-audit-chain.preview.emergentagent.com python -m pytest backend/tests/test_wallets_chain.py -v. All 18 tests must pass. For UI, login requires checking the T&C checkbox: page.click('input[type=\"checkbox\"]', force=True) before clicking submit. WalletLedger uses [data-testid='wallet-card-OXAPAY' ... wallet-card-MANUAL]; AuditChainSearch uses [data-testid='audit-chain-input'] + [data-testid='audit-chain-submit'].",
+  "rca_of_the_issue": "No new bugs found. Pre-existing 3 failures in backend_test.py are due to stricter validation in recharges/treasury endpoints (AED rate and OKX TX hash now required) - the test fixtures were written before those validations were added. Action: update fixtures (small change) OR accept as 'tests need refresh'. Not a P0."
+}
