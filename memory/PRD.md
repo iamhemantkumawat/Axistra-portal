@@ -43,7 +43,19 @@ Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corpora
 - **NEW: Legal Page** at `/legal` — privacy + terms
 - **NEW: Currency toggle** (USD/EUR/AED) — top-bar pill, client-side conversion via FX module
 
-- **NEW (Feb 2026): Wallet Ledger (Option B Treasury rebuild)** — strict double-entry ledger across 6 wallets (`OXAPAY`, `BTCPAY`, `BINANCE`, `OKX`, `WIO_BANK`, `MANUAL`). Auto-migrator imports all 86 historical recharges into `wallet_ledgers` on startup. Operations:
+- **NEW: Invoice PDF A/B Templates** — two production-grade templates wired to `?style=branded|minimal`:
+  - **Branded Hero** (default) — green/gold gradient hero, ornate header, dense compliance details
+  - **Premium Minimal** — clean white, thin Axistra accents, large typography, structured payment-trace table, accountant-ready
+  - Invoices page exposes a Branded ↔ Minimal toggle (persisted to `localStorage.axistra_invoice_style`) plus A/B compare inside the preview modal.
+- **NEW: Reports — full redesign with charts**
+  - KPI tiles (Total Sales, Total Expenses, Net Profit, VAT Progress)
+  - Charts: Monthly Sales (area), Top 10 Customers (horizontal bar), Coin/Payment-Method split (donut), Gateway Split (pie) — powered by Recharts
+  - 10 report cards each with PDF / Excel / CSV downloads
+  - `GET /api/reports/dashboard/charts?year=` returns kpis + monthly_trend + top_customers + payment_method_split + gateway_split
+  - Branded PDF rendering via Puppeteer (Chromium at `/usr/bin/google-chrome`)
+- **NEW: Month-End ZIP Bundle** — `GET /api/reports/bundle/month-end?year=&month=` returns a 9-entry ZIP: `00-Cover.pdf` + (yearly-pl, vat-threshold, corporate-tax, bank-reconciliation) × PDF + XLSX. Cover page rendered with Axistra branding, gold gradient and TOC.
+- **NEW: Manual payments + wallet routing fix** — removed `MANUAL` wallet from the system. Admins now explicitly pick the receiving exchange (BINANCE/OKX/OXAPAY/BTCPAY/WIO_BANK) when recording a manual crypto TX. The destination ledger row lands on the picked wallet. Telegram bot default gateway changed from `Manual` → `Binance`. Existing 9-ETH MANUAL row was migrated to OKX.
+- **NEW: Treasury 3-step flow** — Wallet Ledger UI now labels actions explicitly: Step 1 Transfer Crypto (between wallets, same coin, no conversion), Step 2 Convert Coin (inside one wallet), Step 3 Withdraw AED to Wio. Each step has a guidance banner so users know they are independent and sequential.
   - `POST /api/wallets/:wallet/send-batch` — moves crypto between wallets (batch_out + batch_in + optional fee). Generates batch codes like `OXA-BIN-260527-XXXX` and `BPAY-2605-NNNNN`.
   - `POST /api/wallets/:wallet/convert` — same-wallet coin swap (convert_from + convert_to + fee). Persists `rate_used` for audit.
   - `POST /api/wallets/:wallet/cashout` — sells AED out of OKX/Binance and deposits into Wio Bank (cashout + bank_deposit, net = amount − bank_fee).
