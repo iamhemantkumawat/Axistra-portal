@@ -55,6 +55,20 @@ Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corpora
   - PAID/UNPAID/FAILED status badge in top-right corner
   - **Guaranteed single A4 page** via `@page A4` + `pageRanges:'1'` in Puppeteer
   - Endpoints: `GET /api/invoices/:id/pdf` (defaults to minimal) and `?style=branded` for the legacy Branded Hero
+- **NEW (May 27, 2026): Receiving Wallets & Vendors CRUD + Gateway Auto-Detection**
+  - Settings → Receiving Wallets table (CRUD): admins register every Axistra-owned address per `{Gateway, Coin, Network, Address, Label}`. Seeds Binance BTC `129ifR1iQyY…ZZHhqfkt` + OKX BTC `bc1q3a4gsk…ksx38sjj` idempotently on boot.
+  - Settings → Vendors table (CRUD): reusable payee directory (name, type, contact, default wallet, default method). Eliminates free-text vendor entry on expenses.
+  - Recharge form rebuilt: **Payment Gateway BEFORE coin/network**; Manual removed (only Binance/OKX/OxaPay/BTCPay). When a saved wallet matches `{gateway, coin, network}`, the address auto-fills with a green "Saved address found" banner. Networks dropdown now includes `OFF_CHAIN` for Binance-internal transfers without an on-chain hash.
+  - Recharge backend: `detectGatewayFromAddress()` resolves the receiving address to a gateway → no more `Manual / mismatch` for known wallets. `nextCode()` now uses `MAX(recharge_code)` (was `count+1`) — race condition fixed.
+  - On-chain auto-verify: `OnchainService` fires non-blocking on every `addCryptoTx` / `addGatewayCryptoTx`, updates `gateway_tx_status` + `confirmations` + `sender_address`. `OFF_CHAIN` networks are auto-confirmed. Daily refresh job retries unconfirmed hashes from the last 14 days.
+  - Expenses form rebuilt: **Payment Method FIRST** → conditional fields:
+    - Bank Transfer / Card → Wio Bank dropdown + bank reference, debits `WIO_BANK` in AED.
+    - USDT / Binance Pay → Source Wallet (BINANCE/OKX/OXAPAY/BTCPAY) + TX/TXID, debits the chosen exchange wallet in USDT.
+    - Cash / Other → notes only.
+  - Vendor is now a required dropdown sourced from `/api/settings/vendors`. AED Rate and standalone Bank Reference fields removed from the UI (DB columns kept for legacy data).
+  - New endpoints: `GET|POST|PATCH|DELETE /api/settings/receiving-wallets`, `GET|POST|PATCH|DELETE /api/settings/vendors`
+  - 14/14 backend tests + full frontend regression PASS (iteration_7.json).
+
 - **UPDATE (May 27, 2026): Invoice = Premium Minimal ONLY**
   - Compare button and Branded/Minimal toggle removed from Invoices UI (already cleaned)
   - Backend `/api/invoices/:id/pdf` and `/html` default to the Premium Minimal renderer
