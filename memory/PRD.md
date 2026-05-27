@@ -76,6 +76,12 @@ Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corpora
   - New endpoints: `GET|POST|PATCH|DELETE /api/settings/receiving-wallets`, `GET|POST|PATCH|DELETE /api/settings/vendors`
   - 14/14 backend tests + full frontend regression PASS (iteration_7.json).
 
+- **UPDATE (May 27, 2026 v2): Record Crypto TX modal aligned with New Recharge**
+  - `RechargeDetail.jsx` "Record Crypto TX" modal rebuilt: Payment Gateway + Coin + Network + Crypto Amount only — manual AED Rate / AED Value inputs removed.
+  - Modal fetches saved Receiving Wallets from `/api/settings/receiving-wallets` and auto-fills the destination address when `{gateway, coin, network}` matches a saved wallet, with a green "Saved address auto-filled" banner; falls back to a "Save it under Settings → Receiving Wallets" hint when none matches.
+  - Footer note clarifies: "AED value at payment is auto-computed from the live FX feed".
+  - Backend `RechargesService.addCryptoTx` now relies on `resolveAedValues(data, recharge)` only — the legacy "AED rate and AED value at payment time are required" guard is gone. Verified: $60 USD recharge → backend wrote `aed_rate=3.6725`, `aed_value=220.35` from the FX peg without any frontend input.
+
 - **UPDATE (May 27, 2026): Invoice = Premium Minimal ONLY**
   - Compare button and Branded/Minimal toggle removed from Invoices UI (already cleaned)
   - Backend `/api/invoices/:id/pdf` and `/html` default to the Premium Minimal renderer
