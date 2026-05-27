@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, OnModuleInit, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Recharge } from '../entities/recharge.entity';
@@ -7,14 +7,18 @@ import { Invoice } from '../entities/invoice.entity';
 import { CryptoTransaction } from '../entities/crypto-transaction.entity';
 import { TreasuryMovement } from '../entities/treasury-movement.entity';
 import { MagnusSyncLog } from '../entities/magnus-sync-log.entity';
+import { ReceivingWallet } from '../entities/receiving-wallet.entity';
 import { AuditService } from '../audit/audit.service';
 import { InvoicesService } from '../invoices/invoices.service';
 import { MagnusService } from '../magnus/magnus.service';
 import { FxService } from '../fx/fx.service';
 import { WalletsService } from '../wallets/wallets.service';
+import { OnchainService } from '../onchain/onchain.service';
 
 @Injectable()
-export class RechargesService {
+export class RechargesService implements OnModuleInit {
+  private readonly logger = new Logger('Recharges');
+  private refreshTimer: NodeJS.Timeout | null = null;
   constructor(
     @InjectRepository(Recharge) private repo: Repository<Recharge>,
     @InjectRepository(Customer) private customerRepo: Repository<Customer>,
@@ -22,18 +26,40 @@ export class RechargesService {
     @InjectRepository(CryptoTransaction) private cryptoRepo: Repository<CryptoTransaction>,
     @InjectRepository(TreasuryMovement) private treasuryRepo: Repository<TreasuryMovement>,
     @InjectRepository(MagnusSyncLog) private magnusLogRepo: Repository<MagnusSyncLog>,
+    @InjectRepository(ReceivingWallet) private receivingWalletRepo: Repository<ReceivingWallet>,
     private audit: AuditService,
     private invoiceSvc: InvoicesService,
     private magnusSvc: MagnusService,
     private fxSvc: FxService,
     private wallets: WalletsService,
+    private onchain: OnchainService,
   ) {}
 
+  onModuleInit() {
+    // Daily refresh of unconfirmed on-chain TX hashes.
+    const ONE_DAY = 24 * 60 * 60 * 1000;
+    // Kick off an initial pass shortly after boot (let DB warm up first).
+    setTimeout(() => this.refreshUnverifiedOnchainTxs().catch((e) => this.logger.warn(`Onchain refresh failed: ${e?.message}`)), 60 * 1000);
+    this.refreshTimer = setInterval(() => {
+      this.refreshUnverifiedOnchainTxs().catch((e) => this.logger.warn(`Onchain refresh failed: ${e?.message}`));
+    }, ONE_DAY);
+  }
+
   private async nextCode() {
-    const count = await this.repo.count();
     const now = new Date();
     const prefix = `${String(now.getFullYear()).slice(-2)}${String(now.getMonth() + 1).padStart(2, '0')}`;
-    return `RCH-${prefix}-${String(count + 1).padStart(5, '0')}`;
+    const pattern = `RCH-${prefix}-%`;
+    const row = await this.repo
+      .createQueryBuilder('r')
+      .select('MAX(r.recharge_code)', 'max_code')
+      .where('r.recharge_code LIKE :pattern', { pattern })
+      .getRawOne();
+    let next = 1;
+    if (row?.max_code) {
+      const m = String(row.max_code).match(/(\d+)$/);
+      if (m) next = parseInt(m[1], 10) + 1;
+    }
+    return `RCH-${prefix}-${String(next).padStart(5, '0')}`;
   }
 
   private async nextCustomerCode() {
@@ -73,11 +99,15 @@ export class RechargesService {
     const customer = await this.customerRepo.findOne({ where: { id: data.customer_id } });
     if (!customer) throw new BadRequestException('Customer not found');
     const code = await this.nextCode();
+    // Detect the receiving wallet → gateway override
+    const detected = await this.detectGatewayFromAddress(data.wallet_address);
+    const gateway = data.payment_gateway || detected || 'Binance';
+    if (gateway === 'Manual') throw new BadRequestException('Manual gateway is no longer supported. Pick Binance, OKX, OxaPay, or BTCPay.');
     const invoice = await this.invoiceSvc.createForRecharge({
       customer,
       amount: data.amount,
       currency: data.currency || 'USD',
-      payment_method: data.payment_gateway || 'Manual',
+      payment_method: gateway,
       crypto_coin: data.crypto_coin,
       crypto_network: data.crypto_network,
       tx_hash: data.tx_hash,
@@ -95,7 +125,7 @@ export class RechargesService {
       crypto_network: data.crypto_network || 'TRC20',
       wallet_address: data.wallet_address,
       tx_hash: data.tx_hash,
-      payment_gateway: data.payment_gateway || 'Manual',
+      payment_gateway: gateway,
       payment_date: data.payment_date || new Date(),
       admin_notes: data.admin_notes,
       status: 'pending_payment',
@@ -287,6 +317,7 @@ export class RechargesService {
     invoice.tx_hash = saved.tx_hash;
     invoice.status = 'paid';
     await this.invoiceRepo.save(invoice);
+    this.kickoffOnchainVerify(saved);
     const treasury = await this.treasuryRepo.findOne({ where: { recharge_id: id } });
     if (treasury) {
       treasury.total_usdt_received = saved.crypto_amount;
@@ -453,6 +484,10 @@ export class RechargesService {
       savedTransactions.push(await this.cryptoRepo.save(tx));
     }
 
+    for (const tx of savedTransactions) {
+      this.kickoffOnchainVerify(tx);
+    }
+
     const allTransactions = await this.cryptoRepo.find({ where: { recharge_id: id }, order: { created_at: 'ASC' } });
     const totalUsdt = this.sumFinalUsdt(allTransactions);
     const sourceSummary = this.sourceSummary(allTransactions);
@@ -592,6 +627,74 @@ export class RechargesService {
     if (w.includes('btcpay')) return 'BTCPay';
     if (w.includes('wio') || w.includes('bank')) return 'Wio Bank';
     return null;
+  }
+
+  /**
+   * Look up the saved receiving wallet (Settings → Receiving Wallets) and
+   * return its gateway code so a recharge gets the correct payment_gateway
+   * without "Manual / mismatch".
+   */
+  async detectGatewayFromAddress(address?: string): Promise<string | null> {
+    if (!address?.trim()) return null;
+    const row = await this.receivingWalletRepo
+      .createQueryBuilder('w')
+      .where('LOWER(w.address) = LOWER(:a)', { a: address.trim() })
+      .andWhere('w.is_active = true')
+      .getOne();
+    return row?.gateway || null;
+  }
+
+  /**
+   * Best-effort, non-blocking on-chain verification. Updates the
+   * CryptoTransaction row with confirmation status when the network is a
+   * supported public chain (BTC / TRC20 / ERC20). Off-chain networks are
+   * marked as confirmed automatically.
+   */
+  private kickoffOnchainVerify(tx: CryptoTransaction) {
+    if (!tx?.tx_hash || !tx?.network) return;
+    setImmediate(async () => {
+      try {
+        const result = await this.onchain.verify(tx.network, tx.tx_hash);
+        if (!result) return;
+        const fresh = await this.cryptoRepo.findOne({ where: { id: tx.id } });
+        if (!fresh) return;
+        if (result.ok) {
+          fresh.gateway_tx_status = result.confirmed ? 'confirmed' : 'pending_chain';
+          if (result.confirmations !== undefined) fresh.confirmations = String(result.confirmations);
+          if (result.from && !fresh.sender_address) fresh.sender_address = result.from;
+          fresh.notes = `${fresh.notes || ''}\n[onchain ${result.network}] ${result.confirmed ? 'CONFIRMED' : 'pending'} ${result.confirmations || 0} confs`.trim();
+        } else {
+          fresh.notes = `${fresh.notes || ''}\n[onchain ${result.network}] verify failed: ${result.error}`.trim();
+        }
+        await this.cryptoRepo.save(fresh);
+      } catch {
+        /* swallow — verification is fire-and-forget */
+      }
+    });
+  }
+
+  /**
+   * Daily refresh of unconfirmed crypto transactions from the last 14 days.
+   * Called by an interval timer registered in the module.
+   */
+  async refreshUnverifiedOnchainTxs() {
+    const cutoff = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+    const rows = await this.cryptoRepo
+      .createQueryBuilder('t')
+      .where('t.created_at >= :cutoff', { cutoff })
+      .andWhere('(t.gateway_tx_status IS NULL OR t.gateway_tx_status NOT IN (:...done))', { done: ['confirmed', 'failed'] })
+      .andWhere('t.tx_hash IS NOT NULL')
+      .limit(50)
+      .getMany();
+    for (const tx of rows) {
+      if (OnchainService.isOffChain(tx.network)) {
+        tx.gateway_tx_status = 'confirmed';
+        await this.cryptoRepo.save(tx);
+        continue;
+      }
+      this.kickoffOnchainVerify(tx);
+    }
+    return { scanned: rows.length };
   }
 
   private async findOrCreateCustomerFromPayment(data: any) {

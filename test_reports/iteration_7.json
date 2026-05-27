@@ -1,0 +1,35 @@
+{
+  "summary": "Full regression for Receiving Wallets + Vendors CRUD, Recharges gateway-auto-detect & Manual rejection, Expenses payment-method-first flow with ledger auto-debit, and core regression (login, customers, recharges list, invoice PDF). All 14 backend pytest cases pass. Frontend Settings/Recharges/Expenses UI verified via Playwright: testids present, modals open, gateway dropdown excludes Manual and is ordered before coin, OFF_CHAIN network present, matched-wallet-hint shows the seeded Binance BTC address, Bank method shows Wio Bank dropdown, BinancePay method shows Source Wallet dropdown, AED Rate field removed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_settings_recharges_expenses.py",
+    "/app/test_reports/pytest/settings_recharges_expenses.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "settings.controller.ts looks clean; bad-gateway rejection and missing-field validation both return 400 as expected.",
+    "recharges.service.ts: detectGatewayFromAddress() correctly maps Binance BTC seed → 'Binance'. Manual gateway is rejected at create() with 400. nextCode() now uses MAX which removes the count-based race.",
+    "expenses.service.ts correctly inserts negative ledger row in BINANCE (USDT) for BinancePay + source_wallet=BINANCE, and in WIO_BANK (AED) for Bank + bank_name='Wio Bank'. Both rows are linked via linked_expense_id.",
+    "Frontend Settings page exposes data-testid for all CRUD elements (receiving-wallets-card, vendors-card, wallet-form-submit, vendor-form-submit). Recharges form orders gateway before coin in DOM; networks list contains OFF_CHAIN; matched-wallet-hint shows seeded address text. Expenses form has Payment Method as first field; Bank shows Wio Bank dropdown; BinancePay shows source wallet dropdown.",
+    "Note: the field labelled 'Bank Reference / Receipt #' (data-testid exp-form-bank-ref) inside the Bank/Card branch binds to form.tx_hash — i.e. it is the per-method TX/receipt identifier, not the deleted standalone field. This matches the spec; flag only if the product owner wants a different label.",
+    "Wallet ledger endpoint returns { rows: [...] } (not items) — confirmed by test; consistent across BINANCE and WIO_BANK ledgers."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_settings_recharges_expenses.py"
+  ],
+  "success_rate": {"backend": "100% (14/14)", "frontend": "100% on covered flows"},
+  "test_credentials": "admin@axistratech.com / admin123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Tests create and clean up TEST_-prefixed vendors and receiving-wallets; two BinancePay/Bank expenses are persisted (intentional — they verify ledger writes and remain as audit data).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend test file /app/backend/tests/test_settings_recharges_expenses.py covers receiving-wallets CRUD, vendors CRUD, recharge gateway auto-detect & Manual rejection, expense → BINANCE/WIO_BANK ledger writes, and light regression (customers list, wallets overview, invoice PDF). Ledger endpoint returns rows under the 'rows' key. The matched-wallet-hint testid on Recharges is verified to display the seeded Binance address. Frontend Login requires checking the T&C checkbox (data-testid='login-terms-checkbox') before clicking Submit.",
+  "rca of the issue": "N/A — no failures detected."
+}

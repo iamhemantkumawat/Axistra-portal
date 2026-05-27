@@ -18,6 +18,8 @@ import { Lead } from './entities/lead.entity';
 import { PaymentWebhook } from './entities/payment-webhook.entity';
 import { TreasuryBatch } from './entities/treasury-batch.entity';
 import { WalletLedger } from './entities/wallet-ledger.entity';
+import { ReceivingWallet } from './entities/receiving-wallet.entity';
+import { Vendor } from './entities/vendor.entity';
 
 import { AuthModule } from './auth/auth.module';
 import { CustomersModule } from './customers/customers.module';
@@ -39,6 +41,7 @@ import { WalletsModule } from './wallets/wallets.module';
 import { ChainModule } from './chain/chain.module';
 import { SnapshotModule } from './snapshot/snapshot.module';
 import { OnchainModule } from './onchain/onchain.module';
+import { SettingsModule } from './settings/settings.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -55,7 +58,7 @@ import { HealthController } from './health.controller';
         AdminUser, Customer, Recharge, Invoice, CryptoTransaction,
         TreasuryMovement, Expense, ComplianceLog, AuditLog,
         MagnusSyncLog, KycDocument, Setting, Lead, PaymentWebhook, TreasuryBatch,
-        WalletLedger,
+        WalletLedger, ReceivingWallet, Vendor,
       ],
       synchronize: process.env.DB_SYNCHRONIZE === 'true',
       migrations: [__dirname + '/migrations/*{.js,.ts}'],
@@ -82,6 +85,7 @@ import { HealthController } from './health.controller';
     ChainModule,
     SnapshotModule,
     OnchainModule,
+    SettingsModule,
   ],
   controllers: [HealthController],
 })

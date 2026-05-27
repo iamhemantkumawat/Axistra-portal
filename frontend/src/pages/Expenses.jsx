@@ -2,20 +2,41 @@ import React, { useEffect, useState } from 'react';
 import api from '../lib/api';
 import { PageHeader, Modal, Field, Hash } from '../components/Atoms';
 import { fmtDate, fmtMoney } from '../lib/format';
-import { Plus } from '@phosphor-icons/react';
+import { Plus, Info } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 
 const CATEGORIES = ['VPS', 'Vendor', 'Software', 'Salary', 'Office', 'BankCharges', 'ExchangeFees', 'Legal', 'Marketing', 'Other'];
+const BANKS = ['Wio Bank']; // extend later as needed
+const SOURCE_WALLETS = ['BINANCE', 'OKX', 'OXAPAY', 'BTCPAY'];
+
 const empty = {
   expense_date: new Date().toISOString().slice(0, 10),
-  vendor_name: '', category: 'VPS', amount: '', currency: 'AED',
-  payment_method: 'Bank', paid_in_usdt: false, vendor_wallet: '',
-  crypto_network: 'TRC20', tx_hash: '', aed_rate: '', aed_value: '',
-  bank_reference: '', notes: '',
+  vendor_id: '',
+  vendor_name: '',
+  category: 'VPS',
+  amount: '',
+  currency: 'AED',
+  payment_method: 'Bank',
+  bank_name: '',
+  source_wallet: '',
+  vendor_wallet: '',
+  crypto_network: 'TRC20',
+  tx_hash: '',
+  notes: '',
 };
+
+const PAYMENT_METHODS = [
+  { value: 'Bank', label: 'Bank Transfer' },
+  { value: 'Card', label: 'Credit / Debit Card' },
+  { value: 'USDT', label: 'USDT Crypto' },
+  { value: 'BinancePay', label: 'Binance Pay' },
+  { value: 'Cash', label: 'Cash' },
+  { value: 'Other', label: 'Other' },
+];
 
 export default function Expenses() {
   const [items, setItems] = useState([]);
+  const [vendors, setVendors] = useState([]);
   const [category, setCategory] = useState('');
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
@@ -28,26 +49,58 @@ export default function Expenses() {
     if (search) p.search = search;
     api.get('/expenses', { params: p }).then((r) => setItems(r.data));
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [category]);
+  useEffect(() => {
+    load();
+    api.get('/settings/vendors').then((r) => setVendors(r.data));
+  /* eslint-disable-next-line */ }, [category]);
+
+  const openNew = () => {
+    setForm(empty);
+    setOpen(true);
+  };
+
+  const onVendorChange = (e) => {
+    const id = e.target.value;
+    const v = vendors.find((x) => x.id === id);
+    setForm((f) => ({
+      ...f,
+      vendor_id: id,
+      vendor_name: v?.name || '',
+      payment_method: v?.default_payment_method || f.payment_method,
+      source_wallet: v?.default_wallet || f.source_wallet,
+    }));
+  };
 
   const submit = async (e) => {
     e.preventDefault();
+    if (!form.vendor_name?.trim() && !form.vendor_id) {
+      toast.error('Pick a vendor first (add one under Settings → Vendors)');
+      return;
+    }
     setLoading(true);
     try {
       await api.post('/expenses', form);
-      toast.success('Expense recorded');
-      setOpen(false); setForm(empty); load();
-    } catch { toast.error('Failed'); }
+      toast.success('Expense recorded and wallet ledger updated');
+      setOpen(false);
+      setForm(empty);
+      load();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed');
+    }
     finally { setLoading(false); }
   };
+
+  const method = form.payment_method;
+  const isBankLike = method === 'Bank' || method === 'Card';
+  const isCryptoLike = method === 'USDT' || method === 'BinancePay';
 
   return (
     <div>
       <PageHeader
         eyebrow="Spend"
         title="Expenses"
-        subtitle="Track operational, vendor, and crypto-paid expenses with AED equivalent for accounting."
-        actions={<button onClick={() => setOpen(true)} className="btn-primary inline-flex items-center gap-2" data-testid="add-expense-btn"><Plus size={16} /> Add Expense</button>}
+        subtitle="Track operational, vendor and crypto-paid expenses — each entry hits the right wallet ledger automatically."
+        actions={<button onClick={openNew} className="btn-primary inline-flex items-center gap-2" data-testid="add-expense-btn"><Plus size={16} /> Add Expense</button>}
       />
 
       <div className="card-axistra p-4 mb-4 flex flex-col md:flex-row gap-3">
@@ -60,7 +113,7 @@ export default function Expenses() {
 
       <div className="card-axistra overflow-x-auto">
         <table className="table-axistra">
-          <thead><tr><th>Expense</th><th>Date</th><th>Vendor</th><th>Category</th><th>Amount</th><th>Method</th><th>AED Value</th><th>TX/Ref</th></tr></thead>
+          <thead><tr><th>Expense</th><th>Date</th><th>Vendor</th><th>Category</th><th>Amount</th><th>Method</th><th>Wallet / Bank</th><th>TX / Ref</th></tr></thead>
           <tbody>
             {items.length === 0 && <tr><td colSpan="8" className="text-center text-gray-500 py-10">No expenses recorded.</td></tr>}
             {items.map((e) => (
@@ -70,8 +123,8 @@ export default function Expenses() {
                 <td className="font-medium">{e.vendor_name}</td>
                 <td><span className="badge badge-neutral">{e.category}</span></td>
                 <td className="font-mono">{fmtMoney(e.amount, e.currency)}</td>
-                <td className="text-xs">{e.payment_method}{e.paid_in_usdt && ' · USDT'}</td>
-                <td className="font-mono text-sm">{e.aed_value ? `${parseFloat(e.aed_value).toLocaleString()} AED` : '—'}</td>
+                <td className="text-xs">{e.payment_method}</td>
+                <td className="text-xs">{e.source_wallet || e.bank_name || '—'}</td>
                 <td>{e.tx_hash ? <Hash value={e.tx_hash} /> : <span className="text-xs text-gray-500">{e.bank_reference || '—'}</span>}</td>
               </tr>
             ))}
@@ -79,31 +132,93 @@ export default function Expenses() {
         </table>
       </div>
 
-      <Modal open={open} onClose={() => setOpen(false)} title="Add Expense" testId="expense-modal">
+      <Modal open={open} onClose={() => setOpen(false)} title="Add Expense" testId="expense-modal" size="lg">
         <form onSubmit={submit} className="grid grid-cols-2 gap-4">
-          <Field label="Date *"><input type="date" required className="input-axistra" value={form.expense_date} onChange={(e) => setForm({ ...form, expense_date: e.target.value })} data-testid="exp-form-date" /></Field>
-          <Field label="Vendor *"><input required className="input-axistra" value={form.vendor_name} onChange={(e) => setForm({ ...form, vendor_name: e.target.value })} data-testid="exp-form-vendor" /></Field>
-          <Field label="Category"><select className="input-axistra" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} data-testid="exp-form-category">{CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></Field>
-          <Field label="Payment Method"><select className="input-axistra" value={form.payment_method} onChange={(e) => setForm({ ...form, payment_method: e.target.value, paid_in_usdt: e.target.value === 'USDT' || e.target.value === 'BinancePay' })} data-testid="exp-form-method"><option value="Bank">Bank Transfer</option><option value="Card">Credit / Debit Card</option><option value="USDT">USDT Crypto</option><option value="BinancePay">Binance Pay</option><option value="Cash">Cash</option><option value="Other">Other</option></select></Field>
+          {/* Step 1: Payment method FIRST */}
+          <Field label="Payment Method *" span={2}>
+            <select className="input-axistra" value={form.payment_method} onChange={(e) => setForm({ ...form, payment_method: e.target.value, source_wallet: '', bank_name: '' })} data-testid="exp-form-method">
+              {PAYMENT_METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+            </select>
+          </Field>
+
+          <Field label="Date *">
+            <input type="date" required className="input-axistra" value={form.expense_date} onChange={(e) => setForm({ ...form, expense_date: e.target.value })} data-testid="exp-form-date" />
+          </Field>
+          <Field label="Category">
+            <select className="input-axistra" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} data-testid="exp-form-category">{CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select>
+          </Field>
+
+          <Field label="Vendor *" span={2}>
+            {vendors.length > 0 ? (
+              <select required className="input-axistra" value={form.vendor_id} onChange={onVendorChange} data-testid="exp-form-vendor">
+                <option value="">Select a vendor…</option>
+                {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}{v.type ? ` — ${v.type}` : ''}</option>)}
+              </select>
+            ) : (
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs flex items-start gap-2">
+                <Info size={14} className="text-amber-700 mt-0.5 flex-shrink-0" />
+                <div>
+                  No vendors yet. <a href="/settings" className="underline font-semibold">Add one under Settings → Vendors</a>, then come back to log this expense.
+                </div>
+              </div>
+            )}
+          </Field>
+
           <Field label="Amount *"><input required type="number" step="0.01" className="input-axistra" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} data-testid="exp-form-amount" /></Field>
-          <Field label="Currency"><select className="input-axistra" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })} data-testid="exp-form-currency"><option>AED</option><option>USD</option><option>EUR</option><option>USDT</option></select></Field>
-          {(form.payment_method === 'USDT' || form.payment_method === 'BinancePay') && (
+          <Field label="Currency">
+            <select className="input-axistra" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })} data-testid="exp-form-currency">
+              <option>AED</option><option>USD</option><option>EUR</option><option>USDT</option>
+            </select>
+          </Field>
+
+          {/* Conditional — Bank / Card */}
+          {isBankLike && (
             <>
-              <Field label="Vendor Wallet / Pay ID" span={2}><input className="input-axistra font-mono" value={form.vendor_wallet} onChange={(e) => setForm({ ...form, vendor_wallet: e.target.value })} data-testid="exp-form-wallet" /></Field>
-              <Field label="Network">
-                <select className="input-axistra" value={form.crypto_network} onChange={(e) => setForm({ ...form, crypto_network: e.target.value })}>
-                  <option>TRC20</option><option>ERC20</option><option>BEP20</option><option>BinancePay</option>
+              <Field label={`${method === 'Card' ? 'Card issuing' : 'Source'} Bank *`}>
+                <select required className="input-axistra" value={form.bank_name} onChange={(e) => setForm({ ...form, bank_name: e.target.value })} data-testid="exp-form-bank">
+                  <option value="">Select bank…</option>
+                  {BANKS.map((b) => <option key={b}>{b}</option>)}
                 </select>
               </Field>
-              <Field label="TX Hash / Order ID"><input className="input-axistra font-mono" value={form.tx_hash} onChange={(e) => setForm({ ...form, tx_hash: e.target.value })} data-testid="exp-form-tx" /></Field>
+              <Field label="Bank Reference / Receipt #">
+                <input className="input-axistra" value={form.tx_hash} onChange={(e) => setForm({ ...form, tx_hash: e.target.value })} placeholder="Wire reference / receipt #" data-testid="exp-form-bank-ref" />
+              </Field>
+              <div className="col-span-2 text-xs text-gray-500 -mt-1">
+                Wio Bank ledger will be debited automatically by this amount.
+              </div>
             </>
           )}
-          {form.payment_method === 'Card' && (
-            <Field label="Card Reference / Last 4" span={2}><input className="input-axistra font-mono" value={form.bank_reference} onChange={(e) => setForm({ ...form, bank_reference: e.target.value })} placeholder="**** 1234 / receipt #" data-testid="exp-form-card-ref" /></Field>
+
+          {/* Conditional — USDT / Binance Pay */}
+          {isCryptoLike && (
+            <>
+              <Field label="Source Wallet *">
+                <select required className="input-axistra" value={form.source_wallet} onChange={(e) => setForm({ ...form, source_wallet: e.target.value })} data-testid="exp-form-source-wallet">
+                  <option value="">Pick the wallet you paid from…</option>
+                  {SOURCE_WALLETS.map((w) => <option key={w}>{w}</option>)}
+                </select>
+              </Field>
+              <Field label="Network">
+                <select className="input-axistra" value={form.crypto_network} onChange={(e) => setForm({ ...form, crypto_network: e.target.value })}>
+                  <option>TRC20</option><option>ERC20</option><option>BEP20</option><option>Polygon</option><option>OFF_CHAIN</option>
+                </select>
+              </Field>
+              <Field label="Vendor Wallet / Pay ID" span={2}>
+                <input className="input-axistra font-mono" value={form.vendor_wallet} onChange={(e) => setForm({ ...form, vendor_wallet: e.target.value })} placeholder={method === 'BinancePay' ? 'Binance Pay ID of vendor' : 'Vendor’s receiving wallet address'} data-testid="exp-form-vendor-wallet" />
+              </Field>
+              <Field label={method === 'BinancePay' ? 'TX ID *' : 'TX Hash *'} span={2}>
+                <input required className="input-axistra font-mono" value={form.tx_hash} onChange={(e) => setForm({ ...form, tx_hash: e.target.value })} placeholder={method === 'BinancePay' ? 'Binance internal TX ID' : 'On-chain TX hash'} data-testid="exp-form-tx" />
+              </Field>
+              <div className="col-span-2 text-xs text-gray-500 -mt-1">
+                The selected wallet will be debited by {form.amount || '—'} {form.currency} — a negative ledger entry tagged to this vendor.
+              </div>
+            </>
           )}
-          <Field label="AED Rate"><input className="input-axistra" value={form.aed_rate} onChange={(e) => setForm({ ...form, aed_rate: e.target.value })} placeholder="3.67" data-testid="exp-form-rate" /></Field>
-          <Field label="Bank Reference"><input className="input-axistra" value={form.bank_reference} onChange={(e) => setForm({ ...form, bank_reference: e.target.value })} /></Field>
-          <Field label="Notes" span={2}><textarea rows={2} className="input-axistra" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field>
+
+          <Field label="Notes" span={2}>
+            <textarea rows={2} className="input-axistra" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+          </Field>
+
           <div className="col-span-2 flex gap-2 justify-end">
             <button type="button" onClick={() => setOpen(false)} className="btn-secondary">Cancel</button>
             <button type="submit" disabled={loading} className="btn-primary" data-testid="exp-form-submit">{loading ? 'Saving…' : 'Add Expense'}</button>

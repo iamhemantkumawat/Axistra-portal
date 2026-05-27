@@ -6,6 +6,7 @@ import { Customer } from '../entities/customer.entity';
 import { CryptoTransaction } from '../entities/crypto-transaction.entity';
 import { TreasuryMovement } from '../entities/treasury-movement.entity';
 import { MagnusSyncLog } from '../entities/magnus-sync-log.entity';
+import { ReceivingWallet } from '../entities/receiving-wallet.entity';
 import { RechargesService } from './recharges.service';
 import { RechargesController } from './recharges.controller';
 import { AuditModule } from '../audit/audit.module';
@@ -16,7 +17,7 @@ import { WalletsModule } from '../wallets/wallets.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Recharge, Invoice, Customer, CryptoTransaction, TreasuryMovement, MagnusSyncLog]),
+    TypeOrmModule.forFeature([Recharge, Invoice, Customer, CryptoTransaction, TreasuryMovement, MagnusSyncLog, ReceivingWallet]),
     AuditModule, InvoicesModule, MagnusModule, FxModule, WalletsModule,
   ],
   providers: [RechargesService],

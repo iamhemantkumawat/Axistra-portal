@@ -1,26 +1,38 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import api from '../lib/api';
 import { PageHeader, Badge, Modal, Field, Hash } from '../components/Atoms';
-import { RECHARGE_STATUS_META, fmtDate, fmtMoney } from '../lib/format';
+import { RECHARGE_STATUS_META, fmtDate } from '../lib/format';
 import { useCurrency } from '../lib/currency';
-import { Plus, MagnifyingGlass } from '@phosphor-icons/react';
+import { Plus, MagnifyingGlass, Info } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 import { Link, useNavigate } from 'react-router-dom';
+
+const GATEWAYS = ['Binance', 'OKX', 'OxaPay', 'BTCPay'];
+const COINS = ['BTC', 'USDT', 'ETH', 'USDC', 'BNB', 'TRX'];
+const NETWORKS = ['BTC', 'TRC20', 'ERC20', 'BEP20', 'Polygon', 'Solana', 'OFF_CHAIN'];
+
+const emptyForm = {
+  customer_id: '',
+  amount: '',
+  currency: 'USD',
+  payment_gateway: 'Binance',
+  crypto_coin: 'BTC',
+  crypto_network: 'BTC',
+  wallet_address: '',
+  tx_hash: '',
+  admin_notes: '',
+};
 
 export default function Recharges() {
   const [items, setItems] = useState([]);
   const [customers, setCustomers] = useState([]);
+  const [receivingWallets, setReceivingWallets] = useState([]);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const { format } = useCurrency();
-  const [form, setForm] = useState({
-    customer_id: '', amount: '', currency: 'USD',
-    crypto_coin: 'USDT', crypto_network: 'TRC20',
-    wallet_address: '', tx_hash: '', payment_gateway: 'Manual', admin_notes: '',
-  });
+  const [form, setForm] = useState(emptyForm);
   const [loading, setLoading] = useState(false);
-
   const nav = useNavigate();
 
   const load = () => {
@@ -33,8 +45,30 @@ export default function Recharges() {
   useEffect(() => {
     load();
     api.get('/customers').then((r) => setCustomers(r.data));
-  /* eslint-disable-next-line */
-  }, [status]);
+    api.get('/settings/receiving-wallets').then((r) => setReceivingWallets(r.data));
+  /* eslint-disable-next-line */ }, [status]);
+
+  // Auto-detect: when gateway + coin + network are picked, pre-fill the matching saved wallet address.
+  const matchedWallet = useMemo(() => {
+    return receivingWallets.find(
+      (w) =>
+        w.is_active &&
+        w.gateway === form.payment_gateway &&
+        w.coin === form.crypto_coin &&
+        w.network === form.crypto_network,
+    );
+  }, [receivingWallets, form.payment_gateway, form.crypto_coin, form.crypto_network]);
+
+  useEffect(() => {
+    if (matchedWallet && !form.wallet_address) {
+      setForm((f) => ({ ...f, wallet_address: matchedWallet.address }));
+    }
+  /* eslint-disable-next-line */ }, [matchedWallet]);
+
+  const openNewModal = () => {
+    setForm(emptyForm);
+    setModalOpen(true);
+  };
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -43,13 +77,17 @@ export default function Recharges() {
       const { data } = await api.post('/recharges', form);
       toast.success(`Recharge ${data.recharge_code} created`);
       setModalOpen(false);
-      setForm({ ...form, amount: '', tx_hash: '', wallet_address: '', admin_notes: '' });
+      setForm(emptyForm);
       load();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed');
     } finally {
       setLoading(false);
     }
+  };
+
+  const useMatched = () => {
+    if (matchedWallet) setForm({ ...form, wallet_address: matchedWallet.address });
   };
 
   return (
@@ -59,7 +97,7 @@ export default function Recharges() {
         title="Recharges"
         subtitle="Every sale keeps its own customer payment TXID; later sweeps to OKX/Binance are linked through treasury batches."
         actions={
-          <button onClick={() => setModalOpen(true)} className="btn-primary inline-flex items-center gap-2" data-testid="new-recharge-btn">
+          <button onClick={openNewModal} className="btn-primary inline-flex items-center gap-2" data-testid="new-recharge-btn">
             <Plus size={16} /> New Recharge
           </button>
         }
@@ -89,7 +127,7 @@ export default function Recharges() {
           <thead>
             <tr>
               <th>Code</th><th>Customer</th><th>Amount</th>
-              <th>Coin/Network</th><th>TX Hash</th><th>Magnus</th>
+              <th>Gateway</th><th>Coin/Network</th><th>TX Hash</th>
               <th>Status</th><th>Date</th>
             </tr>
           </thead>
@@ -103,12 +141,12 @@ export default function Recharges() {
                   <div className="text-xs text-gray-500">{r.customer?.customer_code}</div>
                 </td>
                 <td className="font-mono font-semibold">{format(r.amount, r.currency)}</td>
+                <td className="text-xs"><span className="badge badge-neutral">{r.payment_gateway || '—'}</span></td>
                 <td className="text-xs">
                   <span className="font-mono">{r.crypto_amount} {r.crypto_coin}</span>
                   <span className="text-gray-500"> / {r.crypto_network}</span>
                 </td>
                 <td><Hash value={r.tx_hash} /></td>
-                <td className="text-xs">{r.magnus_username || '—'}</td>
                 <td><Badge className={RECHARGE_STATUS_META[r.status]?.cls}>{RECHARGE_STATUS_META[r.status]?.label}</Badge></td>
                 <td className="text-xs text-gray-500">{fmtDate(r.created_at)}</td>
               </tr>
@@ -117,7 +155,7 @@ export default function Recharges() {
         </table>
       </div>
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="New Recharge" testId="new-recharge-modal">
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="New Recharge" testId="new-recharge-modal" size="lg">
         <form onSubmit={onSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Field label="Customer *" span={2}>
             <select required value={form.customer_id} onChange={(e) => setForm({ ...form, customer_id: e.target.value })} className="input-axistra" data-testid="rch-form-customer">
@@ -125,6 +163,7 @@ export default function Recharges() {
               {customers.map((c) => <option key={c.id} value={c.id}>{c.customer_code} — {c.full_name}</option>)}
             </select>
           </Field>
+
           <Field label="Amount *">
             <input required type="number" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} className="input-axistra" data-testid="rch-form-amount" />
           </Field>
@@ -133,26 +172,46 @@ export default function Recharges() {
               <option>USD</option><option>EUR</option><option>AED</option>
             </select>
           </Field>
-          <Field label="Coin">
-            <select value={form.crypto_coin} onChange={(e) => setForm({ ...form, crypto_coin: e.target.value })} className="input-axistra" data-testid="rch-form-coin">
-              <option>USDT</option><option>BTC</option><option>ETH</option><option>USDC</option>
+
+          {/* Gateway BEFORE coins — per UX update */}
+          <Field label="Payment Gateway *">
+            <select required value={form.payment_gateway} onChange={(e) => setForm({ ...form, payment_gateway: e.target.value, wallet_address: '' })} className="input-axistra" data-testid="rch-form-gateway">
+              {GATEWAYS.map((g) => <option key={g}>{g}</option>)}
             </select>
           </Field>
-          <Field label="Network">
-            <select value={form.crypto_network} onChange={(e) => setForm({ ...form, crypto_network: e.target.value })} className="input-axistra" data-testid="rch-form-network">
-              <option>TRC20</option><option>ERC20</option><option>BEP20</option><option>BTC</option><option>Polygon</option>
+          <Field label="Coin *">
+            <select required value={form.crypto_coin} onChange={(e) => setForm({ ...form, crypto_coin: e.target.value, wallet_address: '' })} className="input-axistra" data-testid="rch-form-coin">
+              {COINS.map((c) => <option key={c}>{c}</option>)}
             </select>
           </Field>
-          <Field label="Payment Gateway">
-            <select value={form.payment_gateway} onChange={(e) => setForm({ ...form, payment_gateway: e.target.value })} className="input-axistra" data-testid="rch-form-gateway">
-              <option>Manual</option><option>OxaPay</option><option>OKX</option>
+          <Field label="Network *">
+            <select required value={form.crypto_network} onChange={(e) => setForm({ ...form, crypto_network: e.target.value, wallet_address: '' })} className="input-axistra" data-testid="rch-form-network">
+              {NETWORKS.map((n) => <option key={n}>{n}</option>)}
             </select>
           </Field>
+          <div className="md:col-span-2">
+            {matchedWallet ? (
+              <div className="rounded-md border border-axistra-green/30 bg-[var(--axistra-green-light)] p-3 text-sm flex items-start gap-2" data-testid="matched-wallet-hint">
+                <Info size={16} className="text-axistra-green mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <div className="font-semibold text-axistra-green">Saved address found</div>
+                  <div className="text-xs text-gray-600 mt-0.5">{matchedWallet.label || `${matchedWallet.gateway} ${matchedWallet.coin}/${matchedWallet.network}`}</div>
+                  <div className="font-mono text-xs break-all mt-1">{matchedWallet.address}</div>
+                  <button type="button" onClick={useMatched} className="text-xs underline text-axistra-green mt-1">Use this address</button>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-md border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600 flex items-start gap-2">
+                <Info size={14} className="text-gray-500 mt-0.5 flex-shrink-0" />
+                No saved wallet for <strong>{form.payment_gateway} · {form.crypto_coin}/{form.crypto_network}</strong>. Add it under Settings → Receiving Wallets to auto-detect future payments.
+              </div>
+            )}
+          </div>
           <Field label="Wallet Address" span={2}>
-            <input value={form.wallet_address} onChange={(e) => setForm({ ...form, wallet_address: e.target.value })} className="input-axistra font-mono text-sm" data-testid="rch-form-wallet" />
+            <input value={form.wallet_address} onChange={(e) => setForm({ ...form, wallet_address: e.target.value })} placeholder={matchedWallet ? matchedWallet.address : 'Receiving wallet address'} className="input-axistra font-mono text-sm" data-testid="rch-form-wallet" />
           </Field>
-          <Field label="TX Hash" span={2}>
-            <input value={form.tx_hash} onChange={(e) => setForm({ ...form, tx_hash: e.target.value })} className="input-axistra font-mono text-sm" data-testid="rch-form-tx" />
+          <Field label={form.crypto_network === 'OFF_CHAIN' ? 'Internal TX ID' : 'TX Hash'} span={2}>
+            <input value={form.tx_hash} onChange={(e) => setForm({ ...form, tx_hash: e.target.value })} placeholder={form.crypto_network === 'OFF_CHAIN' ? 'Binance internal txid' : 'On-chain transaction hash'} className="input-axistra font-mono text-sm" data-testid="rch-form-tx" />
           </Field>
           <Field label="Admin Notes" span={2}>
             <textarea rows={2} value={form.admin_notes} onChange={(e) => setForm({ ...form, admin_notes: e.target.value })} className="input-axistra" data-testid="rch-form-notes" />

@@ -1,4 +1,11 @@
-import { Module } from '@nestjs/common';
+import { Module, Global } from '@nestjs/common';
 import { OnchainController } from './onchain.controller';
-@Module({ controllers: [OnchainController] })
+import { OnchainService } from './onchain.service';
+
+@Global()
+@Module({
+  providers: [OnchainService],
+  controllers: [OnchainController],
+  exports: [OnchainService],
+})
 export class OnchainModule {}
