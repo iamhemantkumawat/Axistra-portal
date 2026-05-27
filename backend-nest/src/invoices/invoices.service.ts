@@ -3,6 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Invoice } from '../entities/invoice.entity';
 import { Customer } from '../entities/customer.entity';
+import { Recharge } from '../entities/recharge.entity';
+import { CryptoTransaction } from '../entities/crypto-transaction.entity';
 import { renderInvoiceHtml, renderInvoicePdf } from './invoice-template';
 import { AuditService } from '../audit/audit.service';
 
@@ -11,23 +13,110 @@ export class InvoicesService {
   constructor(
     @InjectRepository(Invoice) private repo: Repository<Invoice>,
     @InjectRepository(Customer) private customerRepo: Repository<Customer>,
+    @InjectRepository(Recharge) private rechargeRepo: Repository<Recharge>,
+    @InjectRepository(CryptoTransaction) private cryptoRepo: Repository<CryptoTransaction>,
     private audit: AuditService,
   ) {}
 
   private async nextNumber() {
-    const year = new Date().getFullYear();
+    const now = new Date();
+    const prefix = `${String(now.getFullYear()).slice(-2)}${String(now.getMonth() + 1).padStart(2, '0')}`;
     const count = await this.repo.count();
-    return `AX-${year}-${String(count + 1).padStart(5, '0')}`;
+    return `AX-${prefix}-${String(count + 1).padStart(5, '0')}`;
+  }
+
+  private deriveStatus(invoice: Invoice, recharge?: Recharge | null) {
+    if (!recharge) return invoice.status;
+    if (recharge.status === 'refunded') return 'refunded';
+    if (recharge.status === 'failed') return 'failed';
+    if (
+      [
+        'payment_received',
+        'magnus_credited',
+        'sent_to_okx',
+        'converted_to_aed',
+        'deposited_to_wio',
+        'fully_reconciled',
+      ].includes(recharge.status)
+    ) {
+      return 'paid';
+    }
+    return invoice.status;
+  }
+
+  private isWithinRefreshWindow(invoice: Invoice) {
+    const anchor = invoice.issued_date || invoice.created_at;
+    if (!anchor) return false;
+    const stamp = new Date(anchor);
+    if (Number.isNaN(stamp.getTime())) return false;
+    return Date.now() - stamp.getTime() <= 7 * 24 * 60 * 60 * 1000;
+  }
+
+  private async hydrateInvoice(invoice: Invoice) {
+    const recharge = invoice.recharge_id
+      ? await this.rechargeRepo.findOne({ where: { id: invoice.recharge_id } })
+      : await this.rechargeRepo.findOne({ where: { invoice_id: invoice.id } });
+    const rechargeId = recharge?.id || invoice.recharge_id;
+    const paymentTransactions = rechargeId
+      ? await this.cryptoRepo.find({ where: { recharge_id: rechargeId }, order: { created_at: 'ASC' } })
+      : [];
+
+    if (!this.isWithinRefreshWindow(invoice)) {
+      return { ...invoice, recharge_id: rechargeId, payment_transactions: paymentTransactions };
+    }
+
+    const customer = invoice.customer_id
+      ? await this.customerRepo.findOne({ where: { id: invoice.customer_id } })
+      : null;
+
+    const merged = {
+      ...invoice,
+      recharge_id: rechargeId,
+      customer_name: customer?.full_name || invoice.customer_name,
+      customer_email: customer?.email || invoice.customer_email,
+      customer_country: customer?.country || invoice.customer_country,
+      customer_company: customer?.company_name || invoice.customer_company,
+      customer_phone: customer?.phone || invoice.customer_phone,
+      customer_address: customer?.address || invoice.customer_address,
+      status: this.deriveStatus(invoice, recharge),
+      payment_transactions: paymentTransactions,
+    };
+
+    const changed =
+      merged.recharge_id !== invoice.recharge_id ||
+      merged.customer_name !== invoice.customer_name ||
+      merged.customer_email !== invoice.customer_email ||
+      merged.customer_country !== invoice.customer_country ||
+      merged.customer_company !== invoice.customer_company ||
+      merged.customer_phone !== invoice.customer_phone ||
+      merged.customer_address !== invoice.customer_address ||
+      merged.status !== invoice.status;
+
+    if (changed) {
+      invoice.recharge_id = merged.recharge_id;
+      invoice.customer_name = merged.customer_name;
+      invoice.customer_email = merged.customer_email;
+      invoice.customer_country = merged.customer_country;
+      invoice.customer_company = merged.customer_company;
+      invoice.customer_phone = merged.customer_phone;
+      invoice.customer_address = merged.customer_address;
+      invoice.status = merged.status;
+      await this.repo.save(invoice);
+      return { ...invoice, payment_transactions: paymentTransactions };
+    }
+
+    return merged;
   }
 
   async list() {
-    return this.repo.find({ order: { created_at: 'DESC' } });
+    const invoices = await this.repo.find({ order: { created_at: 'DESC' } });
+    return Promise.all(invoices.map((invoice) => this.hydrateInvoice(invoice)));
   }
 
   async get(id: string) {
     const i = await this.repo.findOne({ where: { id } });
     if (!i) throw new NotFoundException();
-    return i;
+    return this.hydrateInvoice(i);
   }
 
   async createForRecharge(input: {
@@ -46,6 +135,8 @@ export class InvoicesService {
       customer_email: input.customer.email,
       customer_country: input.customer.country,
       customer_company: input.customer.company_name,
+      customer_phone: input.customer.phone,
+      customer_address: input.customer.address,
       amount: input.amount,
       currency: input.currency,
       payment_method: input.payment_method,

@@ -1,24 +1,40 @@
 import React, { useEffect, useState } from 'react';
 import api, { API_BASE } from '../lib/api';
-import { PageHeader } from '../components/Atoms';
+import { PageHeader, Modal } from '../components/Atoms';
 import { fmtDate, downloadBlob } from '../lib/format';
 import { useCurrency } from '../lib/currency';
 import { DownloadSimple, FileText, Eye } from '@phosphor-icons/react';
-import { Link } from 'react-router-dom';
-
-// Open a protected file in a new tab by fetching with Bearer token, then blob URL.
-const openProtectedTab = async (url) => {
-  const token = localStorage.getItem('axistra_token');
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-  const blob = await res.blob();
-  const blobUrl = URL.createObjectURL(blob);
-  window.open(blobUrl, '_blank', 'noopener,noreferrer');
-};
 
 export default function Invoices() {
   const [items, setItems] = useState([]);
+  const [preview, setPreview] = useState(null);
+  const [loadingId, setLoadingId] = useState(null);
   const { format } = useCurrency();
   useEffect(() => { api.get('/invoices').then((r) => setItems(r.data)); }, []);
+
+  const printPreview = () => {
+    if (!preview?.html) return;
+    const win = window.open('', '_blank', 'noopener,noreferrer,width=1024,height=900');
+    if (!win) return;
+    win.document.open();
+    win.document.write(preview.html);
+    win.document.close();
+    win.focus();
+    setTimeout(() => win.print(), 400);
+  };
+
+  const previewInvoice = async (invoice) => {
+    const token = localStorage.getItem('axistra_token');
+    setLoadingId(invoice.id);
+    try {
+      const res = await fetch(`${API_BASE}/invoices/${invoice.id}/html`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error('Preview failed');
+      const html = await res.text();
+      setPreview({ id: invoice.id, name: `${invoice.invoice_number}.html`, html });
+    } finally {
+      setLoadingId(null);
+    }
+  };
 
   return (
     <div>
@@ -46,12 +62,12 @@ export default function Invoices() {
                 <td className="text-xs text-gray-500">{fmtDate(i.issued_date)}</td>
                 <td className="flex gap-1">
                   <button
-                    onClick={() => openProtectedTab(`${API_BASE}/invoices/${i.id}/pdf`)}
+                    onClick={() => previewInvoice(i)}
                     className="btn-secondary text-xs inline-flex items-center gap-1"
-                    title="View in new tab"
+                    title="Preview invoice"
                     data-testid={`invoice-view-${i.invoice_number}`}
                   >
-                    <Eye size={14} /> View
+                    <Eye size={14} /> {loadingId === i.id ? 'Loading…' : 'View'}
                   </button>
                   <button
                     onClick={() => downloadBlob(`${API_BASE}/invoices/${i.id}/pdf`, `${i.invoice_number}.pdf`)}
@@ -66,6 +82,17 @@ export default function Invoices() {
           </tbody>
         </table>
       </div>
+      <Modal open={!!preview} onClose={() => setPreview(null)} title={preview?.name || 'Invoice Preview'} testId="invoice-preview-modal" size="xl">
+        <div className="flex justify-end gap-2 mb-4">
+          <button onClick={printPreview} className="btn-secondary inline-flex items-center gap-2">
+            <Eye size={16} /> Print
+          </button>
+          <button onClick={() => preview && downloadBlob(`${API_BASE}/invoices/${preview.id}/pdf`, `${preview.name.replace('.html', '.pdf')}`)} className="btn-primary inline-flex items-center gap-2">
+            <DownloadSimple size={16} /> Download PDF
+          </button>
+        </div>
+        <iframe title={preview?.name} srcDoc={preview?.html || ''} className="w-full h-[75vh] rounded border border-gray-200 bg-white" />
+      </Modal>
     </div>
   );
 }

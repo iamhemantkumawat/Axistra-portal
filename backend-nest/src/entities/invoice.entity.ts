@@ -12,6 +12,8 @@ export class Invoice {
   @Column({ nullable: true }) customer_email: string;
   @Column({ nullable: true }) customer_country: string;
   @Column({ nullable: true }) customer_company: string;
+  @Column({ nullable: true }) customer_phone: string;
+  @Column({ type: 'text', nullable: true }) customer_address: string;
 
   @Column({ default: 'SaaS Platform Usage Credits' }) service_name: string;
   @Column({

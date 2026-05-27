@@ -1,16 +1,16 @@
 import React, { useState } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { toast } from 'sonner';
 import { ShieldCheck, Lock, Envelope } from '@phosphor-icons/react';
 
-const LOGO_URL =
-  'https://customer-assets.emergentagent.com/job_77b30401-d314-4df8-b00a-60fb542707e3/artifacts/gzs8xexa_ChatGPT%20Image%20May%2022%2C%202026%2C%2002_57_04%20PM.png';
+const LOGO_URL = '/axistra-logo.png';
 
 export default function LoginPage() {
   const { user, login } = useAuth();
-  const [email, setEmail] = useState('admin@axistratech.com');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [acceptTerms, setAcceptTerms] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const nav = useNavigate();
 
@@ -83,13 +83,14 @@ export default function LoginPage() {
             <div>
               <label className="label-xs block mb-1.5">Email</label>
               <div className="relative">
-                <Envelope size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <Envelope size={16} className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
                   type="email"
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="input-axistra pl-9"
+                  className="input-axistra"
+                  style={{ paddingLeft: '3.6rem' }}
                   data-testid="login-email-input"
                 />
               </div>
@@ -98,32 +99,49 @@ export default function LoginPage() {
             <div>
               <label className="label-xs block mb-1.5">Password</label>
               <div className="relative">
-                <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <Lock size={16} className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
                   type="password"
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="input-axistra pl-9"
+                  className="input-axistra"
+                  style={{ paddingLeft: '3.6rem' }}
                   data-testid="login-password-input"
                 />
               </div>
             </div>
 
+            <label className="flex items-start gap-3 rounded-md border border-gray-200 bg-white px-4 py-3 text-sm text-gray-600">
+              <input
+                type="checkbox"
+                checked={acceptTerms}
+                onChange={(e) => setAcceptTerms(e.target.checked)}
+                required
+                className="mt-0.5 h-4 w-4 rounded border-gray-300 text-axistra-green focus:ring-axistra-green"
+                data-testid="login-terms-checkbox"
+              />
+              <span className="leading-relaxed">
+                I agree to the{' '}
+                <Link to="/terms-and-conditions" className="text-axistra-green underline underline-offset-2">
+                  Terms &amp; Conditions
+                </Link>
+                {' '}and{' '}
+                <Link to="/privacy-policy" className="text-axistra-green underline underline-offset-2">
+                  Privacy Policy
+                </Link>
+                .
+              </span>
+            </label>
+
             <button
               type="submit"
-              disabled={submitting}
+              disabled={submitting || !acceptTerms}
               className="btn-primary w-full py-3"
               data-testid="login-submit-btn"
             >
               {submitting ? 'Authenticating…' : 'Sign In'}
             </button>
-
-            <div className="text-[11px] text-gray-500 leading-relaxed bg-[var(--axistra-gold-light)] border border-[var(--axistra-gold)] rounded-md p-3">
-              <strong className="text-axistra-green">Seed admin:</strong> admin@axistratech.com / admin123
-              <br />
-              2FA placeholder — full enforcement coming in a follow-up phase.
-            </div>
           </form>
         </div>
       </div>

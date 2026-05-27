@@ -15,6 +15,8 @@ import { MagnusSyncLog } from './entities/magnus-sync-log.entity';
 import { KycDocument } from './entities/kyc-document.entity';
 import { Setting } from './entities/settings.entity';
 import { Lead } from './entities/lead.entity';
+import { PaymentWebhook } from './entities/payment-webhook.entity';
+import { TreasuryBatch } from './entities/treasury-batch.entity';
 
 import { AuthModule } from './auth/auth.module';
 import { CustomersModule } from './customers/customers.module';
@@ -30,6 +32,8 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { SeedModule } from './seed/seed.module';
 import { KycModule } from './kyc/kyc.module';
 import { LeadsModule } from './leads/leads.module';
+import { WebhooksModule } from './webhooks/webhooks.module';
+import { FxModule } from './fx/fx.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -45,9 +49,11 @@ import { HealthController } from './health.controller';
       entities: [
         AdminUser, Customer, Recharge, Invoice, CryptoTransaction,
         TreasuryMovement, Expense, ComplianceLog, AuditLog,
-        MagnusSyncLog, KycDocument, Setting, Lead,
+        MagnusSyncLog, KycDocument, Setting, Lead, PaymentWebhook, TreasuryBatch,
       ],
-      synchronize: true,
+      synchronize: process.env.DB_SYNCHRONIZE === 'true',
+      migrations: [__dirname + '/migrations/*{.js,.ts}'],
+      migrationsRun: false,
       logging: false,
     }),
     AuthModule,
@@ -64,6 +70,8 @@ import { HealthController } from './health.controller';
     SeedModule,
     KycModule,
     LeadsModule,
+    WebhooksModule,
+    FxModule,
   ],
   controllers: [HealthController],
 })

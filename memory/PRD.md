@@ -1,86 +1,91 @@
 # Axistra Compliance + Accounting Portal — PRD
 
-## Problem Statement
-Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corporate TRN 105415374500001) to manage customer recharges, crypto-to-AED conversions, OKX records, Wio bank deposits, expenses, P&L, and compliance logs. Connected with MagnusBilling.
+## Origin
+Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corporate TRN 105415374500001). Manages customer recharges, invoices, crypto-to-AED conversions, OKX records, Wio bank deposits, expenses, P&L, and compliance logs. Connected with MagnusBilling.
 
-**Main business rule** — every payment follows the audit chain:
+**Audit chain (immutable rule):**
 `Customer → Invoice → Crypto TX Hash → Magnus Credit → OKX Conversion → Wio Bank Deposit`
 
 ## Architecture
-- **Backend**: NestJS 10 (Node.js 20) on port 9001 (internal). PostgreSQL 15 via TypeORM. JWT auth.
-- **Proxy**: FastAPI (`/app/backend/server.py`) on port 8001 (supervisor-managed) forwards `/api/*` to NestJS. PostgreSQL is auto-started by the proxy.
-- **Frontend**: React 19 + Tailwind + shadcn primitives + Phosphor icons + Recharts + Sonner toasts.
-- **DB**: PostgreSQL database `axistra_db`, user `axistra`.
-- **Brand**: Light theme only — Axistra Green `#0A5C3E` + Gold `#D4AF37`, IBM Plex Sans + Cabinet Grotesk + IBM Plex Mono.
-
-## User Personas
-- **Admin** — full portal access, manages all modules, creates admin users.
-- **Accountant** — focuses on Recharges, Invoices, Expenses, Reports, P&L.
-- **Auditor** — read-only across Audit Logs, Compliance, Treasury reconciliation.
+- **Backend**: NestJS 10 on port 9001 (internal). PostgreSQL 15 via TypeORM. JWT auth.
+- **Proxy**: FastAPI `/app/backend/server.py` on port 8001 (supervisor-managed) forwards `/api/*` to NestJS. PostgreSQL is auto-started by the proxy.
+- **Frontend**: **Vite + React 18** (switched from CRA in user's fork). Tailwind + shadcn + Phosphor + Lucide icons + Recharts + Sonner.
+- **DB**: PostgreSQL `axistra_db`, user `axistra`.
+- **Brand**: Axistra Green `#0A5C3E` + Gold `#D4AF37`, IBM Plex Sans + Cabinet Grotesk.
 
 ## Seed Admin
-- `admin@axistratech.com` / `admin123` (idempotent on every NestJS startup)
+- `admin@axistratech.com` / `admin123` (idempotent on NestJS startup)
 
-## Core Modules (Implemented)
-- **Auth** — JWT login, current user, 2FA placeholder, admin user list/create
-- **Customers** — CRUD, code `AXC-NNNNN`, risk levels, KYC status, signup IP capture
-- **Recharges** — CRUD, code `RCH-YYYY-NNNNN`, auto-creates Invoice + Treasury record, 9-state status flow
-- **Invoices** — auto-generated `AX-YYYY-NNNNN`, Puppeteer PDF (HTML fallback), Axistra FZCO footer
-- **Crypto Treasury** — per-recharge movement (USDT receive → OKX → AED → Wio bank ref + date)
-- **Expenses** — CRUD, 10 categories, USDT-paid expense support with AED equivalent rate
-- **Profit & Loss** — yearly P&L with UAE Corp Tax estimate (9% above AED 375K), monthly chart
-- **Reports** — 10 reports (monthly/quarterly/yearly P&L, customer recharge, crypto→AED, bank reconciliation, VAT threshold, corp tax, expenses, suspicious), CSV + Excel export
-- **Compliance** — mark high risk, request KYC, block user, refund, suspicious note actions
-- **Magnus Sync** — placeholder mode (Magnus API not wired yet), status + sync logs
-- **Audit Logs** — every privileged action logged with actor + IP
-- **Dashboard** — KPIs (daily/monthly/yearly sales, crypto received, AED converted, Wio deposits, reconciliation, customers, expenses), 12-month sales chart, UAE VAT 375K tracker
-- **Settings** — Axistra company identity + compliance constants
-- **Audit Chain Stepper** — 6-step horizontal stepper as hero on every recharge detail page
+## Modules
 
-## What's Been Implemented (22 May 2026)
-- Full NestJS + PostgreSQL backend with 12 entities and 11 modules
-- FastAPI proxy bridging Emergent supervisor → NestJS
-- 13-page React admin portal with sidebar, login screen, audit chain visualization
-- PDF/Excel/CSV report exports
-- Magnus mismatch detection (invoice amount vs Magnus credit amount, 0.01 tolerance)
-- Auto-advancing recharge status based on treasury movement state
-- 46/46 backend tests passing, frontend end-to-end verified
+### Implemented
+- Auth (JWT login, admin user list/create, 2FA placeholder)
+- Customers (CRUD, code `AXC-NNNNN`, risk levels, KYC status, signup IP)
+- Recharges (CRUD, code `RCH-YYYY-NNNNN`, status flow with mismatch detection)
+- Invoices (auto-generated `AX-YYYY-NNNNN`, Puppeteer PDF, View + Download)
+- Crypto Treasury (per-recharge movement, USDT → OKX → AED → Wio chain)
+- Treasury Batches (NEW — aggregated batch view)
+- Expenses (CRUD, 10 categories, payment methods: Bank/Card/USDT/Binance Pay/Cash/Other)
+- Profit & Loss (yearly P&L, UAE Corp Tax 9% estimate, monthly chart)
+- Reports (10 reports, PDF/CSV/Excel exports)
+- Compliance (risk, KYC requests, blocks, refunds, suspicious notes)
+- Magnus Sync (LIVE HMAC-SHA512 to cyberxcalls.com, logs every call)
+- Magnus Users (LIVE list of MagnusBilling users with balances)
+- KYC Document Upload (local filesystem `/app/uploads/kyc/{customer_id}/`)
+- Audit Logs (every privileged action with actor + IP)
+- Dashboard (KPIs, 12-month chart, VAT 375K tracker)
+- Settings (Axistra identity + compliance constants)
+- Audit Chain stepper (6-step horizontal hero on recharge detail)
+- **NEW: Webhooks** — public endpoints for OxaPay, BTCPay, Telegram bot with HMAC signature verification; stored in `payment_webhooks` table; admin viewable at `/webhook-logs`
+- **NEW: FX module** — live ECB EUR rates with pegged USD↔AED 3.6725; powers conversion across the app
+- **NEW: Leads** — public POST `/api/leads` from the landing page contact form; admin list at `/leads`
+- **NEW: Public Landing page** at `/` — Solutions, Services, Pricing, Resources, About, Contact, Sign Up modal → leads
+- **NEW: Legal Page** at `/legal` — privacy + terms
+- **NEW: Currency toggle** (USD/EUR/AED) — top-bar pill, client-side conversion via FX module
 
-## Phase 2 — Implemented (22 May 2026)
-- **KYC document upload** (local filesystem at `/app/uploads/kyc/{customer_id}/`)
-  - Multer-based multipart upload, 10 MB limit, PDF/PNG/JPG/JPEG/WEBP only
-  - Admin review (approve/reject with comment), customer kyc_status auto-propagation
-  - Per-customer download endpoint
-- **MagnusBilling LIVE integration** — HMAC-SHA512 signed REST client matching official PHP wrapper
-  - getUser, addCredit (auto-resolves id_user), getCDR, getBalance
-  - Every call written to `magnus_sync_logs` with status
-  - Live upstream `cyberxcalls.com/mbilling` reachable from environment
-- **Deployment package** in `/app/deploy/`:
-  - `backup.sh` + `backup.env.example` — encrypted pg_dump → gzip → gpg AES256, retention + offsite upload
-  - `nginx.conf` — production reverse proxy with Cloudflare real-IP, HSTS, security headers
-  - `docker-compose.yml` + Dockerfiles (backend with Chromium for Puppeteer, frontend on nginx)
-  - `cloudflare-setup.md` — DNS, SSL/TLS, WAF rules, origin lockdown, rate limits
-  - `DEPLOYMENT.md` — full Ubuntu 22.04 step-by-step deployment guide
-- 13/13 new tests + 46/46 prior tests still passing
+### Skipped per user
+- 2FA enforcement
 
-## Backlog (P1)
-- **MagnusBilling live wiring** — replace placeholder with real API calls (user provides production credentials)
-- **2FA enforcement** — currently placeholder
-- **KYC document upload** — entity exists, upload UI pending
-- **Encrypted backups** — PostgreSQL nightly dump with gpg encryption
-- **IP login history page** — last_login_ip is captured, UI surface pending
+## Endpoints (high level)
+```
+PUBLIC
+  GET  /api/health
+  POST /api/auth/login
+  POST /api/leads
+  POST /api/webhooks/oxapay    (HMAC verified)
+  POST /api/webhooks/btcpay    (HMAC verified)
+  POST /api/webhooks/telegram  (token gated)
+  GET  /api/invoices/:id/html  (token-based viewer can be reached without JWT)
 
-## Backlog (P2)
-- Cloudflare front + nginx reverse proxy template for VPS deployment
-- File upload encryption for KYC docs
-- Live FX feed (CoinGecko) for AED conversion at payment time
-- Refund-to-customer-wallet workflow with TX hash recording
-- Auditor read-only role enforcement
-- Yearly P&L PDF rendered with Puppeteer
+AUTHED (JWT)
+  /api/auth/me, /api/auth/admins
+  /api/customers (+ /:id)
+  /api/recharges (+ /:id, /:id/status, /:id/crypto-tx, /:id/sync-magnus)
+  /api/invoices (+ /:id, /:id/pdf, /:id/html, /generate)
+  /api/treasury (+ /movement/:rechargeId, /reconciliation, /batches…)
+  /api/expenses
+  /api/compliance (+ /log, /request-kyc, /block-user, /mark-high-risk, /refund)
+  /api/magnus/{status,users,user/:u,cdr/:u,sync-user,add-credit,logs}
+  /api/fx/rates  (+ /convert)
+  /api/leads (+ /:id/status)
+  /api/kyc/:customerId (+ /upload, /file/:filename), /api/kyc/document/:id
+  /api/reports/{monthly-sales,quarterly-sales,yearly-pl,customer-recharge,crypto-to-aed,bank-reconciliation,vat-threshold,corporate-tax,expenses,suspicious}
+  /api/reports/export/{csv,excel}
+  /api/audit-logs
+  /api/dashboard/{kpis,chart,recent}
+  /api/webhooks/logs
+```
 
-## Key Conventions
-- All backend routes prefixed `/api`
-- All UI buttons/inputs carry kebab-case `data-testid`
-- All MongoDB-style `_id` fields excluded — TypeORM uses `id` (UUID)
-- All datetimes stored as `timestamptz`, returned ISO-8601
-- Currency stored as decimal strings; UI uses `parseFloat()` for math
+## Status
+- Synced to user's GitHub fork (`iamhemantkumawat/Axistra-portal`) at commit `2b9404b` (Improve exchange treasury conversions).
+- Production VPS: `178.105.203.159` running this same code under docker-compose.
+- Production domain: `https://axistratech.com/`.
+
+## Deployment
+See `/app/deploy-fork/` (or `/opt/axistra/deploy` on the VPS): `backup.sh`, `nginx.conf`, `docker-compose.yml`, `cloudflare-setup.md`, `DEPLOYMENT.md`.
+
+## Backlog
+- Wire OXAPAY_HISTORY_DELAY_MS background poller into recharge reconciliation
+- Show webhook signature errors prominently in `/webhook-logs`
+- Add latency analytics ("Reconciliation Health") to dashboard
+- Live FX feed already wired (ECB) — extend to lock the rate per recharge at payment time

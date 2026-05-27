@@ -11,7 +11,7 @@ export default function Dashboard() {
   const [kpis, setKpis] = useState(null);
   const [chart, setChart] = useState([]);
   const [recent, setRecent] = useState({ recharges: [], compliance: [] });
-  const { format, display } = useCurrency();
+  const { format } = useCurrency();
 
   useEffect(() => {
     Promise.all([
@@ -88,7 +88,7 @@ export default function Dashboard() {
             </div>
             <p className="text-xs text-gray-500 mt-4 leading-relaxed">
               Once YTD taxable supply crosses AED 375,000 (rolling 12 months), VAT registration is mandatory.
-              Tracker uses 3.67 AED conversion for non-AED currencies.
+              Tracker keeps AED fixed, USD pegged at 3.6725, and refreshes EUR/INR from the ECB daily reference feed.
             </p>
           </div>
         </div>

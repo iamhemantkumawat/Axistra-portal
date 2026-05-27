@@ -21,13 +21,13 @@ const NAV = [
   { to: '/magnus', label: 'Magnus Sync', icon: Plug, tid: 'sidebar-nav-magnus' },
   { to: '/magnus-users', label: 'Magnus Users', icon: IdentificationCard, tid: 'sidebar-nav-magnus-users' },
   { to: '/leads', label: 'Leads', icon: ChatCircleDots, tid: 'sidebar-nav-leads' },
+  { to: '/webhook-logs', label: 'Webhook Logs', icon: Plug, tid: 'sidebar-nav-webhook-logs' },
   { to: '/settings', label: 'Settings', icon: Gear, tid: 'sidebar-nav-settings' },
   { to: '/admins', label: 'Admin Users', icon: UserCircleGear, tid: 'sidebar-nav-admins' },
   { to: '/audit-logs', label: 'Audit Logs', icon: ClockCounterClockwise, tid: 'sidebar-nav-audit-logs' },
 ];
 
-const LOGO_URL =
-  'https://customer-assets.emergentagent.com/job_77b30401-d314-4df8-b00a-60fb542707e3/artifacts/gzs8xexa_ChatGPT%20Image%20May%2022%2C%202026%2C%2002_57_04%20PM.png';
+const LOGO_URL = '/axistra-logo.png';
 
 export default function AppLayout() {
   const { user, logout } = useAuth();

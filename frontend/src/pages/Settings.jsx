@@ -1,15 +1,24 @@
 import React from 'react';
 import { PageHeader } from '../components/Atoms';
+import { useCurrency } from '../lib/currency';
 
 const COMPANY = {
   name: 'AXISTRA TECHNOLOGIES - FZCO',
   tagline: 'Innovate • Connect • Grow',
   trn: '105415374500001',
-  registration: 'IFZA Free Zone, Dubai, United Arab Emirates',
+  giban: 'AE037350105415374500001',
+  license: '86256',
+  registrationNo: '79504',
+  address: 'IFZA Business Park, DDP, Dubai Silicon Oasis, Dubai, UAE',
+  authority: 'Dubai Silicon Oasis / IFZA',
+  legalStructure: 'FZCO (Free Zone Company)',
+  shareCapital: 'AED 100,000 divided into 100 shares',
   service: 'SaaS Platform Usage Credits',
 };
 
 export default function Settings() {
+  const { rates, meta } = useCurrency();
+
   return (
     <div>
       <PageHeader
@@ -24,8 +33,14 @@ export default function Settings() {
           <div className="space-y-3 text-sm">
             <Row label="Legal Entity" value={COMPANY.name} />
             <Row label="Brand Line" value={COMPANY.tagline} />
-            <Row label="Registration" value={COMPANY.registration} />
+            <Row label="Trade License" value={COMPANY.license} mono />
+            <Row label="Registration No" value={COMPANY.registrationNo} mono />
             <Row label="Corporate TRN" value={COMPANY.trn} mono />
+            <Row label="GIBAN" value={COMPANY.giban} mono />
+            <Row label="Address" value={COMPANY.address} />
+            <Row label="Authority" value={COMPANY.authority} />
+            <Row label="Legal Structure" value={COMPANY.legalStructure} />
+            <Row label="Share Capital" value={COMPANY.shareCapital} />
             <Row label="Primary Service" value={COMPANY.service} />
           </div>
         </div>
@@ -36,10 +51,14 @@ export default function Settings() {
             <Row label="UAE VAT Threshold" value="AED 375,000" />
             <Row label="Corporate Tax Threshold" value="AED 375,000" />
             <Row label="Corporate Tax Rate" value="9%" />
-            <Row label="Default AED Fallback Rate" value="3.67" mono />
+            <Row label="AED / AED" value="1.0000" mono />
+            <Row label="USD / AED (Peg)" value="3.6725" mono />
+            <Row label="EUR / AED (Daily)" value={Number(rates.EUR || 0).toFixed(4)} mono />
+            <Row label="INR / AED (Daily)" value={Number(rates.INR || 0).toFixed(4)} mono />
+            <Row label="FX Source" value={meta.reference_date ? `ECB ${meta.reference_date}` : 'Fallback cache'} />
           </div>
           <p className="text-xs text-gray-500 mt-4 leading-relaxed">
-            These constants drive the VAT tracker and Corporate Tax estimates. Wire to a live FX feed in Phase 5.
+            AED stays fixed, USD stays pegged at 3.6725, and EUR / INR are refreshed from the ECB daily reference feed.
           </p>
         </div>
 

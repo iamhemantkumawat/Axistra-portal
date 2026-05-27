@@ -60,11 +60,12 @@ export default function Expenses() {
 
       <div className="card-axistra overflow-x-auto">
         <table className="table-axistra">
-          <thead><tr><th>Date</th><th>Vendor</th><th>Category</th><th>Amount</th><th>Method</th><th>AED Value</th><th>TX/Ref</th></tr></thead>
+          <thead><tr><th>Expense</th><th>Date</th><th>Vendor</th><th>Category</th><th>Amount</th><th>Method</th><th>AED Value</th><th>TX/Ref</th></tr></thead>
           <tbody>
-            {items.length === 0 && <tr><td colSpan="7" className="text-center text-gray-500 py-10">No expenses recorded.</td></tr>}
+            {items.length === 0 && <tr><td colSpan="8" className="text-center text-gray-500 py-10">No expenses recorded.</td></tr>}
             {items.map((e) => (
               <tr key={e.id} data-testid={`expense-row-${e.id}`}>
+                <td className="font-mono text-axistra-green text-sm">{e.expense_code || e.id.slice(0, 8)}</td>
                 <td className="text-sm">{fmtDate(e.expense_date)}</td>
                 <td className="font-medium">{e.vendor_name}</td>
                 <td><span className="badge badge-neutral">{e.category}</span></td>
@@ -83,7 +84,7 @@ export default function Expenses() {
           <Field label="Date *"><input type="date" required className="input-axistra" value={form.expense_date} onChange={(e) => setForm({ ...form, expense_date: e.target.value })} data-testid="exp-form-date" /></Field>
           <Field label="Vendor *"><input required className="input-axistra" value={form.vendor_name} onChange={(e) => setForm({ ...form, vendor_name: e.target.value })} data-testid="exp-form-vendor" /></Field>
           <Field label="Category"><select className="input-axistra" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} data-testid="exp-form-category">{CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></Field>
-          <Field label="Payment Method"><select className="input-axistra" value={form.payment_method} onChange={(e) => setForm({ ...form, payment_method: e.target.value, paid_in_usdt: e.target.value === 'USDT' })} data-testid="exp-form-method"><option>Bank</option><option>Card</option><option>USDT</option><option>Cash</option><option>Other</option></select></Field>
+          <Field label="Payment Method"><select className="input-axistra" value={form.payment_method} onChange={(e) => setForm({ ...form, payment_method: e.target.value, paid_in_usdt: e.target.value === 'USDT' || e.target.value === 'BinancePay' })} data-testid="exp-form-method"><option value="Bank">Bank Transfer</option><option value="Card">Credit / Debit Card</option><option value="USDT">USDT Crypto</option><option value="BinancePay">Binance Pay</option><option value="Cash">Cash</option><option value="Other">Other</option></select></Field>
           <Field label="Amount *"><input required type="number" step="0.01" className="input-axistra" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} data-testid="exp-form-amount" /></Field>
           <Field label="Currency"><select className="input-axistra" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })} data-testid="exp-form-currency"><option>AED</option><option>USD</option><option>EUR</option><option>USDT</option></select></Field>
           {(form.payment_method === 'USDT' || form.payment_method === 'BinancePay') && (

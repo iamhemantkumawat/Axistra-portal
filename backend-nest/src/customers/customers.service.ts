@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, ILike } from 'typeorm';
 import { Customer } from '../entities/customer.entity';
 import { KycDocument } from '../entities/kyc-document.entity';
+import { Invoice } from '../entities/invoice.entity';
 import { AuditService } from '../audit/audit.service';
 
 @Injectable()
@@ -10,12 +11,55 @@ export class CustomersService {
   constructor(
     @InjectRepository(Customer) private repo: Repository<Customer>,
     @InjectRepository(KycDocument) private kycRepo: Repository<KycDocument>,
+    @InjectRepository(Invoice) private invoiceRepo: Repository<Invoice>,
     private audit: AuditService,
   ) {}
 
   private async nextCode(): Promise<string> {
     const count = await this.repo.count();
     return `AXC-${String(count + 1).padStart(5, '0')}`;
+  }
+
+  private isProfileComplete(data: Partial<Customer>) {
+    const requiredFields = [
+      data.first_name,
+      data.last_name,
+      data.email,
+      data.phone,
+      data.country,
+      data.magnus_username,
+    ];
+    return requiredFields.every((value) => String(value || '').trim().length > 0);
+  }
+
+  private normalizeStatus(data: Partial<Customer>, currentStatus?: string) {
+    const requestedStatus = String(data.status || currentStatus || '').trim().toLowerCase();
+    if (requestedStatus === 'blocked' || requestedStatus === 'suspended') {
+      return requestedStatus;
+    }
+    return this.isProfileComplete(data) ? 'active' : 'pending';
+  }
+
+  private isWithinInvoiceRefreshWindow(value?: Date | string | null) {
+    if (!value) return false;
+    const stamp = new Date(value);
+    if (Number.isNaN(stamp.getTime())) return false;
+    return Date.now() - stamp.getTime() <= 7 * 24 * 60 * 60 * 1000;
+  }
+
+  private async refreshRecentInvoiceSnapshots(customer: Customer) {
+    const invoices = await this.invoiceRepo.find({ where: { customer_id: customer.id } });
+    const recent = invoices.filter((invoice) => this.isWithinInvoiceRefreshWindow(invoice.issued_date || invoice.created_at));
+    if (!recent.length) return;
+    for (const invoice of recent) {
+      invoice.customer_name = customer.full_name || invoice.customer_name;
+      invoice.customer_email = customer.email || invoice.customer_email;
+      invoice.customer_country = customer.country || invoice.customer_country;
+      invoice.customer_company = customer.company_name || invoice.customer_company;
+      invoice.customer_phone = customer.phone || invoice.customer_phone;
+      invoice.customer_address = customer.address || invoice.customer_address;
+    }
+    await this.invoiceRepo.save(recent);
   }
 
   async list(query?: { search?: string; risk_level?: string; status?: string; kyc_status?: string }) {
@@ -28,7 +72,7 @@ export class CustomersService {
       const s = `%${query.search}%`;
       items = await this.repo
         .createQueryBuilder('c')
-        .where('(c.full_name ILIKE :s OR c.email ILIKE :s OR c.magnus_username ILIKE :s OR c.customer_code ILIKE :s OR c.company_name ILIKE :s)', { s })
+        .where('(c.full_name ILIKE :s OR c.first_name ILIKE :s OR c.last_name ILIKE :s OR c.email ILIKE :s OR c.phone ILIKE :s OR c.telegram ILIKE :s OR c.magnus_username ILIKE :s OR c.customer_code ILIKE :s OR c.company_name ILIKE :s OR c.id_number ILIKE :s)', { s })
         .andWhere(where)
         .orderBy('c.created_at', 'DESC')
         .getMany();
@@ -47,7 +91,13 @@ export class CustomersService {
 
   async create(data: Partial<Customer>, actor?: any) {
     const code = await this.nextCode();
-    const c = this.repo.create({ ...data, customer_code: code });
+    const fullName = data.full_name || [data.first_name, data.last_name].filter(Boolean).join(' ') || data.company_name || data.magnus_username || data.email || 'Unknown customer';
+    const c = this.repo.create({
+      ...data,
+      full_name: fullName,
+      customer_code: code,
+      status: this.normalizeStatus({ ...data, full_name: fullName }),
+    });
     const saved = await this.repo.save(c);
     await this.audit.log({
       actor_id: actor?.id, actor_email: actor?.email,
@@ -61,7 +111,10 @@ export class CustomersService {
     const c = await this.repo.findOne({ where: { id } });
     if (!c) throw new NotFoundException();
     Object.assign(c, data);
+    c.full_name = c.full_name || [c.first_name, c.last_name].filter(Boolean).join(' ') || c.company_name || c.magnus_username || c.email || 'Unknown customer';
+    c.status = this.normalizeStatus(c, data.status || c.status);
     const saved = await this.repo.save(c);
+    await this.refreshRecentInvoiceSnapshots(saved);
     await this.audit.log({
       actor_id: actor?.id, actor_email: actor?.email,
       action: 'update_customer', entity_type: 'customer', entity_id: id,

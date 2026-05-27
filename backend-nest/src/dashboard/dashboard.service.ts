@@ -6,6 +6,7 @@ import { Expense } from '../entities/expense.entity';
 import { Customer } from '../entities/customer.entity';
 import { TreasuryMovement } from '../entities/treasury-movement.entity';
 import { ComplianceLog } from '../entities/compliance-log.entity';
+import { FxService } from '../fx/fx.service';
 
 const VAT_THRESHOLD_AED = 375000;
 
@@ -22,6 +23,7 @@ export class DashboardService {
     @InjectRepository(Customer) private customerRepo: Repository<Customer>,
     @InjectRepository(TreasuryMovement) private treasuryRepo: Repository<TreasuryMovement>,
     @InjectRepository(ComplianceLog) private complianceRepo: Repository<ComplianceLog>,
+    private fx: FxService,
   ) {}
 
   async kpis() {
@@ -53,7 +55,10 @@ export class DashboardService {
     const pending_reconciliation = allR.filter((r) => !r.reconciled && r.status !== 'refunded').length;
     const mismatch_count = allR.filter((r) => r.status === 'mismatch').length;
 
-    const ytdAedEstimate = yearlyR.reduce((s, x) => s + (x.currency === 'AED' ? parseFloat(x.amount) : parseFloat(x.amount) * 3.67), 0);
+    const ytdAedParts = await Promise.all(
+      yearlyR.map((recharge) => this.fx.convertToAed(recharge.amount, recharge.currency)),
+    );
+    const ytdAedEstimate = ytdAedParts.reduce((sum, value) => sum + value, 0);
 
     const monthlySales = sum(monthlyR, 'amount');
     const monthlyExp = monthlyE.reduce((s, e) => s + parseFloat(e.aed_value || e.amount || '0'), 0);

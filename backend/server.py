@@ -65,11 +65,12 @@ def start_nest():
     log.info("Starting NestJS child process on port %s ...", NEST_PORT)
     env = os.environ.copy()
     env["PORT"] = str(NEST_PORT)
+    nest_log = open('/var/log/axistra-nest.log', 'ab', buffering=0)
     nest_proc = subprocess.Popen(
         ["node", "dist/main.js"],
         cwd=NEST_DIR,
         env=env,
-        stdout=subprocess.DEVNULL,
+        stdout=nest_log,
         stderr=subprocess.STDOUT,
         preexec_fn=os.setsid,
     )

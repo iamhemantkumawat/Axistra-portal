@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, NotImplementedException, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { AuthService } from './auth.service';
 
@@ -20,8 +20,7 @@ export class AuthController {
 
   @Post('2fa/verify')
   async verify2fa() {
-    // 2FA placeholder: real implementation pending
-    return { verified: true, note: '2FA placeholder — not enforced yet' };
+    throw new NotImplementedException('2FA verification is not configured yet');
   }
 
   @UseGuards(AuthGuard('jwt'))

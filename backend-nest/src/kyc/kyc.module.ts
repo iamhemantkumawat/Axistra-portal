@@ -13,7 +13,7 @@ import { KycService } from './kyc.service';
 import { KycController } from './kyc.controller';
 import { AuditModule } from '../audit/audit.module';
 
-const UPLOAD_ROOT = process.env.KYC_UPLOAD_DIR || '/app/uploads/kyc';
+const UPLOAD_ROOT = path.resolve(process.cwd(), process.env.KYC_UPLOAD_DIR || '/app/uploads/kyc');
 fs.mkdirSync(UPLOAD_ROOT, { recursive: true });
 
 @Module({

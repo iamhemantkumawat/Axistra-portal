@@ -7,9 +7,10 @@ import { ComplianceLog } from '../entities/compliance-log.entity';
 import { Customer } from '../entities/customer.entity';
 import { ReportsService } from './reports.service';
 import { ReportsController } from './reports.controller';
+import { FxModule } from '../fx/fx.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Recharge, Expense, TreasuryMovement, ComplianceLog, Customer])],
+  imports: [TypeOrmModule.forFeature([Recharge, Expense, TreasuryMovement, ComplianceLog, Customer]), FxModule],
   providers: [ReportsService],
   controllers: [ReportsController],
 })

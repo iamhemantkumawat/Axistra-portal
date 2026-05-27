@@ -4,7 +4,7 @@ import { CurrencyCircleDollar } from '@phosphor-icons/react';
 
 export default function CurrencyToggle() {
   const { display, change } = useCurrency();
-  const options = ['USD', 'EUR', 'AED'];
+  const options = ['USD', 'EUR', 'AED', 'INR'];
   return (
     <div className="flex items-center gap-1 bg-gray-100 rounded-md p-0.5 border border-gray-200" data-testid="currency-toggle">
       <CurrencyCircleDollar size={14} className="text-gray-500 ml-1.5" />

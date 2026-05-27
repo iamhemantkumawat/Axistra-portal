@@ -3,6 +3,7 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from 'typeor
 @Entity('expenses')
 export class Expense {
   @PrimaryGeneratedColumn('uuid') id: string;
+  @Column({ nullable: true, unique: true }) expense_code: string;
   @Column() expense_date: Date;
   @Column() vendor_name: string;
   @Column() category: string; // VPS | Vendor | Software | Salary | Office | BankCharges | ExchangeFees | Legal | Marketing | Other

@@ -11,6 +11,16 @@ export class ExpensesService {
     private audit: AuditService,
   ) {}
 
+  private async nextExpenseCode() {
+    const now = new Date();
+    const stamp = `${String(now.getFullYear()).slice(-2)}${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const count = await this.repo
+      .createQueryBuilder('e')
+      .where('e.expense_code LIKE :prefix', { prefix: `EXP-${stamp}-%` })
+      .getCount();
+    return `EXP-${stamp}-${String(count + 1).padStart(5, '0')}`;
+  }
+
   list(query?: { category?: string; search?: string }) {
     const qb = this.repo.createQueryBuilder('e').orderBy('e.expense_date', 'DESC');
     if (query?.category) qb.andWhere('e.category = :c', { c: query.category });
@@ -25,7 +35,11 @@ export class ExpensesService {
     if (data.paid_in_usdt && data.amount && data.aed_rate) {
       data.aed_value = (parseFloat(data.amount) * parseFloat(data.aed_rate)).toFixed(2);
     }
-    const e = this.repo.create({ ...data, expense_date: data.expense_date || new Date() });
+    const e = this.repo.create({
+      ...data,
+      expense_code: data.expense_code || await this.nextExpenseCode(),
+      expense_date: data.expense_date || new Date(),
+    });
     const saved = await this.repo.save(e);
     await this.audit.log({
       actor_id: actor?.id, actor_email: actor?.email,

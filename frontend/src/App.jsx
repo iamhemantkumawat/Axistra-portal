@@ -22,8 +22,10 @@ import MagnusSync from './pages/MagnusSync';
 import MagnusUsers from './pages/MagnusUsers';
 import Leads from './pages/Leads';
 import AuditLogs from './pages/AuditLogs';
+import WebhookLogs from './pages/WebhookLogs';
 import AdminUsers from './pages/AdminUsers';
 import Settings from './pages/Settings';
+import { PrivacyPolicy, TermsAndConditions } from './pages/LegalPage';
 
 import './App.css';
 
@@ -41,6 +43,8 @@ function App() {
           <Toaster position="top-right" richColors closeButton />
           <Routes>
             <Route path="/" element={<LandingPage />} />
+            <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+            <Route path="/terms-and-conditions" element={<TermsAndConditions />} />
             <Route path="/login" element={<LoginPage />} />
             <Route element={<ProtectedRoutes />}>
               <Route path="/dashboard" element={<Dashboard />} />
@@ -57,6 +61,7 @@ function App() {
               <Route path="/magnus" element={<MagnusSync />} />
               <Route path="/magnus-users" element={<MagnusUsers />} />
               <Route path="/leads" element={<Leads />} />
+              <Route path="/webhook-logs" element={<WebhookLogs />} />
               <Route path="/audit-logs" element={<AuditLogs />} />
               <Route path="/admins" element={<AdminUsers />} />
               <Route path="/settings" element={<Settings />} />

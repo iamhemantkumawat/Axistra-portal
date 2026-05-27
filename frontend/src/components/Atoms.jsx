@@ -38,11 +38,12 @@ export const EmptyState = ({ title, hint }) => (
   </div>
 );
 
-export const Modal = ({ open, onClose, title, children, testId }) => {
+export const Modal = ({ open, onClose, title, children, testId, size = 'md' }) => {
   if (!open) return null;
+  const width = size === 'lg' ? 'max-w-4xl' : size === 'xl' ? 'max-w-6xl' : 'max-w-2xl';
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" data-testid={testId}>
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+      <div className={`bg-white rounded-lg shadow-xl w-full ${width} max-h-[90vh] overflow-y-auto`}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
           <h3 className="font-display text-lg font-semibold text-gray-900">{title}</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700" data-testid="modal-close-btn">✕</button>

@@ -25,7 +25,7 @@ export const RECHARGE_STATUS_META = {
   pending_payment: { label: 'Pending Payment', cls: 'badge-warning' },
   payment_received: { label: 'Payment Received', cls: 'badge-info' },
   magnus_credited: { label: 'Magnus Credited', cls: 'badge-info' },
-  sent_to_okx: { label: 'Sent to OKX', cls: 'badge-info' },
+  sent_to_okx: { label: 'Sent to Exchange', cls: 'badge-info' },
   converted_to_aed: { label: 'Converted to AED', cls: 'badge-info' },
   deposited_to_wio: { label: 'Deposited to Wio', cls: 'badge-info' },
   fully_reconciled: { label: 'Fully Reconciled', cls: 'badge-success' },
@@ -46,6 +46,13 @@ export const KYC_META = {
   submitted: { label: 'Submitted', cls: 'badge-info' },
   approved: { label: 'Approved', cls: 'badge-success' },
   rejected: { label: 'Rejected', cls: 'badge-error' },
+};
+
+export const CUSTOMER_STATUS_META = {
+  pending: { label: 'Pending', cls: 'badge-warning' },
+  active: { label: 'Active', cls: 'badge-success' },
+  suspended: { label: 'Suspended', cls: 'badge-warning' },
+  blocked: { label: 'Blocked', cls: 'badge-error' },
 };
 
 export const downloadBlob = async (url, filename) => {

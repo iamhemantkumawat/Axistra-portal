@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api, { API_BASE } from '../lib/api';
 import { PageHeader, Badge, Field, Modal } from '../components/Atoms';
-import { RISK_META, KYC_META, fmtDate, fmtDateTime } from '../lib/format';
+import { RISK_META, KYC_META, CUSTOMER_STATUS_META, fmtDate, fmtDateTime } from '../lib/format';
+import { COUNTRIES } from '../lib/countries';
 import { toast } from 'sonner';
 import { CloudArrowUp, FilePdf, Image as ImageIcon, CheckCircle, XCircle, DownloadSimple } from '@phosphor-icons/react';
 
@@ -29,6 +30,7 @@ export default function CustomerDetail() {
   const [uploading, setUploading] = useState(false);
   const [reviewDoc, setReviewDoc] = useState(null);
   const [reviewComment, setReviewComment] = useState('');
+  const [docPreview, setDocPreview] = useState(null);
   const fileRef = useRef(null);
 
   const load = () => api.get(`/customers/${id}`).then((r) => { setC(r.data); setForm(r.data); });
@@ -72,13 +74,30 @@ export default function CustomerDetail() {
     } catch { toast.error('Failed'); }
   };
 
-  const downloadDoc = async (doc) => {
-    const url = `${API_BASE}${doc.file_url.replace('/api', '')}`;
+  const fetchDocBlob = async (doc) => {
     const token = localStorage.getItem('axistra_token');
     const res = await fetch(`${API_BASE}/kyc/${id}/file/${doc.file_url.split('/').pop()}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    const blob = await res.blob();
+    if (!res.ok) throw new Error('Could not load document');
+    return res.blob();
+  };
+
+  const previewDoc = async (doc) => {
+    try {
+      const blob = await fetchDocBlob(doc);
+      setDocPreview({
+        name: doc.file_name,
+        type: blob.type || (doc.file_name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/*'),
+        url: URL.createObjectURL(blob),
+      });
+    } catch (err) {
+      toast.error(err.message || 'Preview failed');
+    }
+  };
+
+  const downloadDoc = async (doc) => {
+    const blob = await fetchDocBlob(doc);
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob); a.download = doc.file_name; a.click();
   };
@@ -109,12 +128,21 @@ export default function CustomerDetail() {
           <h3 className="font-display text-lg font-semibold mb-4">Profile</h3>
           <div className="grid grid-cols-2 gap-4">
             <Field label="Full Name"><input disabled={!edit} className="input-axistra" value={form.full_name || ''} onChange={(e) => setForm({ ...form, full_name: e.target.value })} /></Field>
+            <Field label="First Name"><input disabled={!edit} className="input-axistra" value={form.first_name || ''} onChange={(e) => setForm({ ...form, first_name: e.target.value, full_name: [e.target.value, form.last_name].filter(Boolean).join(' ') })} /></Field>
+            <Field label="Last Name"><input disabled={!edit} className="input-axistra" value={form.last_name || ''} onChange={(e) => setForm({ ...form, last_name: e.target.value, full_name: [form.first_name, e.target.value].filter(Boolean).join(' ') })} /></Field>
             <Field label="Company"><input disabled={!edit} className="input-axistra" value={form.company_name || ''} onChange={(e) => setForm({ ...form, company_name: e.target.value })} /></Field>
             <Field label="Email"><input disabled={!edit} className="input-axistra" value={form.email || ''} onChange={(e) => setForm({ ...form, email: e.target.value })} /></Field>
-            <Field label="Magnus Username"><input disabled={!edit} className="input-axistra" value={form.magnus_username || ''} onChange={(e) => setForm({ ...form, magnus_username: e.target.value })} /></Field>
-            <Field label="Phone"><input disabled={!edit} className="input-axistra" value={form.phone || ''} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></Field>
+            <Field label="Magnus Username *"><input disabled={!edit} required className="input-axistra" value={form.magnus_username || ''} onChange={(e) => setForm({ ...form, magnus_username: e.target.value })} /></Field>
+            <Field label="Mobile Number *"><input disabled={!edit} required className="input-axistra" value={form.phone || ''} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></Field>
             <Field label="Telegram"><input disabled={!edit} className="input-axistra" value={form.telegram || ''} onChange={(e) => setForm({ ...form, telegram: e.target.value })} /></Field>
-            <Field label="Country"><input disabled={!edit} className="input-axistra" value={form.country || ''} onChange={(e) => setForm({ ...form, country: e.target.value })} /></Field>
+            <Field label="Address" span={2}><textarea rows={2} disabled={!edit} className="input-axistra" value={form.address || ''} onChange={(e) => setForm({ ...form, address: e.target.value })} /></Field>
+            <Field label="Country *">
+              <select disabled={!edit} className="input-axistra" value={form.country || ''} onChange={(e) => setForm({ ...form, country: e.target.value })}>
+                <option value="">Select country</option>
+                {COUNTRIES.map((country) => <option key={country} value={country}>{country}</option>)}
+              </select>
+            </Field>
+            <Field label="ID Number"><input disabled={!edit} className="input-axistra" value={form.id_number || ''} onChange={(e) => setForm({ ...form, id_number: e.target.value })} /></Field>
             <Field label="Signup IP"><input disabled className="input-axistra" value={c.signup_ip || '—'} /></Field>
             <Field label="Risk Level">
               <select disabled={!edit} className="input-axistra" value={form.risk_level || 'Low'} onChange={(e) => setForm({ ...form, risk_level: e.target.value })}><option>Low</option><option>Medium</option><option>High</option></select>
@@ -125,8 +153,8 @@ export default function CustomerDetail() {
               </select>
             </Field>
             <Field label="Status">
-              <select disabled={!edit} className="input-axistra" value={form.status || 'active'} onChange={(e) => setForm({ ...form, status: e.target.value })}>
-                <option value="active">Active</option><option value="suspended">Suspended</option><option value="blocked">Blocked</option>
+              <select disabled={!edit} className="input-axistra" value={form.status || 'pending'} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+                <option value="pending">Pending</option><option value="active">Active</option><option value="suspended">Suspended</option><option value="blocked">Blocked</option>
               </select>
             </Field>
             <Field label="Created"><input disabled className="input-axistra" value={fmtDate(c.created_at)} /></Field>
@@ -142,7 +170,7 @@ export default function CustomerDetail() {
             <div className="flex flex-wrap gap-2">
               <Badge className={RISK_META[c.risk_level]?.cls}>{c.risk_level} Risk</Badge>
               <Badge className={KYC_META[c.kyc_status]?.cls}>{KYC_META[c.kyc_status]?.label}</Badge>
-              <Badge className={c.status === 'active' ? 'badge-success' : c.status === 'blocked' ? 'badge-error' : 'badge-warning'}>{c.status}</Badge>
+              <Badge className={CUSTOMER_STATUS_META[c.status]?.cls || 'badge-warning'}>{CUSTOMER_STATUS_META[c.status]?.label || c.status}</Badge>
             </div>
           </div>
 
@@ -187,6 +215,7 @@ export default function CustomerDetail() {
                     </div>
                     {k.admin_comment && <div className="text-[11px] text-gray-600 mt-2 italic">"{k.admin_comment}"</div>}
                     <div className="flex gap-2 mt-2">
+                      <button onClick={() => previewDoc(k)} className="text-[11px] text-axistra-green hover:underline inline-flex items-center gap-1" data-testid={`kyc-preview-${k.id}`}>View</button>
                       <button onClick={() => downloadDoc(k)} className="text-[11px] text-axistra-green hover:underline inline-flex items-center gap-1" data-testid={`kyc-download-${k.id}`}><DownloadSimple size={12} /> Download</button>
                       {k.status === 'submitted' && (
                         <>
@@ -220,6 +249,16 @@ export default function CustomerDetail() {
             </button>
           </div>
         </div>
+      </Modal>
+
+      <Modal open={!!docPreview} onClose={() => setDocPreview(null)} title={docPreview?.name || 'KYC Document'} testId="kyc-preview-modal" size="xl">
+        {docPreview?.type?.includes('pdf') ? (
+          <iframe title={docPreview.name} src={docPreview.url} className="w-full h-[75vh] rounded border border-gray-200" />
+        ) : (
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+            <img src={docPreview?.url} alt={docPreview?.name} className="max-h-[75vh] mx-auto object-contain" />
+          </div>
+        )}
       </Modal>
     </div>
   );

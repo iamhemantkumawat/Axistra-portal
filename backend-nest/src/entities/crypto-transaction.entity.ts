@@ -9,7 +9,22 @@ export class CryptoTransaction {
   @Column({ default: 'USDT' }) coin: string;
   @Column({ default: 'TRC20' }) network: string;
   @Column({ nullable: true }) receiving_wallet: string;
-  @Index() @Column() tx_hash: string;
+  @Column({ nullable: true }) receiving_wallet_tag: string;
+  @Index({ unique: true }) @Column() tx_hash: string;
+  @Column({ nullable: true }) gateway_invoice_id: string;
+  @Column({ nullable: true }) gateway_track_id: string;
+  @Column({ nullable: true }) gateway_tx_status: string;
+  @Column({ nullable: true }) sender_address: string;
+  @Column({ type: 'decimal', precision: 18, scale: 8, nullable: true }) sent_amount: string;
+  @Column({ type: 'decimal', precision: 18, scale: 8, nullable: true }) sent_value: string;
+  @Column({ type: 'decimal', precision: 18, scale: 8, nullable: true }) received_amount: string;
+  @Column({ type: 'decimal', precision: 18, scale: 8, nullable: true }) received_value: string;
+  @Column({ type: 'decimal', precision: 18, scale: 8, nullable: true }) gateway_rate: string;
+  @Column({ nullable: true }) confirmations: string;
+  @Column({ type: 'decimal', precision: 18, scale: 8, nullable: true }) auto_convert_amount: string;
+  @Column({ nullable: true }) auto_convert_currency: string;
+  @Column({ type: 'decimal', precision: 18, scale: 8, nullable: true }) final_usdt_amount: string;
+  @Column({ type: 'text', nullable: true }) raw_gateway_payload: string;
   @Column({ type: 'decimal', precision: 18, scale: 8, nullable: true })
   wallet_balance_after: string;
   @Column({ type: 'decimal', precision: 12, scale: 4, nullable: true }) aed_rate_at_payment: string;

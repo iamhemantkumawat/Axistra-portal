@@ -5,7 +5,7 @@ import { RECHARGE_STATUS_META, fmtDate, fmtMoney } from '../lib/format';
 import { useCurrency } from '../lib/currency';
 import { Plus, MagnifyingGlass } from '@phosphor-icons/react';
 import { toast } from 'sonner';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 export default function Recharges() {
   const [items, setItems] = useState([]);
@@ -20,6 +20,8 @@ export default function Recharges() {
     wallet_address: '', tx_hash: '', payment_gateway: 'Manual', admin_notes: '',
   });
   const [loading, setLoading] = useState(false);
+
+  const nav = useNavigate();
 
   const load = () => {
     const p = {};
@@ -55,7 +57,7 @@ export default function Recharges() {
       <PageHeader
         eyebrow="Payments"
         title="Recharges"
-        subtitle="Every payment flows through the audit chain: Customer → Invoice → Crypto TX → Magnus → OKX → Wio."
+        subtitle="Every sale keeps its own customer payment TXID; later sweeps to OKX/Binance are linked through treasury batches."
         actions={
           <button onClick={() => setModalOpen(true)} className="btn-primary inline-flex items-center gap-2" data-testid="new-recharge-btn">
             <Plus size={16} /> New Recharge
@@ -94,14 +96,17 @@ export default function Recharges() {
           <tbody>
             {items.length === 0 && <tr><td colSpan="8" className="text-center text-gray-500 py-10">No recharges yet.</td></tr>}
             {items.map((r) => (
-              <tr key={r.id} data-testid={`recharge-row-${r.recharge_code}`}>
-                <td><Link to={`/recharges/${r.id}`} className="font-mono text-axistra-green font-medium hover:underline">{r.recharge_code}</Link></td>
+              <tr key={r.id} data-testid={`recharge-row-${r.recharge_code}`} onClick={() => nav(`/recharges/${r.id}`)} className="cursor-pointer">
+                <td><Link to={`/recharges/${r.id}`} className="font-mono text-axistra-green font-medium hover:underline" onClick={(e) => e.stopPropagation()}>{r.recharge_code}</Link></td>
                 <td>
                   <div className="font-medium">{r.customer?.full_name || '—'}</div>
                   <div className="text-xs text-gray-500">{r.customer?.customer_code}</div>
                 </td>
                 <td className="font-mono font-semibold">{format(r.amount, r.currency)}</td>
-                <td className="text-xs"><span className="font-mono">{r.crypto_coin}</span> / <span className="text-gray-500">{r.crypto_network}</span></td>
+                <td className="text-xs">
+                  <span className="font-mono">{r.crypto_amount} {r.crypto_coin}</span>
+                  <span className="text-gray-500"> / {r.crypto_network}</span>
+                </td>
                 <td><Hash value={r.tx_hash} /></td>
                 <td className="text-xs">{r.magnus_username || '—'}</td>
                 <td><Badge className={RECHARGE_STATUS_META[r.status]?.cls}>{RECHARGE_STATUS_META[r.status]?.label}</Badge></td>

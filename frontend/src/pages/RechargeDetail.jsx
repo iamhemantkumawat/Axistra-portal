@@ -17,6 +17,8 @@ export default function RechargeDetail() {
   const [tForm, setTForm] = useState({});
   const [cryptoOpen, setCryptoOpen] = useState(false);
   const [cForm, setCForm] = useState({ crypto_amount: '', tx_hash: '', receiving_wallet: '', aed_rate_at_payment: '', aed_value: '', notes: '' });
+  const [invoicePreview, setInvoicePreview] = useState(null);
+  const [invoiceLoading, setInvoiceLoading] = useState(false);
 
   const load = () => api.get(`/recharges/${id}`).then((r) => {
     setData(r.data);
@@ -36,7 +38,7 @@ export default function RechargeDetail() {
       await api.patch(`/recharges/${id}/status`, { status, note });
       toast.success(`Status updated → ${RECHARGE_STATUS_META[status]?.label}`);
       load();
-    } catch (e) { toast.error('Status update failed'); }
+    } catch (e) { toast.error(e.response?.data?.message || 'Status update failed'); }
   };
 
   const submitMagnus = async (e) => {
@@ -45,7 +47,7 @@ export default function RechargeDetail() {
       await api.post(`/recharges/${id}/sync-magnus`, magForm);
       toast.success('Magnus credit recorded');
       setMagnusOpen(false); load();
-    } catch (err) { toast.error('Magnus sync failed'); }
+    } catch (err) { toast.error(err.response?.data?.message || 'Magnus sync failed'); }
   };
 
   const submitTreasury = async (e) => {
@@ -59,7 +61,7 @@ export default function RechargeDetail() {
       await api.post(`/treasury/movement/${id}`, body);
       toast.success('Treasury movement updated');
       setTreasuryOpen(false); load();
-    } catch (err) { toast.error('Update failed'); }
+    } catch (err) { toast.error(err.response?.data?.message || 'Treasury update failed'); }
   };
 
   const submitCrypto = async (e) => {
@@ -68,7 +70,7 @@ export default function RechargeDetail() {
       await api.post(`/recharges/${id}/crypto-tx`, cForm);
       toast.success('Crypto TX recorded');
       setCryptoOpen(false); load();
-    } catch (err) { toast.error('Failed'); }
+    } catch (err) { toast.error(err.response?.data?.message || 'Crypto TX recording failed'); }
   };
 
   const downloadInvoice = () => {
@@ -76,12 +78,36 @@ export default function RechargeDetail() {
     downloadBlob(`${API_BASE}/invoices/${r.invoice_id}/pdf`, `${r.invoice_number}.pdf`);
   };
 
+  const printInvoice = () => {
+    if (!invoicePreview?.html) return;
+    const win = window.open('', '_blank', 'noopener,noreferrer,width=1024,height=900');
+    if (!win) return;
+    win.document.open();
+    win.document.write(invoicePreview.html);
+    win.document.close();
+    win.focus();
+    setTimeout(() => win.print(), 400);
+  };
+
   const viewInvoice = async () => {
     if (!r.invoice_id) return;
+    setInvoiceLoading(true);
     const token = localStorage.getItem('axistra_token');
-    const res = await fetch(`${API_BASE}/invoices/${r.invoice_id}/pdf`, { headers: { Authorization: `Bearer ${token}` } });
-    const blob = await res.blob();
-    window.open(URL.createObjectURL(blob), '_blank', 'noopener,noreferrer');
+    try {
+      const res = await fetch(`${API_BASE}/invoices/${r.invoice_id}/html`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) {
+        toast.error('Invoice preview failed');
+        return;
+      }
+      const html = await res.text();
+      setInvoicePreview({
+        id: r.invoice_id,
+        name: `${r.invoice_number}.html`,
+        html,
+      });
+    } finally {
+      setInvoiceLoading(false);
+    }
   };
 
   return (
@@ -96,7 +122,7 @@ export default function RechargeDetail() {
             {r.invoice_id && (
               <>
                 <button onClick={viewInvoice} className="btn-secondary inline-flex items-center gap-2" data-testid="view-invoice-btn">
-                  <Eye size={16} /> View Invoice
+                  <Eye size={16} /> {invoiceLoading ? 'Loading…' : 'View Invoice'}
                 </button>
                 <button onClick={downloadInvoice} className="btn-secondary inline-flex items-center gap-2" data-testid="download-invoice-btn">
                   <DownloadSimple size={16} /> Download PDF
@@ -126,7 +152,14 @@ export default function RechargeDetail() {
           </div>
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div><div className="label-xs mb-1">Amount</div><div className="font-mono font-semibold">{fmtMoney(r.amount, r.currency)}</div></div>
-            <div><div className="label-xs mb-1">Crypto</div><div className="font-mono">{r.crypto_amount} {r.crypto_coin} / {r.crypto_network}</div></div>
+            <div>
+              <div className="label-xs mb-1">Crypto</div>
+              <div className="font-mono">
+                {r.crypto_transactions?.length === 1
+                  ? `${r.crypto_transactions[0].crypto_amount || r.crypto_transactions[0].received_amount} ${r.crypto_transactions[0].coin} / ${r.crypto_transactions[0].network}`
+                  : `${r.crypto_amount} ${r.crypto_coin} / ${r.crypto_network}`}
+              </div>
+            </div>
             <div><div className="label-xs mb-1">Gateway</div><div>{r.payment_gateway}</div></div>
             <div><div className="label-xs mb-1">Payment Date</div><div>{fmtDateTime(r.payment_date)}</div></div>
             <div className="col-span-2"><div className="label-xs mb-1">Wallet Address</div><Hash value={r.wallet_address} testId="rdetail-wallet" /></div>
@@ -177,12 +210,12 @@ export default function RechargeDetail() {
       {/* Crypto modal */}
       <Modal open={cryptoOpen} onClose={() => setCryptoOpen(false)} title="Record Crypto Transaction" testId="crypto-modal">
         <form onSubmit={submitCrypto} className="grid grid-cols-2 gap-4">
-          <Field label="Crypto Amount"><input className="input-axistra" value={cForm.crypto_amount} onChange={(e) => setCForm({ ...cForm, crypto_amount: e.target.value })} data-testid="crypto-form-amount" /></Field>
+          <Field label="Crypto Amount"><input required className="input-axistra" value={cForm.crypto_amount} onChange={(e) => setCForm({ ...cForm, crypto_amount: e.target.value })} data-testid="crypto-form-amount" /></Field>
           <Field label="Coin"><input className="input-axistra" value={cForm.coin || r.crypto_coin} onChange={(e) => setCForm({ ...cForm, coin: e.target.value })} data-testid="crypto-form-coin" /></Field>
-          <Field label="Receiving Wallet" span={2}><input className="input-axistra font-mono" value={cForm.receiving_wallet} onChange={(e) => setCForm({ ...cForm, receiving_wallet: e.target.value })} data-testid="crypto-form-wallet" /></Field>
+          <Field label="Receiving Wallet" span={2}><input required className="input-axistra font-mono" value={cForm.receiving_wallet} onChange={(e) => setCForm({ ...cForm, receiving_wallet: e.target.value })} data-testid="crypto-form-wallet" /></Field>
           <Field label="TX Hash" span={2}><input required className="input-axistra font-mono" value={cForm.tx_hash} onChange={(e) => setCForm({ ...cForm, tx_hash: e.target.value })} data-testid="crypto-form-tx" /></Field>
-          <Field label="AED Rate at Payment"><input className="input-axistra" value={cForm.aed_rate_at_payment} onChange={(e) => setCForm({ ...cForm, aed_rate_at_payment: e.target.value })} data-testid="crypto-form-rate" /></Field>
-          <Field label="AED Value"><input className="input-axistra" value={cForm.aed_value} onChange={(e) => setCForm({ ...cForm, aed_value: e.target.value })} data-testid="crypto-form-aed" /></Field>
+          <Field label="AED Rate at Payment"><input required className="input-axistra" value={cForm.aed_rate_at_payment} onChange={(e) => setCForm({ ...cForm, aed_rate_at_payment: e.target.value })} data-testid="crypto-form-rate" /></Field>
+          <Field label="AED Value"><input required className="input-axistra" value={cForm.aed_value} onChange={(e) => setCForm({ ...cForm, aed_value: e.target.value })} data-testid="crypto-form-aed" /></Field>
           <Field label="Notes" span={2}><textarea rows={2} className="input-axistra" value={cForm.notes} onChange={(e) => setCForm({ ...cForm, notes: e.target.value })} /></Field>
           <div className="col-span-2 flex gap-2 justify-end">
             <button type="button" onClick={() => setCryptoOpen(false)} className="btn-secondary">Cancel</button>
@@ -241,6 +274,18 @@ export default function RechargeDetail() {
             <button type="submit" className="btn-primary" data-testid="treasury-form-submit">Save Movement</button>
           </div>
         </form>
+      </Modal>
+
+      <Modal open={!!invoicePreview} onClose={() => setInvoicePreview(null)} title={invoicePreview?.name || 'Invoice Preview'} testId="invoice-preview-modal" size="xl">
+        <div className="flex justify-end gap-2 mb-4">
+          <button onClick={printInvoice} className="btn-secondary inline-flex items-center gap-2">
+            <Eye size={16} /> Print
+          </button>
+          <button onClick={downloadInvoice} className="btn-primary inline-flex items-center gap-2">
+            <DownloadSimple size={16} /> Download PDF
+          </button>
+        </div>
+        <iframe title={invoicePreview?.name} srcDoc={invoicePreview?.html || ''} className="w-full h-[75vh] rounded border border-gray-200 bg-white" />
       </Modal>
     </div>
   );

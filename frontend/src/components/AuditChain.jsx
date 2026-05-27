@@ -1,16 +1,16 @@
 import React from 'react';
 import { CheckCircle } from '@phosphor-icons/react';
 
-// Renders the Customer → Invoice → Crypto TX → Magnus → OKX → Wio audit chain.
-// Each step becomes "done" automatically based on recharge + treasury state.
+// Renders the sale proof chain plus the later treasury settlement layer.
+// Customer payment TX and treasury settlement TX are separate evidence.
 export default function AuditChain({ recharge, treasury, invoice, crypto }) {
   const steps = [
     { key: 'customer', label: 'Customer', done: !!recharge?.customer_id },
     { key: 'invoice', label: 'Invoice', done: !!invoice?.id || !!recharge?.invoice_id },
-    { key: 'crypto', label: 'Crypto TX', done: !!(crypto?.length || recharge?.tx_hash) },
+    { key: 'crypto', label: 'Payment TX', done: !!(crypto?.length || recharge?.tx_hash) },
     { key: 'magnus', label: 'Magnus Credit', done: !!recharge?.magnus_credited_at },
-    { key: 'okx', label: 'OKX Conversion', done: !!treasury?.converted_to_aed },
-    { key: 'wio', label: 'Wio Bank', done: !!treasury?.transferred_to_wio },
+    { key: 'batch', label: 'Treasury Batch', done: !!treasury?.treasury_batch_id || !!treasury?.transferred_to_okx },
+    { key: 'settlement', label: 'OKX / Bank', done: !!treasury?.transferred_to_wio || recharge?.reconciled },
   ];
 
   const lastDone = (() => {
@@ -24,7 +24,7 @@ export default function AuditChain({ recharge, treasury, invoice, crypto }) {
       <div className="flex items-center justify-between mb-6">
         <div>
           <div className="label-xs">Audit Chain</div>
-          <h3 className="font-display text-xl font-semibold text-gray-900 mt-0.5">Customer → Invoice → TX → Magnus → OKX → Wio</h3>
+          <h3 className="font-display text-xl font-semibold text-gray-900 mt-0.5">Customer → Invoice → Payment TX → Magnus → Batch → OKX/Wio</h3>
         </div>
         <div className="text-right">
           <div className="label-xs">Progress</div>

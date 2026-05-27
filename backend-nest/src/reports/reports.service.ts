@@ -6,6 +6,7 @@ import { Expense } from '../entities/expense.entity';
 import { TreasuryMovement } from '../entities/treasury-movement.entity';
 import { ComplianceLog } from '../entities/compliance-log.entity';
 import { Customer } from '../entities/customer.entity';
+import { FxService } from '../fx/fx.service';
 
 const VAT_THRESHOLD_AED = 375000; // UAE mandatory VAT registration threshold
 const CORP_TAX_THRESHOLD_AED = 375000;
@@ -23,6 +24,7 @@ export class ReportsService {
     @InjectRepository(TreasuryMovement) private treasury: Repository<TreasuryMovement>,
     @InjectRepository(ComplianceLog) private compliance: Repository<ComplianceLog>,
     @InjectRepository(Customer) private customers: Repository<Customer>,
+    private fx: FxService,
   ) {}
 
   async monthlySales(year?: number) {
@@ -88,14 +90,10 @@ export class ReportsService {
   }
 
   async vatThreshold() {
-    // Year-to-date sales — convert to AED where currency != AED using treasury aed_value if available
     const start = new Date(new Date().getFullYear(), 0, 1);
     const r = await this.recharges.find({ where: { created_at: Between(start, new Date()) } });
-    const ytdAed = r.reduce((s, x) => {
-      if (x.currency === 'AED') return s + parseFloat(x.amount || '0');
-      // assume 3.67 default if not AED — purely for tracker estimate
-      return s + parseFloat(x.amount || '0') * 3.67;
-    }, 0);
+    const converted = await Promise.all(r.map((row) => this.fx.convertToAed(row.amount, row.currency)));
+    const ytdAed = converted.reduce((sum, value) => sum + value, 0);
     return {
       threshold_aed: VAT_THRESHOLD_AED,
       ytd_sales_aed_estimate: ytdAed,

@@ -7,9 +7,10 @@ import { TreasuryMovement } from '../entities/treasury-movement.entity';
 import { ComplianceLog } from '../entities/compliance-log.entity';
 import { DashboardService } from './dashboard.service';
 import { DashboardController } from './dashboard.controller';
+import { FxModule } from '../fx/fx.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Recharge, Expense, Customer, TreasuryMovement, ComplianceLog])],
+  imports: [TypeOrmModule.forFeature([Recharge, Expense, Customer, TreasuryMovement, ComplianceLog]), FxModule],
   providers: [DashboardService],
   controllers: [DashboardController],
 })

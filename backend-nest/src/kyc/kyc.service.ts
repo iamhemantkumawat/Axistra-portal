@@ -73,7 +73,8 @@ export class KycService {
   }
 
   async download(customerId: string, fileName: string) {
-    const filePath = path.join(process.env.KYC_UPLOAD_DIR || '/app/uploads/kyc', customerId, fileName);
+    const uploadRoot = path.resolve(process.cwd(), process.env.KYC_UPLOAD_DIR || '/app/uploads/kyc');
+    const filePath = path.join(uploadRoot, customerId, fileName);
     if (!fs.existsSync(filePath)) throw new NotFoundException('File not found');
     return filePath;
   }
