@@ -76,7 +76,21 @@ Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corpora
   - New endpoints: `GET|POST|PATCH|DELETE /api/settings/receiving-wallets`, `GET|POST|PATCH|DELETE /api/settings/vendors`
   - 14/14 backend tests + full frontend regression PASS (iteration_7.json).
 
+- **UPDATE (May 29, 2026 v13): Treasury feed split + sort fix + cascade delete**
+  - **Sort order fix**: ledger rows fanned out from a Treasury batch (BPAY-…-SWEEP / -CONV-USDT) were stamped at `00:00 UTC` because the user typed `2026-05-28` as a date-only field. They sank below same-day deposits (14:00+). New `stampNowTime()` helper preserves the user's chosen DATE but adopts the time-of-day from `batch.updated_at`, so freshly-saved batch rows bubble to the TOP of the Wallet Ledger as expected. Same fix applied to `wallets.convert()` when `event_at` is a `YYYY-MM-DD` string.
+  - **Treasury feed restructure**: each batch now renders as up to TWO rows in the OKX/Binance merged feed: a "Transfer" row (sweep info) and a "Conversion" row (only when `usdt_amount > 0`, showing "-BTC / +USDT" stacked with the rate). Sweep-only batches render as 1 row. The "Converted USDT" column is removed.
+  - **Granular delete**: new `DELETE /api/treasury/batches/:id/step/:step` (`step` ∈ `sweep|usdt|aed|wio`) clears just that step's fields AND removes only the matching `external_ref` ledger rows. The Conversion row's trash icon hits `/step/usdt` — keeps the Transfer intact.
+  - **Cascade delete on batch**: `DELETE /api/treasury/batches/:id` now also removes all 4 external_ref groups of ledger rows so Wallet Ledger stays in sync (returns `{deleted, unlinked_movements, ledger_rows_removed}`).
+  - **Testing**: iteration_15 — pytest 5/5 PASS at `/app/backend/tests/test_treasury_iter15.py`. Frontend Playwright confirmed split rows + cascade + granular delete + new sort. 100/100.
+
 - **UPDATE (May 29, 2026 v12): Treasury Batch ↔ Wallet Ledger fan-out (the missing link)**
+  - **Root cause** (live VPS report): BPAY-2605-00001 was saved with sweep+conversion fields but Binance USDT stayed at 0 — `applyBatchStatus()` only updated each recharge's status; never wrote rows to `wallet_ledgers`.
+  - **Fix**: new `applyBatchLedger()` runs on every batch save, writes 4 step-scoped ledger pairs idempotently via `external_ref = '${batch_code}-<STEP>'`.
+  - **New `POST /api/treasury/batches/:id/sync-ledger`** + "Sync to Wallet Ledger" button to backfill pre-fix batches.
+  - **Helpers added to wallets.service.ts**: `recordTransferPair()` + `recordConvertPair()` + `findByExternalRef()`.
+  - **Testing**: iteration_14 — pytest 5/5 PASS.
+
+
   - **Root cause** (live VPS report): BPAY-2605-00001 was saved with sweep+conversion fields but the Binance USDT balance stayed at 0 — `applyBatchStatus()` only updated each recharge's status; it NEVER wrote rows to `wallet_ledgers`. So the Treasury page showed "Converted to USDT" but the Wallet Ledger had no idea the batch happened.
   - **Fix — `applyBatchLedger()`**: new private method (called from `applyBatchStatus` on every batch save) that idempotently writes 4 step-scoped ledger pairs:
     1. **Sweep**: `-coin` on source (BTCPAY/OXAPAY) + `+coin` at exchange (BINANCE/OKX), `external_ref = '${batch_code}-SWEEP'`.
