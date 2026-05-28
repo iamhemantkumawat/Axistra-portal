@@ -1035,8 +1035,21 @@ export default function Treasury() {
                 {exchangeReceipts.length === 0 && exchangeBatchRows.length === 0 && exchangePayoutRows.length === 0 && (
                   <tr><td colSpan="9" className="text-center text-gray-500 py-10">No {activeExchangeName} receipts, source transfers, or expense outflows yet.</td></tr>
                 )}
-                {exchangeBatchRows.map((b) => (
-                  <tr key={`batch-${b.id}`} onClick={() => openBatch(b)} className="cursor-pointer hover:bg-[var(--axistra-bg)]">
+                {(() => {
+                  // Merge batches, direct receipts and expense outflows into a
+                  // single chronologically-sorted feed so an expense that
+                  // happened on the 12th doesn't sink to the bottom under a
+                  // transfer recorded on the 28th. Most recent first.
+                  const merged = [
+                    ...exchangeBatchRows.map((b) => ({ kind: 'batch', row: b, ts: new Date(b.period_end || b.period_start || b.created_at || 0).getTime() })),
+                    ...exchangeReceipts.map((r) => ({ kind: 'receipt', row: r, ts: new Date(r.payment_date || r.created_at || 0).getTime() })),
+                    ...exchangePayoutRows.map((e) => ({ kind: 'expense', row: e, ts: new Date(e.expense_date || e.created_at || 0).getTime() })),
+                  ].sort((a, b) => b.ts - a.ts);
+                  return merged.map((item) => {
+                    if (item.kind === 'batch') {
+                      const b = item.row;
+                      return (
+                <tr key={`batch-${b.id}`} onClick={() => openBatch(b)} className="cursor-pointer hover:bg-[var(--axistra-bg)]">
                     <td><input type="checkbox" checked={selectedBatchIds.includes(b.id)} onClick={(e) => e.stopPropagation()} onChange={() => toggleBatch(b.id)} /></td>
                     <td>
                       <button type="button" onClick={(e) => { e.stopPropagation(); openBatch(b); }} className="font-mono text-axistra-green hover:underline">{b.batch_code}</button>
@@ -1057,8 +1070,11 @@ export default function Treasury() {
                     <td><BatchStatus status={b.status} /></td>
                     <td className="font-mono text-sm font-semibold text-axistra-green">{b.usdt_amount ? `${fmtCrypto(b.usdt_amount)} USDT` : '—'}</td>
                   </tr>
-                ))}
-                {exchangeReceipts.map((r) => (
+                      );
+                    }
+                    if (item.kind === 'receipt') {
+                      const r = item.row;
+                      return (
                   <tr key={`recharge-${r.id}`} onClick={() => setActiveReceipt(r)} className="cursor-pointer hover:bg-[var(--axistra-bg)]">
                     <td>
                       {isReadyReceipt(r) && (
@@ -1078,8 +1094,11 @@ export default function Treasury() {
                     <td><Badge className={RECHARGE_STATUS_META[r.status]?.cls}>{RECHARGE_STATUS_META[r.status]?.label}</Badge></td>
                     <td className="font-mono text-sm font-semibold text-axistra-green">{entryCoin(r) === 'USDT' ? `${fmtCrypto(r.crypto_amount)} USDT` : '—'}</td>
                   </tr>
-                ))}
-                {exchangePayoutRows.map((e) => (
+                      );
+                    }
+                    // expense
+                    const e = item.row;
+                    return (
                   <tr key={`expense-${e.id}`} onClick={() => setActiveExpense(e)} className="cursor-pointer hover:bg-[var(--axistra-bg)]">
                     <td><Badge className="badge-warning">Expense</Badge></td>
                     <td>
@@ -1097,7 +1116,9 @@ export default function Treasury() {
                     <td><Badge className="badge-warning">Expense</Badge></td>
                     <td className="font-mono text-sm text-red-700">{entryCoin(e) === 'USDT' || e.paid_in_usdt ? `-${fmtCrypto(e.amount)} USDT` : '—'}</td>
                   </tr>
-                ))}
+                    );
+                  });
+                })()}
               </tbody>
             </table>
           </div>

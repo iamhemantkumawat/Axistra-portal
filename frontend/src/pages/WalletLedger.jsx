@@ -318,27 +318,32 @@ export default function WalletLedger() {
             {ledger.rows.map((row) => {
               const meta = TX_TYPE_META[row.tx_type] || { label: row.tx_type, cls: 'badge-neutral' };
               const amt = parseFloat(row.amount || '0');
+              // For OxaPay deposits we want to surface what the CUSTOMER paid
+              // (e.g. 0.00156404 BTC on Bitcoin Network) in the Coin/Amount
+              // columns and keep the converted USDT amount in the dedicated
+              // Final USDT column. Everywhere else we just show the row as-is.
+              const isOxaDeposit = active === 'OXAPAY' && row.tx_type === 'deposit';
+              const origCoin = row.original_coin && parseFloat(row.original_amount || '0') > 0
+                ? String(row.original_coin).toUpperCase()
+                : null;
+              const origAmt = origCoin ? parseFloat(row.original_amount || '0') : null;
+              const displayCoin = isOxaDeposit && origCoin ? origCoin : row.coin;
+              const displayAmount = isOxaDeposit && origAmt != null ? (amt < 0 ? -origAmt : origAmt) : amt;
               return (
                 <tr key={row.id} data-testid={`ledger-row-${row.id}`}>
                   <td className="text-xs text-gray-600">{fmtDateTime(row.event_at || row.created_at)}</td>
                   <td><Badge className={meta.cls}>{meta.label}</Badge></td>
-                  <td className="font-mono text-xs">{row.coin}{row.network ? <span className="text-gray-400"> · {row.network}</span> : null}</td>
-                  <td className={`font-mono text-sm font-semibold ${amt < 0 ? 'text-red-700' : 'text-axistra-green'}`}>
-                    {amt < 0 ? '' : '+'}{fmtCrypto(amt, row.coin)}
+                  <td className="font-mono text-xs">{displayCoin}{row.network ? <span className="text-gray-400"> · {row.network}</span> : null}</td>
+                  <td className={`font-mono text-sm font-semibold ${displayAmount < 0 ? 'text-red-700' : 'text-axistra-green'}`}>
+                    {displayAmount < 0 ? '' : '+'}{fmtCrypto(displayAmount, displayCoin)}
                   </td>
                   {active === 'OXAPAY' && (
                     <td className="font-mono text-xs" data-testid={`ledger-final-usdt-${row.id}`}>
-                      {/* OxaPay auto-converts incoming coins to USDT. The row's
-                          `amount`/`coin` already reflect that conversion. We
-                          surface it again as a dedicated column AND show what
-                          the customer paid in (when known) underneath. */}
+                      {/* OxaPay auto-converts incoming coins to USDT. `row.amount`
+                          is the converted USDT figure — show it here regardless
+                          of what we displayed in the Coin/Amount columns. */}
                       {(row.coin || '').toUpperCase() === 'USDT' ? (
-                        <>
-                          <span className="text-axistra-green font-semibold">{fmtCrypto(Math.abs(amt), 'USDT')}</span>
-                          {row.original_coin && (
-                            <div className="text-[10px] text-gray-400">from {fmtCrypto(row.original_amount, row.original_coin)}</div>
-                          )}
-                        </>
+                        <span className="text-axistra-green font-semibold">{fmtCrypto(Math.abs(amt), 'USDT')}</span>
                       ) : (
                         <span className="text-gray-400">pending sync</span>
                       )}

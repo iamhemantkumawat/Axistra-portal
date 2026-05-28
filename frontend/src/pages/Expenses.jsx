@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import api from '../lib/api';
 import { PageHeader, Modal, Field, Hash } from '../components/Atoms';
 import { fmtDate, fmtMoney } from '../lib/format';
-import { Plus, Info } from '@phosphor-icons/react';
+import { Plus, Info, PencilSimple, Trash } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 
 const CATEGORIES = ['VPS', 'Vendor', 'Software', 'Salary', 'Office', 'BankCharges', 'ExchangeFees', 'Legal', 'Marketing', 'Other'];
@@ -41,6 +41,7 @@ export default function Expenses() {
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(empty);
+  const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(false);
 
   const load = () => {
@@ -56,7 +57,39 @@ export default function Expenses() {
 
   const openNew = () => {
     setForm(empty);
+    setEditingId(null);
     setOpen(true);
+  };
+
+  const openEdit = (e) => {
+    setEditingId(e.id);
+    setForm({
+      expense_date: e.expense_date ? new Date(e.expense_date).toISOString().slice(0, 10) : empty.expense_date,
+      vendor_id: e.vendor_id || '',
+      vendor_name: e.vendor_name || '',
+      category: e.category || 'Other',
+      amount: e.amount || '',
+      currency: e.currency || 'AED',
+      payment_method: e.payment_method || 'Bank',
+      bank_name: e.bank_name || '',
+      source_wallet: e.source_wallet || '',
+      vendor_wallet: e.vendor_wallet || '',
+      crypto_network: e.crypto_network || 'TRC20',
+      tx_hash: e.tx_hash || e.bank_reference || '',
+      notes: e.notes || '',
+    });
+    setOpen(true);
+  };
+
+  const removeExpense = async (e) => {
+    if (!window.confirm(`Delete expense ${e.expense_code || e.vendor_name}? This also reverses its wallet ledger entry.`)) return;
+    try {
+      await api.delete(`/expenses/${e.id}`);
+      toast.success('Expense deleted and wallet ledger reversed');
+      load();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to delete expense');
+    }
   };
 
   const onVendorChange = (e) => {
@@ -79,10 +112,16 @@ export default function Expenses() {
     }
     setLoading(true);
     try {
-      await api.post('/expenses', form);
-      toast.success('Expense recorded and wallet ledger updated');
+      if (editingId) {
+        await api.patch(`/expenses/${editingId}`, form);
+        toast.success('Expense updated and wallet ledger refreshed');
+      } else {
+        await api.post('/expenses', form);
+        toast.success('Expense recorded and wallet ledger updated');
+      }
       setOpen(false);
       setForm(empty);
+      setEditingId(null);
       load();
     } catch (err) {
       toast.error(err?.response?.data?.message || 'Failed');
@@ -113,9 +152,9 @@ export default function Expenses() {
 
       <div className="card-axistra overflow-x-auto">
         <table className="table-axistra">
-          <thead><tr><th>Expense</th><th>Date</th><th>Vendor</th><th>Category</th><th>Amount</th><th>Method</th><th>Wallet / Bank</th><th>TX / Ref</th></tr></thead>
+          <thead><tr><th>Expense</th><th>Date</th><th>Vendor</th><th>Category</th><th>Amount</th><th>Method</th><th>Wallet / Bank</th><th>TX / Ref</th><th className="text-right">Actions</th></tr></thead>
           <tbody>
-            {items.length === 0 && <tr><td colSpan="8" className="text-center text-gray-500 py-10">No expenses recorded.</td></tr>}
+            {items.length === 0 && <tr><td colSpan="9" className="text-center text-gray-500 py-10">No expenses recorded.</td></tr>}
             {items.map((e) => (
               <tr key={e.id} data-testid={`expense-row-${e.id}`}>
                 <td className="font-mono text-axistra-green text-sm">{e.expense_code || e.id.slice(0, 8)}</td>
@@ -126,13 +165,35 @@ export default function Expenses() {
                 <td className="text-xs">{e.payment_method}</td>
                 <td className="text-xs">{e.source_wallet || e.bank_name || '—'}</td>
                 <td>{e.tx_hash ? <Hash value={e.tx_hash} /> : <span className="text-xs text-gray-500">{e.bank_reference || '—'}</span>}</td>
+                <td className="text-right">
+                  <div className="inline-flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => openEdit(e)}
+                      className="rounded-md p-1.5 text-gray-500 hover:text-axistra-green hover:bg-[var(--axistra-green-light)] transition-colors"
+                      title="Edit expense"
+                      data-testid={`expense-edit-${e.id}`}
+                    >
+                      <PencilSimple size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeExpense(e)}
+                      className="rounded-md p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+                      title="Delete expense"
+                      data-testid={`expense-delete-${e.id}`}
+                    >
+                      <Trash size={14} />
+                    </button>
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
 
-      <Modal open={open} onClose={() => setOpen(false)} title="Add Expense" testId="expense-modal" size="lg">
+      <Modal open={open} onClose={() => { setOpen(false); setEditingId(null); }} title={editingId ? 'Edit Expense' : 'Add Expense'} testId="expense-modal" size="lg">
         <form onSubmit={submit} className="grid grid-cols-2 gap-4">
           {/* Step 1: Payment method FIRST */}
           <Field label="Payment Method *" span={2}>
@@ -220,8 +281,8 @@ export default function Expenses() {
           </Field>
 
           <div className="col-span-2 flex gap-2 justify-end">
-            <button type="button" onClick={() => setOpen(false)} className="btn-secondary">Cancel</button>
-            <button type="submit" disabled={loading} className="btn-primary" data-testid="exp-form-submit">{loading ? 'Saving…' : 'Add Expense'}</button>
+            <button type="button" onClick={() => { setOpen(false); setEditingId(null); }} className="btn-secondary">Cancel</button>
+            <button type="submit" disabled={loading} className="btn-primary" data-testid="exp-form-submit">{loading ? 'Saving…' : (editingId ? 'Save Changes' : 'Add Expense')}</button>
           </div>
         </form>
       </Modal>
