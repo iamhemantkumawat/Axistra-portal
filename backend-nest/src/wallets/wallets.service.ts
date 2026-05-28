@@ -63,6 +63,77 @@ export class WalletsService {
     return { rows, total, limit, offset, wallet };
   }
 
+  /**
+   * Reconciliation audit for a single wallet. Returns:
+   *  - balance: same as overview (sum of all signed amounts grouped by coin)
+   *  - duplicates: any tx_hash that has > 1 deposit row (should be impossible after the v10 dedupe)
+   *  - missing_tx_hash: deposit rows whose tx_hash is null/empty (manual entries, conversions, etc.)
+   *  - orphan_no_source: deposit rows whose linked_recharge_id is NULL (can't trace back to a customer)
+   * Used by the Wallet Ledger "Reconcile with on-chain wallet" modal so the
+   * accountant can find why the in-portal balance differs from the actual
+   * BTCPay store / OxaPay merchant / Binance exchange total.
+   */
+  async auditWallet(walletCode: string) {
+    const wallet = String(walletCode || '').toUpperCase();
+    const rows = await this.ledger.find({ where: { wallet: wallet as any }, order: { event_at: 'DESC', created_at: 'DESC' } });
+
+    const balanceByCoin = new Map<string, number>();
+    rows.forEach((r) => {
+      const c = String(r.coin || '').toUpperCase();
+      balanceByCoin.set(c, (balanceByCoin.get(c) || 0) + parseFloat(r.amount || '0'));
+    });
+
+    const hashGroups = new Map<string, typeof rows>();
+    const noHash: typeof rows = [];
+    rows.forEach((r) => {
+      if (r.tx_type !== 'deposit') return;
+      if (!r.tx_hash) { noHash.push(r); return; }
+      const k = r.tx_hash;
+      if (!hashGroups.has(k)) hashGroups.set(k, []);
+      hashGroups.get(k)!.push(r);
+    });
+
+    const duplicates: any[] = [];
+    hashGroups.forEach((grp, hash) => {
+      if (grp.length > 1) {
+        duplicates.push({
+          tx_hash: hash,
+          count: grp.length,
+          total_amount: grp.reduce((s, r) => s + parseFloat(r.amount || '0'), 0).toFixed(8),
+          rows: grp.map((r) => ({
+            id: r.id, amount: r.amount, coin: r.coin, event_at: r.event_at,
+            counterparty: r.counterparty, external_ref: r.external_ref, notes: r.notes,
+          })),
+        });
+      }
+    });
+
+    const orphans = rows.filter((r) => r.tx_type === 'deposit' && !r.linked_recharge_id);
+
+    return {
+      wallet,
+      balance: Array.from(balanceByCoin.entries()).map(([coin, amount]) => ({ coin, amount: amount.toFixed(8) })),
+      deposit_row_count: rows.filter((r) => r.tx_type === 'deposit').length,
+      duplicates,
+      missing_tx_hash: {
+        count: noHash.length,
+        total_amount: noHash.reduce((s, r) => s + parseFloat(r.amount || '0'), 0).toFixed(8),
+        rows: noHash.slice(0, 50).map((r) => ({
+          id: r.id, amount: r.amount, coin: r.coin, event_at: r.event_at,
+          counterparty: r.counterparty, external_ref: r.external_ref, notes: r.notes,
+        })),
+      },
+      orphan_no_recharge: {
+        count: orphans.length,
+        total_amount: orphans.reduce((s, r) => s + parseFloat(r.amount || '0'), 0).toFixed(8),
+        rows: orphans.slice(0, 50).map((r) => ({
+          id: r.id, amount: r.amount, coin: r.coin, event_at: r.event_at,
+          tx_hash: r.tx_hash, counterparty: r.counterparty, external_ref: r.external_ref, notes: r.notes,
+        })),
+      },
+    };
+  }
+
   async getOne(id: string) {
     const row = await this.ledger.findOne({ where: { id } });
     if (!row) throw new NotFoundException();
@@ -442,10 +513,15 @@ export class WalletsService {
   }, actor?: any) {
     const amt = parseFloat(input.amount || '0');
     if (!(amt > 0)) return null;
-    // Avoid duplicating ledger row for the same tx_hash on the same recharge
+    // Avoid duplicating a ledger row for the same on-chain TX. The same
+    // tx_hash can NEVER credit the wallet twice — even if (by admin error)
+    // it gets associated with two recharges. Earlier the dedupe also required
+    // `linked_recharge_id` to match, which allowed a 1065-sat-style drift
+    // when the same hash slipped past two flows. Now we hard-block any
+    // deposit row that already exists for this tx_hash.
     if (input.tx_hash) {
       const existing = await this.ledger.findOne({
-        where: { tx_hash: input.tx_hash, linked_recharge_id: input.recharge_id, tx_type: 'deposit' as any },
+        where: { tx_hash: input.tx_hash, tx_type: 'deposit' as any },
       });
       if (existing) return existing;
     }

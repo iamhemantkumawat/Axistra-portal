@@ -76,6 +76,17 @@ Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corpora
   - New endpoints: `GET|POST|PATCH|DELETE /api/settings/receiving-wallets`, `GET|POST|PATCH|DELETE /api/settings/vendors`
   - 14/14 backend tests + full frontend regression PASS (iteration_7.json).
 
+- **UPDATE (May 29, 2026 v10): Wallet ↔ on-chain reconciliation diagnostic + tightened dedupe**
+  - **Investigation**: User reported BTCPay ledger total = 0.01896745 BTC while real BLUEwallet shows 0.01895680 BTC — a 0.00001065 BTC (~1065 sats) orphan row hidden somewhere in the ledger. Couldn't pinpoint from screenshots alone.
+  - **Fix 1 — Tighter dedupe in `wallets.recordRechargeDeposit()`**: previously the duplicate check required both `tx_hash` AND `linked_recharge_id` to match. Now any existing **deposit** row with the same `tx_hash` blocks a second credit — the same on-chain TX can never credit the wallet twice regardless of which recharge claimed it.
+  - **Fix 2 — Diagnostic tool**: new `GET /api/wallets/:code/audit` endpoint returns:
+    1. Current balance per coin (sum of signed amounts)
+    2. **Duplicate tx_hashes** — any hash with > 1 deposit row (should be 0 after the v10 dedupe)
+    3. **Deposit rows without tx_hash** — manual entries, conversions, untraceable credits
+    4. **Deposit rows not linked to a recharge** — credited the wallet but no customer recharge exists (common after a delete left ledger debris)
+  - **Fix 3 — UI**: new "Reconcile" button next to "Apply" on every wallet ledger tab. Opens a modal that lists each category above with per-row delete buttons so the accountant can spot and remove the offending ~1065-sat orphan immediately.
+  - **No regression risk** to existing flows: the audit is read-only; dedupe tightening only removes future duplicates (legacy duplicates surface in the Reconcile modal for manual review).
+
 - **UPDATE (May 28, 2026 v9): Manual missed-webhook backfill fixed end-to-end**
   - **Root cause** (from the live Cugino1Napoli BTC incident with TX `21f9a2a4…20c7`): when an admin manually recorded a missed BTCPay webhook with Amount=200/Currency=EUR but no `crypto_amount`, the backend silently fell back to `data.amount` so the recharge row read "200 BTC" instead of e.g. "0.00320770 BTC". The manual create flow also never created a `crypto_transactions` row, so (a) Wallet Ledger BTCPay never showed the deposit and (b) "Verify with mempool" returned "No BTC transaction found".
   - **Fix 1 — Backend `recharges.service.ts create()`**: replaced `crypto_amount: data.crypto_amount || data.amount` with `isPositiveNumber(data.crypto_amount) ? data.crypto_amount : '0'`. No silent fiat fallback ever again.
@@ -83,7 +94,7 @@ Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corpora
   - **Fix 3 — Frontend Recharges.jsx**: New Recharge modal now has a "Crypto Amount Received (<coin>)" input with `data-testid='rch-form-crypto-amount'` and `step='0.00000001'`. Label updates reactively with the selected coin, placeholder echoes "Actual BTC received (e.g. 0.00320770)", and helper text below clarifies "Required when recording an on-chain TX. Leave blank only for off-chain / manual Binance credit."
   - **Testing**: iteration_12 — pytest 6/6 PASS at `/app/backend/tests/test_recharges_btcpay_backfill_iter12.py`. Frontend modal structure verified visually.
 
-
+- **UPDATE (May 28, 2026 v8): Balance reconciliation + delete endpoints**
   - **Treasury page balance chips now read straight from `/api/wallets/overview`** (the double-entry `wallet_ledgers` source of truth) — they can never drift from the Wallet Ledger page again. Previously Treasury's Binance/OKX "USDT Balance" chip summed `recharges + batches + expenses` independently, producing figures like 3,358.73 USDT while the Wallet Ledger correctly showed -700 USDT for the same wallet. New helpers `walletBalanceFor(code, coin)` and `walletBalancesFor(code)` derive both `exchangeUsdtBalance` and `activeExchangeCoinSummary` chips from the ledger overview. Same fix applied to OxaPay (`OxaPay Wallet Balance` chip + `Today received` subtitle) and BTCPay (`BTCPay Wallet Balance: X BTC`).
   - **New DELETE endpoints**:
     - `DELETE /api/wallets/ledger/:id` — deletes a single ledger row + paired `linked_ledger_id` row (keeps double-entry balanced); audit log; returns `{deleted, paired_deleted}`.

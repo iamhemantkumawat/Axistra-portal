@@ -89,6 +89,23 @@ export default function WalletLedger() {
   const [cashoutForm, setCashoutForm] = useState(initialCashoutForm('BINANCE'));
   const [loading, setLoading] = useState(false);
   const [oxapaySyncing, setOxapaySyncing] = useState(false);
+  const [auditOpen, setAuditOpen] = useState(false);
+  const [audit, setAudit] = useState(null);
+  const [auditLoading, setAuditLoading] = useState(false);
+
+  const openAudit = async () => {
+    setAuditLoading(true);
+    setAuditOpen(true);
+    try {
+      const { data } = await api.get(`/wallets/${active}/audit`);
+      setAudit(data);
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Audit failed');
+      setAuditOpen(false);
+    } finally {
+      setAuditLoading(false);
+    }
+  };
 
   const runOxaPaySync = async () => {
     setOxapaySyncing(true);
@@ -295,6 +312,15 @@ export default function WalletLedger() {
           {Object.entries(TX_TYPE_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
         </select>
         <button onClick={() => loadLedger()} className="btn-secondary">Apply</button>
+        <button
+          onClick={openAudit}
+          className="btn-secondary inline-flex items-center gap-1"
+          data-testid="ledger-audit-btn"
+          title="Reconcile ledger with on-chain wallet. Highlights duplicate tx_hashes and orphan deposits to find balance drift."
+        >
+          <MagnifyingGlass size={14} weight="bold" />
+          Reconcile
+        </button>
         {active === 'OXAPAY' && (
           <button
             data-testid="ledger-oxapay-sync-btn"
@@ -463,6 +489,96 @@ export default function WalletLedger() {
             <button data-testid="cashout-submit" type="submit" disabled={loading} className="btn-primary disabled:opacity-50">{loading ? 'Recording…' : 'Record Cashout'}</button>
           </div>
         </form>
+      </Modal>
+
+      {/* Reconciliation audit modal */}
+      <Modal open={auditOpen} onClose={() => setAuditOpen(false)} title={`Reconcile ${active} Ledger`} size="lg" testId="modal-audit">
+        {auditLoading || !audit ? (
+          <div className="py-10 text-center text-sm text-gray-500">Loading audit…</div>
+        ) : (
+          <div className="space-y-5 text-sm" data-testid="audit-body">
+            <div className="card-axistra p-4 bg-[var(--axistra-bg)]">
+              <div className="label-xs">Current Balance</div>
+              <div className="mt-1 flex flex-wrap gap-3">
+                {audit.balance.map((b) => (
+                  <span key={b.coin} className="font-mono text-base font-semibold text-axistra-green">{b.amount} {b.coin}</span>
+                ))}
+              </div>
+              <div className="mt-2 text-xs text-gray-500">{audit.deposit_row_count} deposit row(s) in this wallet.</div>
+            </div>
+
+            <div>
+              <div className="font-display font-semibold mb-2 flex items-center gap-2">
+                Duplicate TX hashes
+                <span className={`badge ${audit.duplicates.length ? 'badge-red' : 'badge-green'}`}>{audit.duplicates.length}</span>
+              </div>
+              {audit.duplicates.length === 0 ? (
+                <div className="text-xs text-gray-500">No duplicate hashes — each on-chain TX credits the wallet exactly once.</div>
+              ) : (
+                <div className="space-y-3">
+                  {audit.duplicates.map((d) => (
+                    <div key={d.tx_hash} className="border border-red-200 rounded-md p-3 bg-red-50/40">
+                      <div className="font-mono text-xs break-all">{d.tx_hash}</div>
+                      <div className="text-xs mt-1">Counted {d.count}× · total <span className="font-mono text-red-700">{d.total_amount}</span></div>
+                      <div className="mt-2 space-y-1">
+                        {d.rows.map((r) => (
+                          <div key={r.id} className="flex items-center justify-between text-xs">
+                            <div className="font-mono">+{r.amount} {r.coin} <span className="text-gray-400">· {r.counterparty || '—'} · {r.external_ref || '—'}</span></div>
+                            <button onClick={async () => { if (!window.confirm('Delete this duplicate ledger row?')) return; try { await api.delete(`/wallets/ledger/${r.id}`); toast.success('Deleted'); await loadOverview(); await loadLedger(); await openAudit(); } catch (err) { toast.error('Delete failed'); } }} className="text-red-700 hover:underline">delete</button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <div className="font-display font-semibold mb-2 flex items-center gap-2">
+                Deposits without TX hash
+                <span className={`badge ${audit.missing_tx_hash.count ? 'badge-yellow' : 'badge-green'}`}>{audit.missing_tx_hash.count}</span>
+              </div>
+              {audit.missing_tx_hash.count === 0 ? (
+                <div className="text-xs text-gray-500">All deposit rows have a TX hash — clean.</div>
+              ) : (
+                <>
+                  <div className="text-xs text-gray-600 mb-2">Total <span className="font-mono text-yellow-700">{audit.missing_tx_hash.total_amount}</span> — likely manual entries or auto-converted internal credits. Verify each.</div>
+                  <div className="space-y-1">
+                    {audit.missing_tx_hash.rows.map((r) => (
+                      <div key={r.id} className="flex items-center justify-between text-xs border-b border-gray-100 py-1">
+                        <div className="font-mono">+{r.amount} {r.coin} <span className="text-gray-400">· {r.counterparty || '—'} · {r.external_ref || '—'} · {r.notes || ''}</span></div>
+                        <button onClick={async () => { if (!window.confirm('Delete this orphan ledger row?')) return; try { await api.delete(`/wallets/ledger/${r.id}`); toast.success('Deleted'); await loadOverview(); await loadLedger(); await openAudit(); } catch (err) { toast.error('Delete failed'); } }} className="text-red-700 hover:underline">delete</button>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div>
+              <div className="font-display font-semibold mb-2 flex items-center gap-2">
+                Deposits not linked to a recharge
+                <span className={`badge ${audit.orphan_no_recharge.count ? 'badge-yellow' : 'badge-green'}`}>{audit.orphan_no_recharge.count}</span>
+              </div>
+              {audit.orphan_no_recharge.count === 0 ? (
+                <div className="text-xs text-gray-500">All deposits trace back to a customer recharge — perfect audit chain.</div>
+              ) : (
+                <>
+                  <div className="text-xs text-gray-600 mb-2">Total <span className="font-mono text-yellow-700">{audit.orphan_no_recharge.total_amount}</span> — these credited the wallet but no customer recharge exists in the portal. Common after deleting a recharge that left ledger debris, or webhooks for tx_hashes the portal never created an invoice for.</div>
+                  <div className="space-y-1">
+                    {audit.orphan_no_recharge.rows.map((r) => (
+                      <div key={r.id} className="flex items-center justify-between text-xs border-b border-gray-100 py-1">
+                        <div className="font-mono">+{r.amount} {r.coin} <span className="text-gray-400">· {r.tx_hash ? r.tx_hash.slice(0, 10) + '…' : 'no-hash'} · {r.counterparty || '—'} · {r.notes || ''}</span></div>
+                        <button onClick={async () => { if (!window.confirm('Delete this orphan ledger row?')) return; try { await api.delete(`/wallets/ledger/${r.id}`); toast.success('Deleted'); await loadOverview(); await loadLedger(); await openAudit(); } catch (err) { toast.error('Delete failed'); } }} className="text-red-700 hover:underline">delete</button>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

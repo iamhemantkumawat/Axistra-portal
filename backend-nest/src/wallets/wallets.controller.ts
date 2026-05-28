@@ -35,6 +35,9 @@ export class WalletsController {
     });
   }
 
+  @Get(':code/audit')
+  audit(@Param('code') code: string) { return this.svc.auditWallet(code); }
+
   @Get('ledger/:id')
   one(@Param('id') id: string) { return this.svc.getOne(id); }
 
