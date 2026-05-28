@@ -9,11 +9,17 @@ import {
 } from '@phosphor-icons/react';
 
 const WALLET_ICONS = {
-  OXAPAY:  { icon: Coin,       hint: 'OxaPay merchant balance',  type: 'crypto' },
-  BTCPAY:  { icon: Coin,       hint: 'BTCPay store wallet',      type: 'crypto' },
-  BINANCE: { icon: Buildings,  hint: 'Binance exchange wallet',  type: 'exchange' },
-  OKX:     { icon: Buildings,  hint: 'OKX exchange wallet',      type: 'exchange' },
-  WIO_BANK:{ icon: Bank,       hint: 'Wio AED settlement bank',  type: 'bank' },
+  OXAPAY:  { icon: Coin,       hint: 'OxaPay merchant balance — auto-converted to USDT',  type: 'crypto',   coins: ['USDT'] },
+  BTCPAY:  { icon: Coin,       hint: 'BTCPay store wallet — BTC only',                    type: 'crypto',   coins: ['BTC'] },
+  BINANCE: { icon: Buildings,  hint: 'Binance exchange wallet — multi-coin + AED',        type: 'exchange', coins: ['USDT', 'BTC', 'ETH', 'AED'] },
+  OKX:     { icon: Buildings,  hint: 'OKX exchange wallet — multi-coin + AED',            type: 'exchange', coins: ['USDT', 'BTC', 'ETH', 'AED'] },
+  WIO_BANK:{ icon: Bank,       hint: 'Wio AED settlement bank',                           type: 'bank',     coins: ['AED'] },
+};
+
+/** Single-coin wallets can't host an in-wallet Convert (no second coin to swap to). */
+const SUPPORTS_CONVERT = (code) => {
+  const meta = WALLET_ICONS[code];
+  return !!(meta && (meta.coins?.length || 0) > 1);
 };
 
 const TX_TYPE_META = {
@@ -168,7 +174,13 @@ export default function WalletLedger() {
         actions={(
           <>
             <button data-testid="btn-send-batch" className="btn-primary" onClick={openBatch}><PaperPlaneTilt size={16} className="inline mr-1" /> Transfer Crypto</button>
-            <button data-testid="btn-convert" className="btn-secondary" onClick={openConvert}><ArrowsLeftRight size={16} className="inline mr-1" /> Convert Coin</button>
+            {SUPPORTS_CONVERT(active) ? (
+              <button data-testid="btn-convert" className="btn-secondary" onClick={openConvert}><ArrowsLeftRight size={16} className="inline mr-1" /> Convert Coin</button>
+            ) : (
+              <button title={`${active} only holds ${(WALLET_ICONS[active]?.coins || []).join(', ')} — convert on Binance/OKX after transferring there.`} data-testid="btn-convert-disabled" className="btn-secondary opacity-40 cursor-not-allowed" disabled>
+                <ArrowsLeftRight size={16} className="inline mr-1" /> Convert Coin
+              </button>
+            )}
             <button data-testid="btn-cashout" className="btn-secondary" onClick={openCashout}><Bank size={16} className="inline mr-1" /> Withdraw AED to Wio</button>
           </>
         )}
@@ -183,10 +195,15 @@ export default function WalletLedger() {
 
       <div className="grid grid-cols-1 lg:grid-cols-6 gap-3 mb-6">
         {overview.map((w) => {
-          const meta = WALLET_ICONS[w.code] || { icon: Wallet };
+          const meta = WALLET_ICONS[w.code] || { icon: Wallet, coins: [] };
           const Icon = meta.icon;
-          const primary = w.balances[0];
           const isActive = active === w.code;
+          // Walk the wallet's allowed-coins list and surface a row per coin,
+          // so empty balances (e.g. OKX AED) still show "0.00 AED" instead of
+          // hiding the line.
+          const allowed = meta.coins && meta.coins.length ? meta.coins : (w.balances || []).map((b) => b.coin);
+          const lookup = Object.fromEntries((w.balances || []).map((b) => [b.coin, b.balance]));
+          const showBalances = allowed.map((coin) => ({ coin, balance: lookup[coin] ?? 0 }));
           return (
             <button
               key={w.code}
@@ -202,17 +219,18 @@ export default function WalletLedger() {
               </div>
               <div className="mt-3 font-display text-base font-bold text-gray-900">{w.label}</div>
               <div className="text-[11px] uppercase tracking-wider text-gray-500">{w.code}</div>
-              {primary ? (
-                <div className="mt-3">
-                  <div className="text-[11px] text-gray-500">Balance</div>
-                  <div className="font-mono text-lg font-bold text-axistra-green">{fmtCrypto(primary.balance, primary.coin)}</div>
-                  {w.balances.slice(1).map((b) => (
-                    <div key={b.coin} className="font-mono text-xs text-gray-600">{fmtCrypto(b.balance, b.coin)}</div>
+              {showBalances.length ? (
+                <div className="mt-3 space-y-0.5">
+                  {showBalances.map((b, idx) => (
+                    <div key={b.coin} className={`font-mono ${idx === 0 ? 'text-base font-bold text-axistra-green' : 'text-xs text-gray-600'}`}>
+                      {fmtCrypto(b.balance, b.coin)}
+                    </div>
                   ))}
                 </div>
               ) : (
                 <div className="mt-3 text-xs text-gray-400">No activity yet</div>
               )}
+              {meta.hint && <div className="mt-2 text-[10px] text-gray-400 line-clamp-2">{meta.hint}</div>}
             </button>
           );
         })}

@@ -2,10 +2,11 @@ import { BadRequestException, Body, Controller, Get, Headers, Param, Post, Query
 import { AuthGuard } from '@nestjs/passport';
 import * as crypto from 'crypto';
 import { WebhooksService } from './webhooks.service';
+import { OxaPaySyncService } from './oxapay-sync.service';
 
 @Controller('webhooks')
 export class WebhooksController {
-  constructor(private svc: WebhooksService) {}
+  constructor(private svc: WebhooksService, private oxapaySync: OxaPaySyncService) {}
 
   @UseGuards(AuthGuard('jwt'))
   @Get('logs')
@@ -35,6 +36,12 @@ export class WebhooksController {
   @Get('logs/:id')
   log(@Param('id') id: string) {
     return this.svc.getLog(id);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Post('oxapay/sync-history')
+  syncOxapay() {
+    return this.oxapaySync.sync();
   }
 
   @Post('btcpay')

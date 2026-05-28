@@ -1,0 +1,43 @@
+{
+  "summary": "Iteration 9 — Comprehensive testing of Axistra Portal v3 deliverables (Treasury → Wallet Ledger fan-out, idempotency, cascade delete, OxaPay sync endpoint, multi-coin Wallet Ledger UI, gap-fill regression). All 9 backend pytest cases pass; all 5 frontend wallet-card / Convert-button assertions pass.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_treasury_fanout.py",
+    "/app/test_reports/pytest/treasury_fanout.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "wallets.service.ts sourceWalletFor() can return 'MANUAL' which is NOT in the WalletCode enum (OXAPAY/BTCPAY/BINANCE/OKX/WIO_BANK). If a recharge ever has no payment_gateway (or an unmapped one), the step-okx pair will attempt to write to a non-existent wallet and may corrupt the ledger. Recommend defaulting to BINANCE or throwing a clear validation error in syncMovementStep when source resolves to MANUAL.",
+    "Idempotency relies on deterministic external_ref + delete-then-insert. Concurrent POSTs to the same /treasury/movement/:id could race and briefly leave the wallet with 0 rows or duplicates. Consider wrapping syncMovementStep in a per-recharge advisory lock if multi-user concurrency is expected.",
+    "Frontend WalletLedger.jsx shows OXAPAY hint text 'auto-converted to USDT' — make sure the original_coin column header reads 'Customer Paid' only on the OXAPAY-active view (which it does)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_treasury_fanout.py (NEW)"
+  ],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100% (5/5 wallets + 5/5 convert button states)"},
+  "test_credentials": "admin@axistratech.com / admin123 (from /app/memory/test_credentials.md — verified working)",
+  "seed_data_creation": "Each test creates its own customer/recharge with TEST_ prefix and cleans up via DELETE in fixture teardown. No persistent test data left behind. Gap-fill test creates+deletes customers to verify code-slot reuse.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend regression suite is at /app/backend/tests/test_treasury_fanout.py — run with REACT_APP_BACKEND_URL=<preview_url> pytest .... Customer/recharge creation REQUIRES full_name/email/phone/country/magnus_username. crypto-tx call REQUIRES either receiving_wallet (address) OR received_wallet (wallet code like BINANCE). Treasury movement step counts: OKX wallet ends with 4 ledger rows after full chain (batch_in + convert_from + convert_to + cashout), Binance has 1 (batch_out), WIO_BANK has 1 (bank_deposit). OxaPay sync endpoint returned scanned=0, errors=0 (expected with sandbox merchant keys).",
+  "test_results_breakdown": {
+    "TestTreasuryFanout::test_okx_step_writes_pair": "PASS — batch_out (-272.50 USDT BINANCE) + batch_in (+272.50 USDT OKX)",
+    "TestTreasuryFanout::test_aed_step_writes_pair": "PASS — convert_from USDT + convert_to AED on OKX",
+    "TestTreasuryFanout::test_wio_step_writes_pair": "PASS — cashout from OKX + bank_deposit into WIO_BANK",
+    "TestTreasuryFanout::test_idempotency_no_duplicates": "PASS — re-POST same body 2x → row count stable (1 BINANCE / 4 OKX / 1 WIO_BANK)",
+    "TestTreasuryFanout::test_toggle_off_deletes_pair": "PASS — transferred_to_wio:false removes both wio rows",
+    "TestCascadeDelete::test_recharge_delete_drops_movement_ledger": "PASS — DELETE recharge removes all movement-step-* rows (verified 0 orphans)",
+    "TestOxaPaySync::test_sync_endpoint_requires_jwt": "PASS — 401 without token",
+    "TestOxaPaySync::test_sync_endpoint_returns_summary": "PASS — returns {scanned, matched, errors:0, by_key:[...]}",
+    "TestGapfillRegression::test_customer_code_reuses_smallest_slot": "PASS — deleted code reused on next create",
+    "Frontend WalletLedger UI": "PASS — OXAPAY 1 row USDT, BTCPAY 1 row BTC, BINANCE/OKX 4 rows USDT/BTC/ETH/AED, WIO_BANK 1 row AED. Convert button disabled on OXAPAY/BTCPAY/WIO_BANK, enabled on BINANCE/OKX."
+  }
+}

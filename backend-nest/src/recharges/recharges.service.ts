@@ -307,6 +307,8 @@ export class RechargesService implements OnModuleInit {
     if (!r) throw new NotFoundException();
     // Wallet ledger rows tagged with this recharge (deposits, expenses, etc.)
     await this.walletLedgerRepo.delete({ linked_recharge_id: id });
+    // Treasury-movement fan-out ledger rows (external_ref-tagged)
+    await this.wallets.dropMovementLedger(id);
     // Crypto transactions (children)
     await this.cryptoRepo.delete({ recharge_id: id });
     // Treasury movement (1:1)

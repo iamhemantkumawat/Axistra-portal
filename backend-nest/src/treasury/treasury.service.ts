@@ -6,6 +6,8 @@ import { Recharge } from '../entities/recharge.entity';
 import { TreasuryBatch } from '../entities/treasury-batch.entity';
 import { CryptoTransaction } from '../entities/crypto-transaction.entity';
 import { AuditService } from '../audit/audit.service';
+import { WalletsService } from '../wallets/wallets.service';
+import { WalletCode } from '../entities/wallet-ledger.entity';
 
 @Injectable()
 export class TreasuryService {
@@ -15,7 +17,18 @@ export class TreasuryService {
     @InjectRepository(TreasuryBatch) private batchRepo: Repository<TreasuryBatch>,
     @InjectRepository(CryptoTransaction) private cryptoRepo: Repository<CryptoTransaction>,
     private audit: AuditService,
+    private wallets: WalletsService,
   ) {}
+
+  /** Map the recharge's `payment_gateway` string to a WalletCode. */
+  private sourceWalletFor(recharge: Recharge): WalletCode {
+    const g = (recharge.payment_gateway || '').toLowerCase();
+    if (g.includes('oxapay')) return 'OXAPAY';
+    if (g.includes('btcpay')) return 'BTCPAY';
+    if (g.includes('binance')) return 'BINANCE';
+    if (g.includes('okx')) return 'OKX';
+    return 'MANUAL';
+  }
 
   private async nextBatchCode(sourceGateway?: string) {
     const d = new Date();
@@ -321,6 +334,42 @@ export class TreasuryService {
     Object.assign(m, data);
     this.assertMovementEvidence(recharge, m);
     const saved = await this.repo.save(m);
+
+    // Mirror the 3 boolean stages into the wallet ledger so balances stay in
+    // sync with what Crypto Treasury displays. Idempotent — re-running upsert
+    // overwrites the prior pair via external_ref tagging.
+    await this.wallets.syncMovementStep({
+      step: 'okx',
+      enabled: !!saved.transferred_to_okx,
+      recharge_id: rechargeId,
+      invoice_id: recharge.invoice_id,
+      source_wallet: this.sourceWalletFor(recharge),
+      coin: 'USDT',
+      amount: saved.total_usdt_received,
+      tx_hash: saved.okx_deposit_tx_hash,
+      counterparty: saved.okx_account_reference || 'OKX',
+      event_at: saved.okx_transfer_date || undefined,
+    }, actor);
+    await this.wallets.syncMovementStep({
+      step: 'aed',
+      enabled: !!saved.converted_to_aed,
+      recharge_id: rechargeId,
+      invoice_id: recharge.invoice_id,
+      coin: 'USDT',
+      amount: saved.usdt_converted,
+      rate: saved.okx_conversion_rate,
+      aed_amount: saved.aed_received,
+      event_at: saved.conversion_date || undefined,
+    }, actor);
+    await this.wallets.syncMovementStep({
+      step: 'wio',
+      enabled: !!saved.transferred_to_wio,
+      recharge_id: rechargeId,
+      invoice_id: recharge.invoice_id,
+      aed_amount: saved.wio_aed_amount,
+      bank_reference: saved.wio_bank_reference,
+      event_at: saved.wio_deposit_date || undefined,
+    }, actor);
 
     // Advance recharge status based on movement state
     if (saved.transferred_to_wio && saved.converted_to_aed && saved.transferred_to_okx) {

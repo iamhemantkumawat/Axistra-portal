@@ -7,9 +7,10 @@ import { CryptoTransaction } from '../entities/crypto-transaction.entity';
 import { TreasuryService } from './treasury.service';
 import { TreasuryController } from './treasury.controller';
 import { AuditModule } from '../audit/audit.module';
+import { WalletsModule } from '../wallets/wallets.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([TreasuryMovement, Recharge, TreasuryBatch, CryptoTransaction]), AuditModule],
+  imports: [TypeOrmModule.forFeature([TreasuryMovement, Recharge, TreasuryBatch, CryptoTransaction]), AuditModule, WalletsModule],
   providers: [TreasuryService],
   controllers: [TreasuryController],
 })
