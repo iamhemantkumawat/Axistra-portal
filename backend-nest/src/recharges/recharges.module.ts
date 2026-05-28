@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Recharge } from '../entities/recharge.entity';
 import { Invoice } from '../entities/invoice.entity';
@@ -7,6 +7,7 @@ import { CryptoTransaction } from '../entities/crypto-transaction.entity';
 import { TreasuryMovement } from '../entities/treasury-movement.entity';
 import { MagnusSyncLog } from '../entities/magnus-sync-log.entity';
 import { ReceivingWallet } from '../entities/receiving-wallet.entity';
+import { WalletLedger } from '../entities/wallet-ledger.entity';
 import { RechargesService } from './recharges.service';
 import { RechargesController } from './recharges.controller';
 import { AuditModule } from '../audit/audit.module';
@@ -17,7 +18,7 @@ import { WalletsModule } from '../wallets/wallets.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Recharge, Invoice, Customer, CryptoTransaction, TreasuryMovement, MagnusSyncLog, ReceivingWallet]),
+    TypeOrmModule.forFeature([Recharge, Invoice, Customer, CryptoTransaction, TreasuryMovement, MagnusSyncLog, ReceivingWallet, WalletLedger]),
     AuditModule, InvoicesModule, MagnusModule, FxModule, WalletsModule,
   ],
   providers: [RechargesService],

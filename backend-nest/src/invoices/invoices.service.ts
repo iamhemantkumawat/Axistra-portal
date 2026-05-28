@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Invoice } from '../entities/invoice.entity';
@@ -19,11 +19,29 @@ export class InvoicesService {
     private audit: AuditService,
   ) {}
 
-  private async nextNumber() {
+  /**
+   * Gap-aware next invoice number.
+   * Walks current month's prefix (AX-YYMM-NNNNN) and returns the smallest
+   * available NNNNN slot (fills holes created by deletes). If no gap exists,
+   * returns MAX + 1.
+   */
+  async nextNumber() {
     const now = new Date();
     const prefix = `${String(now.getFullYear()).slice(-2)}${String(now.getMonth() + 1).padStart(2, '0')}`;
-    const count = await this.repo.count();
-    return `AX-${prefix}-${String(count + 1).padStart(5, '0')}`;
+    const pattern = `AX-${prefix}-%`;
+    const rows = await this.repo
+      .createQueryBuilder('i')
+      .select('i.invoice_number', 'invoice_number')
+      .where('i.invoice_number LIKE :p', { p: pattern })
+      .getRawMany<{ invoice_number: string }>();
+    const used = new Set<number>();
+    for (const r of rows) {
+      const m = String(r.invoice_number || '').match(/(\d+)$/);
+      if (m) used.add(parseInt(m[1], 10));
+    }
+    let n = 1;
+    while (used.has(n)) n += 1;
+    return `AX-${prefix}-${String(n).padStart(5, '0')}`;
   }
 
   private deriveStatus(invoice: Invoice, recharge?: Recharge | null) {
@@ -178,5 +196,32 @@ export class InvoicesService {
   async pdf(id: string, style: 'branded' | 'minimal' = 'minimal'): Promise<Buffer> {
     const inv = await this.get(id);
     return style === 'minimal' ? renderMinimalInvoicePdf(inv) : renderInvoicePdf(inv);
+  }
+
+  /**
+   * Delete an invoice. Blocked when a recharge still references it — those
+   * are deleted via the recharge endpoint which cascades the chain.
+   */
+  async delete(id: string, actor?: any) {
+    const inv = await this.repo.findOne({ where: { id } });
+    if (!inv) throw new NotFoundException();
+    const linked = await this.rechargeRepo.findOne({
+      where: [{ invoice_id: id }, { invoice_number: inv.invoice_number }],
+    });
+    if (linked) {
+      throw new BadRequestException(
+        `Invoice ${inv.invoice_number} is linked to recharge ${linked.recharge_code}. Delete the recharge first.`,
+      );
+    }
+    await this.repo.delete(id);
+    await this.audit.log({
+      actor_id: actor?.id,
+      actor_email: actor?.email,
+      action: 'delete_invoice',
+      entity_type: 'invoice',
+      entity_id: id,
+      details: `Deleted invoice ${inv.invoice_number}`,
+    });
+    return { success: true, invoice_number: inv.invoice_number };
   }
 }

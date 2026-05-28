@@ -197,7 +197,7 @@ function ReceivingWalletsCard() {
         </table>
       </div>
 
-      <Modal open={open} onClose={() => setOpen(false)} title={editing ? 'Edit Receiving Wallet' : 'Add Receiving Wallet'} testId="wallet-modal">
+      <Modal open={open} onClose={() => setOpen(false)} title={editing ? 'Edit Receiving Wallet' : 'Add Receiving Wallet'} testId="wallet-modal" size="lg">
         <form onSubmit={onSubmit} className="grid grid-cols-2 gap-4">
           <Field label="Gateway *">
             <select required value={form.gateway} onChange={(e) => setForm({ ...form, gateway: e.target.value })} className="input-axistra" data-testid="wallet-form-gateway">
@@ -328,7 +328,7 @@ function VendorsCard() {
         </table>
       </div>
 
-      <Modal open={open} onClose={() => setOpen(false)} title={editing ? 'Edit Vendor' : 'Add Vendor'} testId="vendor-modal">
+      <Modal open={open} onClose={() => setOpen(false)} title={editing ? 'Edit Vendor' : 'Add Vendor'} testId="vendor-modal" size="lg">
         <form onSubmit={onSubmit} className="grid grid-cols-2 gap-4">
           <Field label="Name *" span={2}>
             <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="input-axistra" data-testid="vendor-form-name" />

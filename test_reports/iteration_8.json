@@ -1,0 +1,27 @@
+{
+  "summary": "Iteration 8 regression: backend delete + gap-fill numbering + cascade flows + frontend modal centering and delete UI verified end-to-end. 5/5 pytest cases pass; UI screenshots confirm Add Receiving Wallet and Add Vendor modals are centered with Cancel + Save buttons fully visible; recharge customer column shows `full_name` + `@magnus_username`; delete-recharge-btn on detail page triggers confirm() and removes the recharge (GET after delete returns 404 implicit via navigation back to /recharges).",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": { "ui_bugs": [], "integration_issues": [], "design_issues": [] },
+  "test_report_links": [
+    "/app/backend/tests/test_delete_gapfill.py",
+    "/app/test_reports/pytest/delete_gapfill.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "recharges.service.ts: create() has a robust retry-on-duplicate (5 attempts, fresh code each loop, orphan invoice rollback on every catch). Good — covers webhook race.",
+    "Gap-fill algorithm (nextCode / nextNumber / nextCustomerCode) implemented identically across the 3 services: SELECT raw codes for current prefix, extract trailing integer, walk for smallest unused. O(n) but n is per-month so this is fine for the expected volume.",
+    "invoices.service.ts delete() correctly blocks deletion when a recharge references either invoice_id OR invoice_number — both columns are checked. Good belt-and-suspenders since the recharge keeps both FK and the snapshot string.",
+    "customers.service.ts uses forwardRef into RechargesService for the cascade — circular import is handled cleanly. Each per-recharge delete is wrapped in try/catch so one failed sibling won't break the whole cascade.",
+    "recharges.service.ts delete() also wipes wallet_ledger rows tagged with linked_recharge_id, magnus_sync_logs, treasury_movement, crypto_transactions, AND the invoice — full downstream chain confirmed cleared. Verified via test (invoice GET returns 404 after recharge delete).",
+    "Frontend Atoms.jsx Modal uses flex-col + scrolling body; the .card-axistra animation no longer applies transform so the modal's `position: fixed` overlay is no longer reparented into a transformed containing block. Root cause matches the user's description in the request.",
+    "Settings.jsx now passes size='lg' to both wallet + vendor modals — confirmed visually that both fit the 1080px viewport with action buttons at ~780px Y (well within viewport)."
+  ],
+  "updated_files": ["/app/backend/tests/test_delete_gapfill.py"],
+  "success_rate": { "backend": "100% (5/5)", "frontend": "100% on covered flows (modals centered, save buttons visible, recharge customer column, delete recharge btn)" },
+  "test_credentials": "admin@axistratech.com / admin123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Tests create TEST_-prefixed customers/recharges/invoices and clean them up via cascade delete at the end. UI test creates 2 throwaway customers + recharge + standalone invoice and cleans them via DELETE /api/customers/:id.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Pytest file /app/backend/tests/test_delete_gapfill.py covers: customer code gap-fill, recharge+invoice gap-fill with cascade delete, invoice-delete BadRequest guard when linked to a recharge, standalone invoice delete, customer delete cascading recharges. Backend uses NestJS on 9001 proxied through FastAPI on 8001 — all calls must go through REACT_APP_BACKEND_URL. Login token field is `token` (not `access_token`). Customer schema requires first_name+last_name+email+phone+country+magnus_username to be 'active'. Recharge create with payment_gateway='Binance' and a known wallet_address from /api/settings/receiving-wallets is the simplest happy path. The seed DB has 1 Binance + 1 OKX receiving wallet — no customers/recharges/invoices at session start.",
+  "rca of the issue": "N/A — all targeted flows pass. Modal mis-positioning RCA (already fixed by main agent): a transform on the parent .card-axistra was creating a CSS containing-block which captured the fixed-position modal overlay, offsetting it. Removing the transform from the animation/transition (lines 372-376 of index.css) restores the overlay to viewport coords. Screenshots confirm fix."
+}

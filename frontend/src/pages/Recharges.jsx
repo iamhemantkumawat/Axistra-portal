@@ -138,7 +138,11 @@ export default function Recharges() {
                 <td><Link to={`/recharges/${r.id}`} className="font-mono text-axistra-green font-medium hover:underline" onClick={(e) => e.stopPropagation()}>{r.recharge_code}</Link></td>
                 <td>
                   <div className="font-medium">{r.customer?.full_name || '—'}</div>
-                  <div className="text-xs text-gray-500">{r.customer?.customer_code}</div>
+                  <div className="text-xs text-gray-500">
+                    {r.magnus_username || r.customer?.magnus_username
+                      ? <span className="font-mono">@{r.magnus_username || r.customer?.magnus_username}</span>
+                      : r.customer?.customer_code}
+                  </div>
                 </td>
                 <td className="font-mono font-semibold">{format(r.amount, r.currency)}</td>
                 <td className="text-xs"><span className="badge badge-neutral">{r.payment_gateway || '—'}</span></td>

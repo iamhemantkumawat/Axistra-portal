@@ -3,7 +3,8 @@ import api, { API_BASE } from '../lib/api';
 import { PageHeader, Modal } from '../components/Atoms';
 import { fmtDate, downloadBlob } from '../lib/format';
 import { useCurrency } from '../lib/currency';
-import { DownloadSimple, FileText, Eye } from '@phosphor-icons/react';
+import { DownloadSimple, FileText, Eye, Trash } from '@phosphor-icons/react';
+import { toast } from 'sonner';
 
 export default function Invoices() {
   const [items, setItems] = useState([]);
@@ -40,6 +41,17 @@ export default function Invoices() {
     downloadBlob(`${API_BASE}/invoices/${invoice.id}/pdf`, `${invoice.invoice_number}.pdf`);
   };
 
+  const deleteInvoice = async (invoice) => {
+    if (!window.confirm(`Delete invoice ${invoice.invoice_number}?\n\nNote: invoices linked to a recharge can only be deleted via the recharge (it cascades the whole chain). This delete is for stand-alone invoices only.`)) return;
+    try {
+      await api.delete(`/invoices/${invoice.id}`);
+      toast.success(`Deleted ${invoice.invoice_number}`);
+      api.get('/invoices').then((r) => setItems(r.data));
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Delete failed');
+    }
+  };
+
   return (
     <div>
       <PageHeader
@@ -70,6 +82,9 @@ export default function Invoices() {
                   </button>
                   <button onClick={() => downloadPdf(i)} className="btn-secondary text-xs inline-flex items-center gap-1" data-testid={`invoice-download-${i.invoice_number}`}>
                     <DownloadSimple size={14} /> PDF
+                  </button>
+                  <button onClick={() => deleteInvoice(i)} className="btn-secondary text-xs inline-flex items-center gap-1 text-red-700 hover:bg-red-50 border-red-200" title="Delete invoice (standalone only)" data-testid={`invoice-delete-${i.invoice_number}`}>
+                    <Trash size={14} />
                   </button>
                 </td>
               </tr>

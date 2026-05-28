@@ -372,7 +372,7 @@ h1, h2, h3, h4, h5, h6, .font-display {
 .card-axistra,
 .border.border-gray-200.rounded-lg {
   animation: surfaceIn 0.62s ease-out both;
-  transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.2s ease;
+  transition: box-shadow 0.22s ease, border-color 0.2s ease;
 }
 
 @keyframes pageReveal {
@@ -445,8 +445,8 @@ h1, h2, h3, h4, h5, h6, .font-display {
 }
 
 @keyframes surfaceIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: none; }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {

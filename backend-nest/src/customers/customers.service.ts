@@ -1,10 +1,12 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, forwardRef, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, ILike } from 'typeorm';
 import { Customer } from '../entities/customer.entity';
 import { KycDocument } from '../entities/kyc-document.entity';
 import { Invoice } from '../entities/invoice.entity';
+import { Recharge } from '../entities/recharge.entity';
 import { AuditService } from '../audit/audit.service';
+import { RechargesService } from '../recharges/recharges.service';
 
 @Injectable()
 export class CustomersService {
@@ -12,12 +14,29 @@ export class CustomersService {
     @InjectRepository(Customer) private repo: Repository<Customer>,
     @InjectRepository(KycDocument) private kycRepo: Repository<KycDocument>,
     @InjectRepository(Invoice) private invoiceRepo: Repository<Invoice>,
+    @InjectRepository(Recharge) private rechargeRepo: Repository<Recharge>,
+    @Inject(forwardRef(() => RechargesService)) private rechargesSvc: RechargesService,
     private audit: AuditService,
   ) {}
 
-  private async nextCode(): Promise<string> {
-    const count = await this.repo.count();
-    return `AXC-${String(count + 1).padStart(5, '0')}`;
+  /**
+   * Gap-aware customer code. Returns the smallest available AXC-NNNNN slot
+   * (fills holes created by deletes) — falls back to MAX + 1.
+   */
+  async nextCode(): Promise<string> {
+    const rows = await this.repo
+      .createQueryBuilder('c')
+      .select('c.customer_code', 'customer_code')
+      .where('c.customer_code LIKE :p', { p: 'AXC-%' })
+      .getRawMany<{ customer_code: string }>();
+    const used = new Set<number>();
+    for (const r of rows) {
+      const m = String(r.customer_code || '').match(/(\d+)$/);
+      if (m) used.add(parseInt(m[1], 10));
+    }
+    let n = 1;
+    while (used.has(n)) n += 1;
+    return `AXC-${String(n).padStart(5, '0')}`;
   }
 
   private isProfileComplete(data: Partial<Customer>) {
@@ -124,11 +143,27 @@ export class CustomersService {
   }
 
   async delete(id: string, actor?: any) {
+    const customer = await this.repo.findOne({ where: { id } });
+    if (!customer) throw new NotFoundException('Customer not found');
+    // Cascade: delete all recharges (and their crypto/treasury/ledger chain) for this customer
+    const recharges = await this.rechargeRepo.find({ where: { customer_id: id } });
+    for (const r of recharges) {
+      try {
+        await this.rechargesSvc.delete(r.id, actor);
+      } catch {
+        /* continue; recharge may have been removed already */
+      }
+    }
+    // Delete any stand-alone invoices that survived (no recharge link)
+    await this.invoiceRepo.delete({ customer_id: id });
+    // KYC documents are linked by FK; remove explicitly to avoid orphans
+    await this.kycRepo.delete({ customer_id: id });
     await this.repo.delete(id);
     await this.audit.log({
       actor_id: actor?.id, actor_email: actor?.email,
       action: 'delete_customer', entity_type: 'customer', entity_id: id,
+      details: `Deleted customer ${customer.customer_code} (cascaded ${recharges.length} recharges)`,
     });
-    return { success: true };
+    return { success: true, customer_code: customer.customer_code, cascaded_recharges: recharges.length };
   }
 }

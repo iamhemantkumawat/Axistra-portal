@@ -8,6 +8,7 @@ import { CryptoTransaction } from '../entities/crypto-transaction.entity';
 import { TreasuryMovement } from '../entities/treasury-movement.entity';
 import { MagnusSyncLog } from '../entities/magnus-sync-log.entity';
 import { ReceivingWallet } from '../entities/receiving-wallet.entity';
+import { WalletLedger } from '../entities/wallet-ledger.entity';
 import { AuditService } from '../audit/audit.service';
 import { InvoicesService } from '../invoices/invoices.service';
 import { MagnusService } from '../magnus/magnus.service';
@@ -27,6 +28,7 @@ export class RechargesService implements OnModuleInit {
     @InjectRepository(TreasuryMovement) private treasuryRepo: Repository<TreasuryMovement>,
     @InjectRepository(MagnusSyncLog) private magnusLogRepo: Repository<MagnusSyncLog>,
     @InjectRepository(ReceivingWallet) private receivingWalletRepo: Repository<ReceivingWallet>,
+    @InjectRepository(WalletLedger) private walletLedgerRepo: Repository<WalletLedger>,
     private audit: AuditService,
     private invoiceSvc: InvoicesService,
     private magnusSvc: MagnusService,
@@ -45,26 +47,47 @@ export class RechargesService implements OnModuleInit {
     }, ONE_DAY);
   }
 
+  /**
+   * Gap-aware next recharge code. Walks current month's prefix and returns
+   * the smallest available NNNNN slot. Falls back to MAX + 1.
+   */
   private async nextCode() {
     const now = new Date();
     const prefix = `${String(now.getFullYear()).slice(-2)}${String(now.getMonth() + 1).padStart(2, '0')}`;
     const pattern = `RCH-${prefix}-%`;
-    const row = await this.repo
+    const rows = await this.repo
       .createQueryBuilder('r')
-      .select('MAX(r.recharge_code)', 'max_code')
-      .where('r.recharge_code LIKE :pattern', { pattern })
-      .getRawOne();
-    let next = 1;
-    if (row?.max_code) {
-      const m = String(row.max_code).match(/(\d+)$/);
-      if (m) next = parseInt(m[1], 10) + 1;
+      .select('r.recharge_code', 'recharge_code')
+      .where('r.recharge_code LIKE :p', { p: pattern })
+      .getRawMany<{ recharge_code: string }>();
+    const used = new Set<number>();
+    for (const r of rows) {
+      const m = String(r.recharge_code || '').match(/(\d+)$/);
+      if (m) used.add(parseInt(m[1], 10));
     }
-    return `RCH-${prefix}-${String(next).padStart(5, '0')}`;
+    let n = 1;
+    while (used.has(n)) n += 1;
+    return `RCH-${prefix}-${String(n).padStart(5, '0')}`;
   }
 
+  /**
+   * Gap-aware customer code. Smallest free AXC-NNNNN. Used by the webhook
+   * auto-creator path; the regular customers.service uses the same algorithm.
+   */
   private async nextCustomerCode() {
-    const count = await this.customerRepo.count();
-    return `AXC-${String(count + 1).padStart(5, '0')}`;
+    const rows = await this.customerRepo
+      .createQueryBuilder('c')
+      .select('c.customer_code', 'customer_code')
+      .where('c.customer_code LIKE :p', { p: 'AXC-%' })
+      .getRawMany<{ customer_code: string }>();
+    const used = new Set<number>();
+    for (const r of rows) {
+      const m = String(r.customer_code || '').match(/(\d+)$/);
+      if (m) used.add(parseInt(m[1], 10));
+    }
+    let n = 1;
+    while (used.has(n)) n += 1;
+    return `AXC-${String(n).padStart(5, '0')}`;
   }
 
   private isWithinInvoiceRefreshWindow(invoice?: Invoice | null) {
@@ -98,59 +121,81 @@ export class RechargesService implements OnModuleInit {
   async create(data: any, actor?: any) {
     const customer = await this.customerRepo.findOne({ where: { id: data.customer_id } });
     if (!customer) throw new BadRequestException('Customer not found');
-    const code = await this.nextCode();
     // Detect the receiving wallet → gateway override
     const detected = await this.detectGatewayFromAddress(data.wallet_address);
     const gateway = data.payment_gateway || detected || 'Binance';
     if (gateway === 'Manual') throw new BadRequestException('Manual gateway is no longer supported. Pick Binance, OKX, OxaPay, or BTCPay.');
-    const invoice = await this.invoiceSvc.createForRecharge({
-      customer,
-      amount: data.amount,
-      currency: data.currency || 'USD',
-      payment_method: gateway,
-      crypto_coin: data.crypto_coin,
-      crypto_network: data.crypto_network,
-      tx_hash: data.tx_hash,
-    });
-    const r = this.repo.create({
-      recharge_code: code,
-      customer_id: customer.id,
-      invoice_id: invoice.id,
-      invoice_number: invoice.invoice_number,
-      magnus_username: data.magnus_username || customer.magnus_username,
-      amount: data.amount,
-      currency: data.currency || 'USD',
-      crypto_amount: data.crypto_amount || data.amount,
-      crypto_coin: data.crypto_coin || 'USDT',
-      crypto_network: data.crypto_network || 'TRC20',
-      wallet_address: data.wallet_address,
-      tx_hash: data.tx_hash,
-      payment_gateway: gateway,
-      payment_date: data.payment_date || new Date(),
-      admin_notes: data.admin_notes,
-      status: 'pending_payment',
-    });
-    const saved = await this.repo.save(r);
-    invoice.recharge_id = saved.id;
-    await this.invoiceRepo.save(invoice);
 
-    // Auto-create initial empty treasury movement so chain steps can be filled
-    const tm = this.treasuryRepo.create({
-      recharge_id: saved.id,
-      customer_id: customer.id,
-      total_usdt_received: saved.crypto_amount,
-      receiving_wallet: saved.wallet_address,
-      receiving_wallet_tag: data.wallet_tag,
-      receive_tx_hash: saved.tx_hash,
-    });
-    await this.treasuryRepo.save(tm);
+    // Retry-on-duplicate guard: in rare races, two webhooks can claim the
+    // same code/number before we save. Loop a few times with a fresh code
+    // each attempt.
+    let lastErr: any = null;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const code = await this.nextCode();
+      const invoice = await this.invoiceSvc.createForRecharge({
+        customer,
+        amount: data.amount,
+        currency: data.currency || 'USD',
+        payment_method: gateway,
+        crypto_coin: data.crypto_coin,
+        crypto_network: data.crypto_network,
+        tx_hash: data.tx_hash,
+      });
+      const r = this.repo.create({
+        recharge_code: code,
+        customer_id: customer.id,
+        invoice_id: invoice.id,
+        invoice_number: invoice.invoice_number,
+        magnus_username: data.magnus_username || customer.magnus_username,
+        amount: data.amount,
+        currency: data.currency || 'USD',
+        crypto_amount: data.crypto_amount || data.amount,
+        crypto_coin: data.crypto_coin || 'USDT',
+        crypto_network: data.crypto_network || 'TRC20',
+        wallet_address: data.wallet_address,
+        tx_hash: data.tx_hash,
+        payment_gateway: gateway,
+        payment_date: data.payment_date || new Date(),
+        admin_notes: data.admin_notes,
+        status: 'pending_payment',
+      });
+      try {
+        const saved = await this.repo.save(r);
+        invoice.recharge_id = saved.id;
+        await this.invoiceRepo.save(invoice);
 
-    await this.audit.log({
-      actor_id: actor?.id, actor_email: actor?.email,
-      action: 'create_recharge', entity_type: 'recharge', entity_id: saved.id,
-      details: `Created recharge ${saved.recharge_code} for ${customer.customer_code} amount ${saved.amount} ${saved.currency}`,
-    });
-    return saved;
+        // Auto-create initial empty treasury movement so chain steps can be filled
+        const tm = this.treasuryRepo.create({
+          recharge_id: saved.id,
+          customer_id: customer.id,
+          total_usdt_received: saved.crypto_amount,
+          receiving_wallet: saved.wallet_address,
+          receiving_wallet_tag: data.wallet_tag,
+          receive_tx_hash: saved.tx_hash,
+        });
+        await this.treasuryRepo.save(tm);
+
+        await this.audit.log({
+          actor_id: actor?.id, actor_email: actor?.email,
+          action: 'create_recharge', entity_type: 'recharge', entity_id: saved.id,
+          details: `Created recharge ${saved.recharge_code} for ${customer.customer_code} amount ${saved.amount} ${saved.currency}`,
+        });
+        return saved;
+      } catch (err: any) {
+        const msg = String(err?.message || '');
+        const isDupe = msg.includes('duplicate key') || msg.includes('UQ_') || err?.code === '23505';
+        if (!isDupe || attempt === 4) {
+          lastErr = err;
+          // Roll back the invoice that we created in this attempt
+          try { await this.invoiceRepo.delete(invoice.id); } catch { /* ignore */ }
+          break;
+        }
+        // Same prefix collided — drop the orphan invoice and try again
+        try { await this.invoiceRepo.delete(invoice.id); } catch { /* ignore */ }
+        this.logger.warn(`Recharge code/invoice collision on attempt ${attempt + 1}: ${msg}`);
+      }
+    }
+    throw lastErr || new BadRequestException('Could not allocate a unique recharge code');
   }
 
   async createFromGatewayPayment(data: any, actor?: any) {
@@ -250,6 +295,35 @@ export class RechargesService implements OnModuleInit {
       details: `Ensured customer ${customer.customer_code} from ${data.payment_gateway || 'gateway'} invoice event`,
     });
     return customer;
+  }
+
+  /**
+   * Hard-delete a recharge AND its entire downstream chain:
+   *   crypto_transactions + treasury_movement + wallet_ledger rows + linked invoice.
+   * Use this to clean up test data. Audit-logged.
+   */
+  async delete(id: string, actor?: any) {
+    const r = await this.repo.findOne({ where: { id } });
+    if (!r) throw new NotFoundException();
+    // Wallet ledger rows tagged with this recharge (deposits, expenses, etc.)
+    await this.walletLedgerRepo.delete({ linked_recharge_id: id });
+    // Crypto transactions (children)
+    await this.cryptoRepo.delete({ recharge_id: id });
+    // Treasury movement (1:1)
+    await this.treasuryRepo.delete({ recharge_id: id });
+    // Magnus sync logs (audit trail of this recharge's Magnus credits)
+    await this.magnusLogRepo.delete({ recharge_id: id });
+    // The linked invoice (auto-created with the recharge)
+    if (r.invoice_id) {
+      try { await this.invoiceRepo.delete(r.invoice_id); } catch { /* ignore if already gone */ }
+    }
+    await this.repo.delete(id);
+    await this.audit.log({
+      actor_id: actor?.id, actor_email: actor?.email,
+      action: 'delete_recharge', entity_type: 'recharge', entity_id: id,
+      details: `Deleted recharge ${r.recharge_code} and its full chain`,
+    });
+    return { success: true, recharge_code: r.recharge_code };
   }
 
   async updateStatus(id: string, status: string, note?: string, actor?: any) {

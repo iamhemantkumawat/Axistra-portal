@@ -6,10 +6,12 @@ import AuditChain from '../components/AuditChain';
 import { RECHARGE_STATUS_META, fmtMoney, fmtDateTime, downloadBlob } from '../lib/format';
 import { API_BASE } from '../lib/api';
 import { toast } from 'sonner';
-import { Receipt, DownloadSimple, Plug, CurrencyCircleDollar, Bank, Eye } from '@phosphor-icons/react';
+import { Receipt, DownloadSimple, Plug, CurrencyCircleDollar, Bank, Eye, Trash } from '@phosphor-icons/react';
+import { useNavigate } from 'react-router-dom';
 
 export default function RechargeDetail() {
   const { id } = useParams();
+  const nav = useNavigate();
   const [data, setData] = useState(null);
   const [magnusOpen, setMagnusOpen] = useState(false);
   const [magForm, setMagForm] = useState({ magnus_credit_added: '', magnus_reference_id: '' });
@@ -105,6 +107,17 @@ export default function RechargeDetail() {
     downloadBlob(`${API_BASE}/invoices/${r.invoice_id}/pdf`, `${r.invoice_number}.pdf`);
   };
 
+  const deleteRecharge = async () => {
+    if (!window.confirm(`Permanently delete recharge ${r.recharge_code}?\n\nThis also removes:\n• The linked invoice (${r.invoice_number || '—'})\n• All crypto transactions, treasury movement, and wallet-ledger rows tagged with this recharge.\n\nThis cannot be undone.`)) return;
+    try {
+      await api.delete(`/recharges/${id}`);
+      toast.success(`Deleted ${r.recharge_code}`);
+      nav('/recharges');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Delete failed');
+    }
+  };
+
   const printInvoice = () => {
     if (!invoicePreview?.html) return;
     const win = window.open('', '_blank', 'noopener,noreferrer,width=1024,height=900');
@@ -156,6 +169,9 @@ export default function RechargeDetail() {
                 </button>
               </>
             )}
+            <button onClick={deleteRecharge} className="btn-secondary inline-flex items-center gap-2 text-red-700 hover:bg-red-50 border-red-200" data-testid="delete-recharge-btn">
+              <Trash size={16} /> Delete
+            </button>
           </>
         }
       />
