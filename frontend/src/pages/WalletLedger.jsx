@@ -62,6 +62,7 @@ const initialConvertForm = (wallet) => ({
   to_amount: '',
   fee_amount: '',
   fee_currency: 'USDT',
+  event_at: new Date().toISOString().slice(0, 10),
   notes: '',
 });
 
@@ -171,7 +172,19 @@ export default function WalletLedger() {
   const activeWallet = useMemo(() => overview.find((w) => w.code === active), [overview, active]);
 
   const openBatch = () => { setBatchForm(initialBatchForm(active)); setBatchOpen(true); };
-  const openConvert = () => { setConvertForm(initialConvertForm(active)); setConvertOpen(true); };
+  const openConvert = () => {
+    const wallet = SUPPORTS_CONVERT(active) ? active : 'BINANCE';
+    const coins = WALLET_ICONS[wallet]?.coins || ['USDT'];
+    const fromCoin = coins.find((c) => c !== 'USDT') || coins[0] || 'BTC';
+    const toCoin = coins.find((c) => c !== fromCoin) || 'USDT';
+    setConvertForm({
+      ...initialConvertForm(wallet),
+      from_coin: fromCoin,
+      to_coin: toCoin,
+      fee_currency: toCoin,
+    });
+    setConvertOpen(true);
+  };
   const openCashout = () => { setCashoutForm(initialCashoutForm(active)); setCashoutOpen(true); };
 
   const submitBatch = async (e) => {
@@ -442,29 +455,151 @@ export default function WalletLedger() {
       </Modal>
 
       {/* Convert modal */}
-      <Modal open={convertOpen} onClose={() => setConvertOpen(false)} title="Step 2 · Convert Coin Inside Wallet" size="lg" testId="modal-convert">
+      <Modal open={convertOpen} onClose={() => setConvertOpen(false)} title="Convert Coin Inside Wallet" size="lg" testId="modal-convert">
         <div className="mb-3 rounded-md border border-axistra-green/30 bg-[var(--axistra-green-light)] p-3 text-xs text-gray-700">
-          <strong className="text-axistra-green">Same-wallet swap.</strong> Swaps one coin for another inside an exchange (e.g. BTC → USDT, USDT → AED). Funds stay inside the same wallet — they do <em>not</em> move to bank. Use Step 3 (Withdraw to Wio) once your AED balance is large enough.
+          <strong className="text-axistra-green">Same-wallet swap.</strong> Swaps one coin for another inside an exchange (e.g. BTC → USDT, USDT → AED). Funds stay inside the same wallet. Pick a coin you actually hold, enter what you received from the exchange — the rate is calculated for you.
         </div>
-        <form onSubmit={submitConvert} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Field label="Wallet">
-            <select className="input-axistra" value={convertForm.wallet} onChange={(e) => setConvertForm({ ...convertForm, wallet: e.target.value })}>
-              {Object.keys(WALLET_ICONS).map((k) => <option key={k} value={k}>{k}</option>)}
-            </select>
-          </Field>
-          <Field label="From Coin"><input className="input-axistra" value={convertForm.from_coin} onChange={(e) => setConvertForm({ ...convertForm, from_coin: e.target.value })} required /></Field>
-          <Field label="To Coin"><input className="input-axistra" value={convertForm.to_coin} onChange={(e) => setConvertForm({ ...convertForm, to_coin: e.target.value })} required /></Field>
-          <Field label="Rate (1 from = X to)"><input className="input-axistra font-mono" value={convertForm.rate} onChange={(e) => setConvertForm({ ...convertForm, rate: e.target.value })} required placeholder="e.g. 65000 for BTC→USDT" /></Field>
-          <Field label="From Amount"><input data-testid="convert-amount" className="input-axistra font-mono" value={convertForm.from_amount} onChange={(e) => setConvertForm({ ...convertForm, from_amount: e.target.value })} required /></Field>
-          <Field label="To Amount (override)"><input className="input-axistra font-mono" value={convertForm.to_amount} onChange={(e) => setConvertForm({ ...convertForm, to_amount: e.target.value })} placeholder="Auto from rate" /></Field>
-          <Field label="Fee Amount"><input className="input-axistra font-mono" value={convertForm.fee_amount} onChange={(e) => setConvertForm({ ...convertForm, fee_amount: e.target.value })} placeholder="0" /></Field>
-          <Field label="Fee Currency"><input className="input-axistra" value={convertForm.fee_currency} onChange={(e) => setConvertForm({ ...convertForm, fee_currency: e.target.value })} /></Field>
-          <Field label="Notes" span={2}><textarea rows={2} className="input-axistra" value={convertForm.notes} onChange={(e) => setConvertForm({ ...convertForm, notes: e.target.value })} /></Field>
-          <div className="md:col-span-2 flex justify-end gap-2">
-            <button type="button" onClick={() => setConvertOpen(false)} className="btn-secondary">Cancel</button>
-            <button data-testid="convert-submit" type="submit" disabled={loading} className="btn-primary disabled:opacity-50">{loading ? 'Recording…' : 'Record Conversion'}</button>
-          </div>
-        </form>
+        {(() => {
+          const convertableWallets = Object.keys(WALLET_ICONS).filter((k) => SUPPORTS_CONVERT(k));
+          const walletMeta = WALLET_ICONS[convertForm.wallet] || { coins: ['USDT'] };
+          const walletBalances = overview.find((w) => w.code === convertForm.wallet)?.balances || [];
+          const balanceLookup = Object.fromEntries(walletBalances.map((b) => [b.coin, parseFloat(b.balance || '0')]));
+          const availableFromCoins = walletMeta.coins || [];
+          const availableToCoins = availableFromCoins.filter((c) => c !== convertForm.from_coin);
+          const fromBalance = balanceLookup[convertForm.from_coin] || 0;
+          const fromAmt = parseFloat(convertForm.from_amount || '0');
+          const toAmt = parseFloat(convertForm.to_amount || '0');
+          const liveRate = fromAmt > 0 && toAmt > 0 ? (toAmt / fromAmt) : 0;
+          const overdraft = fromAmt > 0 && fromAmt > fromBalance;
+          return (
+            <form onSubmit={submitConvert} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Field label="Wallet">
+                  <select
+                    data-testid="convert-wallet"
+                    className="input-axistra"
+                    value={convertForm.wallet}
+                    onChange={(e) => {
+                      const w = e.target.value;
+                      const coins = WALLET_ICONS[w]?.coins || [];
+                      const fromCoin = coins.find((c) => c !== 'USDT') || coins[0] || 'BTC';
+                      const toCoin = coins.find((c) => c !== fromCoin) || 'USDT';
+                      setConvertForm({ ...convertForm, wallet: w, from_coin: fromCoin, to_coin: toCoin, fee_currency: toCoin });
+                    }}
+                  >
+                    {convertableWallets.map((k) => <option key={k} value={k}>{k}</option>)}
+                  </select>
+                </Field>
+                <Field label="Conversion Date">
+                  <input
+                    type="date"
+                    data-testid="convert-date"
+                    className="input-axistra"
+                    value={convertForm.event_at}
+                    onChange={(e) => setConvertForm({ ...convertForm, event_at: e.target.value })}
+                    required
+                  />
+                </Field>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <div className="label-xs mb-1">From Coin</div>
+                  <select
+                    data-testid="convert-from-coin"
+                    className="input-axistra"
+                    value={convertForm.from_coin}
+                    onChange={(e) => {
+                      const fromCoin = e.target.value;
+                      const toCoin = availableFromCoins.find((c) => c !== fromCoin) || 'USDT';
+                      setConvertForm({ ...convertForm, from_coin: fromCoin, to_coin: convertForm.to_coin === fromCoin ? toCoin : convertForm.to_coin, fee_currency: convertForm.to_coin === fromCoin ? toCoin : convertForm.to_coin });
+                    }}
+                  >
+                    {availableFromCoins.map((c) => (
+                      <option key={c} value={c}>{c} · {fmtCrypto(balanceLookup[c] || 0, c)}</option>
+                    ))}
+                  </select>
+                  <div className="mt-1 text-[11px] text-gray-500">Available: <span className="font-mono">{fmtCrypto(fromBalance, convertForm.from_coin)}</span></div>
+                </div>
+                <div>
+                  <div className="label-xs mb-1">From Amount</div>
+                  <div className="relative">
+                    <input
+                      data-testid="convert-from-amount"
+                      type="number"
+                      step="0.00000001"
+                      className={`input-axistra font-mono pr-16 ${overdraft ? 'border-red-400' : ''}`}
+                      value={convertForm.from_amount}
+                      onChange={(e) => setConvertForm({ ...convertForm, from_amount: e.target.value })}
+                      placeholder={`How much ${convertForm.from_coin} you sold`}
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setConvertForm({ ...convertForm, from_amount: fromBalance > 0 ? String(fromBalance) : '' })}
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md bg-axistra-green/10 px-2 py-0.5 text-[11px] font-semibold text-axistra-green hover:bg-axistra-green/20"
+                      data-testid="convert-from-max"
+                    >
+                      MAX
+                    </button>
+                  </div>
+                  {overdraft && <div className="mt-1 text-[11px] text-red-600">Amount exceeds the {convertForm.from_coin} balance available in this wallet.</div>}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Field label="To Coin">
+                  <select
+                    data-testid="convert-to-coin"
+                    className="input-axistra"
+                    value={convertForm.to_coin}
+                    onChange={(e) => setConvertForm({ ...convertForm, to_coin: e.target.value, fee_currency: e.target.value })}
+                  >
+                    {availableToCoins.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </Field>
+                <Field label="Received Amount">
+                  <input
+                    data-testid="convert-to-amount"
+                    type="number"
+                    step="0.00000001"
+                    className="input-axistra font-mono"
+                    value={convertForm.to_amount}
+                    onChange={(e) => setConvertForm({ ...convertForm, to_amount: e.target.value })}
+                    placeholder={`How much ${convertForm.to_coin} the exchange gave you`}
+                    required
+                  />
+                </Field>
+              </div>
+
+              <div className="rounded-md border border-gray-200 p-3 grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <div className="label-xs">Computed Rate</div>
+                  <div className="font-mono text-sm font-semibold text-gray-900" data-testid="convert-rate-display">
+                    {liveRate > 0 ? `1 ${convertForm.from_coin} = ${liveRate.toLocaleString(undefined, { maximumFractionDigits: 8 })} ${convertForm.to_coin}` : '—'}
+                  </div>
+                </div>
+                <div>
+                  <div className="label-xs">Inverse Rate</div>
+                  <div className="font-mono text-sm text-gray-700">
+                    {liveRate > 0 ? `1 ${convertForm.to_coin} = ${(1 / liveRate).toLocaleString(undefined, { maximumFractionDigits: 8 })} ${convertForm.from_coin}` : '—'}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Field label="Exchange Fee (optional)"><input className="input-axistra font-mono" value={convertForm.fee_amount} onChange={(e) => setConvertForm({ ...convertForm, fee_amount: e.target.value })} placeholder="0" /></Field>
+                <Field label="Fee Currency"><select className="input-axistra" value={convertForm.fee_currency} onChange={(e) => setConvertForm({ ...convertForm, fee_currency: e.target.value })}>{availableFromCoins.map((c) => <option key={c} value={c}>{c}</option>)}</select></Field>
+              </div>
+              <Field label="Notes (optional)"><textarea rows={2} className="input-axistra" value={convertForm.notes} onChange={(e) => setConvertForm({ ...convertForm, notes: e.target.value })} placeholder="e.g. Binance instant convert order #12345" /></Field>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+                <button type="button" onClick={() => setConvertOpen(false)} className="btn-secondary">Cancel</button>
+                <button data-testid="convert-submit" type="submit" disabled={loading || overdraft} className="btn-primary disabled:opacity-50">{loading ? 'Recording…' : 'Record Conversion'}</button>
+              </div>
+            </form>
+          );
+        })()}
       </Modal>
 
       {/* Cashout modal */}

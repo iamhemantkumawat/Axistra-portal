@@ -243,11 +243,28 @@ export class WalletsService {
     fee_currency?: string;
     notes?: string;
     ledger_ids?: string[];
+    event_at?: string | Date;
   }, actor?: any) {
     if (input.from_coin === input.to_coin) throw new BadRequestException('Same coin');
     const fromAmt = parseFloat(input.from_amount);
-    const rate = parseFloat(input.rate);
-    const toAmt = input.to_amount ? parseFloat(input.to_amount) : fromAmt * rate;
+    if (!(fromAmt > 0)) throw new BadRequestException('From amount must be positive');
+    const explicitTo = input.to_amount ? parseFloat(input.to_amount) : NaN;
+    const explicitRate = input.rate ? parseFloat(input.rate) : NaN;
+    // Prefer the actually-received amount the user typed. Derive the rate
+    // from it. This matches real-world behaviour: exchange tells you the
+    // resulting balance, you don't usually enter a rate by hand.
+    let toAmt: number;
+    let rate: number;
+    if (Number.isFinite(explicitTo) && explicitTo > 0) {
+      toAmt = explicitTo;
+      rate = explicitTo / fromAmt;
+    } else if (Number.isFinite(explicitRate) && explicitRate > 0) {
+      rate = explicitRate;
+      toAmt = fromAmt * explicitRate;
+    } else {
+      throw new BadRequestException('Either Received Amount or Rate is required');
+    }
+    const eventAt = input.event_at ? new Date(input.event_at) : new Date();
     const conv_id = nextCode(`${input.wallet.slice(0, 3)}-CONV`);
     const fromCoin = input.from_coin.toUpperCase();
     const toCoin = input.to_coin.toUpperCase();
@@ -255,14 +272,14 @@ export class WalletsService {
     const out = await this.ledger.save(this.ledger.create({
       wallet: input.wallet, coin: fromCoin, amount: (-fromAmt).toFixed(8),
       tx_type: 'convert_from', external_ref: conv_id,
-      rate_used: rate.toString(), notes: input.notes,
-      actor_email: actor?.email, event_at: new Date(),
+      rate_used: rate.toFixed(8), notes: input.notes,
+      actor_email: actor?.email, event_at: eventAt,
     }));
     const inn = await this.ledger.save(this.ledger.create({
       wallet: input.wallet, coin: toCoin, amount: toAmt.toFixed(8),
       tx_type: 'convert_to', external_ref: conv_id,
-      rate_used: rate.toString(), linked_ledger_id: out.id,
-      notes: input.notes, actor_email: actor?.email, event_at: new Date(),
+      rate_used: rate.toFixed(8), linked_ledger_id: out.id,
+      notes: input.notes, actor_email: actor?.email, event_at: eventAt,
     }));
     out.linked_ledger_id = inn.id;
     await this.ledger.save(out);
@@ -272,7 +289,7 @@ export class WalletsService {
         wallet: input.wallet, coin: (input.fee_currency || toCoin).toUpperCase(),
         amount: (-parseFloat(input.fee_amount)).toFixed(8), tx_type: 'fee',
         external_ref: conv_id, notes: 'Exchange/conversion fee',
-        actor_email: actor?.email, event_at: new Date(),
+        actor_email: actor?.email, event_at: eventAt,
       }));
     }
 
@@ -285,7 +302,7 @@ export class WalletsService {
     await this.audit.log({
       actor_id: actor?.id, actor_email: actor?.email,
       action: 'wallet_convert', entity_type: 'wallet_ledger', entity_id: out.id,
-      details: `${input.wallet}: ${fromAmt} ${fromCoin} → ${toAmt.toFixed(2)} ${toCoin} @ ${rate} (${conv_id})`,
+      details: `${input.wallet}: ${fromAmt} ${fromCoin} → ${toAmt.toFixed(2)} ${toCoin} @ ${rate.toFixed(8)} (${conv_id})`,
     });
     return { conv_id, out, in: inn };
   }

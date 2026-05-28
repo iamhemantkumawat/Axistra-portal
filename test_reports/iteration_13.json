@@ -1,0 +1,30 @@
+{
+  "summary": "Iteration 13 — Phase-A Treasury collapsible toggles + Wallet Ledger Convert-modal upgrades verified. Backend: 10/10 pytest cases pass against POST /api/wallets/BINANCE/convert (Received-Amount priority with auto-rate, rate-only fallback, validation errors for same coin / zero amount / missing both inputs, event_at honored, ledger two-leg linkage, overview reflects balances). Frontend: Wallet Ledger → Convert modal fully verified live — all data-testids present with correct element types (SELECT, number input, button, date input, div); convert-date defaults to today; live rate-display shows '1 BTC = 109,230.70883293 USDT'. Treasury batch-detail toggle buttons (steps 2/3/4) and '— required' label on step 1 are structurally verified via code review (showStep2/3/4 = useState(false) + conditional render + correct data-testids in Treasury.jsx) — could not live-click into a batch because the fresh DB has zero existing batches.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Wallet Ledger → Convert modal MAX button", "issues": ["When the wallet shows a NEGATIVE balance (e.g. BTC -0.09675632 on BINANCE), clicking MAX inserts an empty string into the from-amount field instead of falling back to 0 or to the absolute balance. Non-blocking; user can manually type. Consider clamping to max(0, balance) and disabling MAX when balance<=0."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_wallets_convert_iter13.py", "/app/test_reports/pytest/iter13_wallets_convert.xml"],
+  "action_items": [
+    "(Optional) Tweak Convert modal MAX button to insert balance only when balance > 0 (currently inserts empty string for negative balance).",
+    "(Optional) Seed a sample treasury batch in dev/preview environments so the batch-detail toggle UI can be exercised by future iteration testing — currently DB is fresh and Treasury page has zero batches."
+  ],
+  "critical_code_review_comments": [
+    "wallets.service.ts convert() correctly enforces precedence: explicit to_amount > rate; throws BadRequestException with required user-facing messages for Same coin / positive from / missing both.",
+    "WalletLedger.jsx Convert modal — all required selectors are SELECT/INPUT/BUTTON elements (not free-text). Live rate-display reactively updates as both amounts are typed. Date input defaults to today via toISOString().slice(0,10).",
+    "Treasury.jsx — showStep2/showStep3/showStep4 all initialized to false; openBatch() conditionally toggles each step ON only when source data exists; data-testid='treasury-step{2,3,4}-toggle' applied to <button> wrappers; step 1 Sweep card shows literal '— required' span.",
+    "FastAPI proxy at 8001 → NestJS at 9001 is healthy; auth login accepts {accept_terms:true} in body and returns access_token used for Bearer auth on /api/wallets/* endpoints."
+  ],
+  "updated_files": ["/app/backend/tests/test_wallets_convert_iter13.py"],
+  "success_rate": {"backend": "100% (10/10)", "frontend": "Wallet Ledger Convert modal 100% live-verified; Treasury toggles structurally verified (no live batch to click in fresh DB)"},
+  "test_credentials": "admin@axistratech.com / admin123 (login body must include accept_terms:true)",
+  "seed_data_creation": "None — used the existing BINANCE wallet for live conversion; backend tests created multiple test conversions that are now persisted in the ledger.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "DB now has ~3-4 BINANCE convert ledger rows from this iteration (notes contain 'test iter13'). Frontend route for Wallet Ledger is /wallets (not /wallet-ledger). When the active wallet on /wallets only holds USDT (e.g. OXAPAY), the Convert button is shown as data-testid='btn-convert-disabled'; click the BINANCE wallet card (data-testid='wallet-card-BINANCE') first to enable data-testid='btn-convert'. For Treasury batch toggle live-testing, you must first create a batch — there are zero batches in the preview DB.",
+  "rca of the issue": "N/A — no bugs of severity high/critical found in this iteration. Only a minor UX polish nit on the MAX button behavior when balance is negative."
+}

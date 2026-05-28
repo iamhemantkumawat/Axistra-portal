@@ -160,6 +160,14 @@ export default function Treasury() {
   const [activeExpense, setActiveExpense] = useState(null);
   const [batchDetail, setBatchDetail] = useState(null);
   const [settlementForm, setSettlementForm] = useState({});
+  // Cards 2/3/4 of the Treasury Transfer modal (USDT, AED, Wio Bank) are
+  // OPTIONAL. They get hidden by default — finishing just the Sweep step is
+  // a valid flow ("Held as BTC at Binance"). User explicitly asked for this
+  // breakup so they can hold coin at the exchange without being prompted to
+  // convert in the same click.
+  const [showStep2, setShowStep2] = useState(false);
+  const [showStep3, setShowStep3] = useState(false);
+  const [showStep4, setShowStep4] = useState(false);
   const [operationOpen, setOperationOpen] = useState(false);
   const [operationType, setOperationType] = useState('');
   const [operationForm, setOperationForm] = useState({});
@@ -632,6 +640,11 @@ export default function Treasury() {
     });
     const { data: detail } = await api.get(`/treasury/batches/${batch.id}`);
     setBatchDetail(detail);
+    // Auto-reveal step 2/3/4 ONLY if data already exists for them, so freshly
+    // opened batches default to Sweep-only mode.
+    setShowStep2(!!(batch.usdt_amount || batch.usdt_conversion_rate || batch.usdt_conversion_date));
+    setShowStep3(!!(batch.crypto_converted || batch.conversion_rate || batch.fiat_received));
+    setShowStep4(!!(batch.bank_reference || batch.bank_deposit_date));
   };
 
   const updateSettlement = async (e) => {
@@ -1295,7 +1308,8 @@ export default function Treasury() {
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
               <div className="rounded-md border border-gray-200 p-4">
-                <h3 className="font-display text-lg font-semibold text-gray-900 mb-3">1. Sweep to OKX/Binance</h3>
+                <h3 className="font-display text-lg font-semibold text-gray-900 mb-1">1. Sweep to OKX/Binance <span className="text-xs font-normal text-gray-500">— required</span></h3>
+                <p className="text-[11px] text-gray-500 mb-3">Moves the coin from your processor wallet (BTCPay / OxaPay) to the exchange. After saving this step the coin is <strong>held at the exchange</strong>. Convert / cashout later, when ready.</p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <Field label="Source Wallet / Processor"><input className="input-axistra font-mono" value={settlementForm.source_wallet || ''} onChange={(e) => setSettlementForm({ ...settlementForm, source_wallet: e.target.value })} /></Field>
                   <Field label="Destination Exchange"><select className="input-axistra" value={settlementForm.destination_exchange || 'OKX'} onChange={(e) => setSettlementForm({ ...settlementForm, destination_exchange: e.target.value })}><option>OKX</option><option>Binance</option><option>Other</option></select></Field>
@@ -1316,18 +1330,33 @@ export default function Treasury() {
               </div>
 
               <div className="rounded-md border border-gray-200 p-4">
-                <h3 className="font-display text-lg font-semibold text-gray-900 mb-3">2. Convert or Hold as USDT</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <button type="button" onClick={() => setShowStep2(!showStep2)} className="w-full flex items-center justify-between text-left" data-testid="treasury-step2-toggle">
+                  <div>
+                    <h3 className="font-display text-lg font-semibold text-gray-900">2. Convert or Hold as USDT <span className="text-xs font-normal text-gray-500">— optional</span></h3>
+                    {!showStep2 && <p className="text-[11px] text-gray-500 mt-1">Skip if you're keeping the coin as-is at the exchange. Click to expand if you converted to USDT.</p>}
+                  </div>
+                  <span className="text-xs text-axistra-green font-semibold">{showStep2 ? '▲ Hide' : '▼ Expand'}</span>
+                </button>
+                {showStep2 && (
+                <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
                   <Field label="USDT Amount"><input className="input-axistra" value={settlementForm.usdt_amount || ''} onChange={(e) => setSettlementForm({ ...settlementForm, usdt_amount: e.target.value, crypto_converted: settlementForm.crypto_converted || e.target.value })} /></Field>
                   <Field label={`${activeBatch.coin || 'Crypto'} to USDT Rate`}><input className="input-axistra" value={settlementForm.usdt_conversion_rate || ''} onChange={(e) => setSettlementForm({ ...settlementForm, usdt_conversion_rate: e.target.value })} placeholder={(activeBatch.coin || '').toUpperCase() === 'USDT' ? 'Leave empty for USDT' : 'USDT per coin'} /></Field>
                   <Field label="USDT Conversion Date"><input type="date" className="input-axistra" value={settlementForm.usdt_conversion_date || ''} onChange={(e) => setSettlementForm({ ...settlementForm, usdt_conversion_date: e.target.value })} /></Field>
                   <Field label="Conversion Reference"><input className="input-axistra" value={settlementForm.usdt_conversion_reference || ''} onChange={(e) => setSettlementForm({ ...settlementForm, usdt_conversion_reference: e.target.value })} /></Field>
                 </div>
+                )}
               </div>
 
               <div className="rounded-md border border-gray-200 p-4">
-                <h3 className="font-display text-lg font-semibold text-gray-900 mb-3">3. Convert USDT to AED</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <button type="button" onClick={() => setShowStep3(!showStep3)} className="w-full flex items-center justify-between text-left" data-testid="treasury-step3-toggle">
+                  <div>
+                    <h3 className="font-display text-lg font-semibold text-gray-900">3. Convert USDT to AED <span className="text-xs font-normal text-gray-500">— optional</span></h3>
+                    {!showStep3 && <p className="text-[11px] text-gray-500 mt-1">Click to expand only when this transfer has been converted to AED on the exchange.</p>}
+                  </div>
+                  <span className="text-xs text-axistra-green font-semibold">{showStep3 ? '▲ Hide' : '▼ Expand'}</span>
+                </button>
+                {showStep3 && (
+                <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
                   <Field label="USDT Converted"><input className="input-axistra" value={settlementForm.crypto_converted || ''} onChange={(e) => setSettlementForm({ ...settlementForm, crypto_converted: e.target.value })} /></Field>
                   <Field label="AED Rate"><input className="input-axistra" value={settlementForm.conversion_rate || ''} onChange={(e) => setSettlementForm({ ...settlementForm, conversion_rate: e.target.value })} placeholder="3.67" /></Field>
                   <Field label="AED Received"><input className="input-axistra" value={settlementForm.fiat_received || ''} onChange={(e) => {
@@ -1337,11 +1366,19 @@ export default function Treasury() {
                   }} /></Field>
                   <Field label="Conversion Date"><input type="date" className="input-axistra" value={settlementForm.conversion_date || ''} onChange={(e) => setSettlementForm({ ...settlementForm, conversion_date: e.target.value })} /></Field>
                 </div>
+                )}
               </div>
 
               <div className="rounded-md border border-gray-200 p-4">
-                <h3 className="font-display text-lg font-semibold text-gray-900 mb-3">4. Withdraw to Wio</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <button type="button" onClick={() => setShowStep4(!showStep4)} className="w-full flex items-center justify-between text-left" data-testid="treasury-step4-toggle">
+                  <div>
+                    <h3 className="font-display text-lg font-semibold text-gray-900">4. Withdraw to Wio <span className="text-xs font-normal text-gray-500">— optional</span></h3>
+                    {!showStep4 && <p className="text-[11px] text-gray-500 mt-1">Click to expand only when the AED has been wired from the exchange to your Wio bank account.</p>}
+                  </div>
+                  <span className="text-xs text-axistra-green font-semibold">{showStep4 ? '▲ Hide' : '▼ Expand'}</span>
+                </button>
+                {showStep4 && (
+                <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
                   <Field label="Bank"><input className="input-axistra" value={settlementForm.bank_name || 'Wio Bank'} onChange={(e) => setSettlementForm({ ...settlementForm, bank_name: e.target.value })} /></Field>
                   <Field label="Wio Bank Reference"><input className="input-axistra font-mono" value={settlementForm.bank_reference || ''} onChange={(e) => setSettlementForm({ ...settlementForm, bank_reference: e.target.value })} /></Field>
                   <Field label="Deposit Date"><input type="date" className="input-axistra" value={settlementForm.bank_deposit_date || ''} onChange={(e) => setSettlementForm({ ...settlementForm, bank_deposit_date: e.target.value })} /></Field>
@@ -1352,6 +1389,7 @@ export default function Treasury() {
                   }} /></Field>
                   <Field label="Net Wio Deposit AED" span={2}><input className="input-axistra" value={settlementForm.net_bank_deposit_amount || ''} onChange={(e) => setSettlementForm({ ...settlementForm, net_bank_deposit_amount: e.target.value })} /></Field>
                 </div>
+                )}
               </div>
             </div>
 
