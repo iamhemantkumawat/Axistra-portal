@@ -1,11 +1,16 @@
 # Multi-stage build for the NestJS backend.
+# The repo is yarn-managed (yarn.lock is committed). We removed the stale
+# package-lock.json because yarn + npm cannot share the same project — keeping
+# them in sync is impossible and `npm ci` would otherwise install the stale
+# lockfile, missing dependencies added through `yarn add`.
 FROM node:20-alpine AS build
 WORKDIR /app
-COPY package*.json ./
-RUN npm ci
+RUN corepack enable
+COPY package.json yarn.lock ./
+RUN yarn install --frozen-lockfile --network-timeout 600000
 COPY tsconfig*.json nest-cli.json ./
 COPY src ./src
-RUN npm run build
+RUN yarn build
 
 FROM node:20-alpine AS runtime
 WORKDIR /app
@@ -16,8 +21,10 @@ RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefo
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
-COPY package*.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+RUN corepack enable
+COPY package.json yarn.lock ./
+RUN yarn install --frozen-lockfile --production --network-timeout 600000 \
+  && yarn cache clean
 COPY --from=build /app/dist ./dist
 COPY assets ./assets
 COPY .env.example ./.env.example

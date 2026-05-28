@@ -1,12 +1,20 @@
 # Multi-stage build for the Vite React frontend.
+# The repo is yarn-managed (yarn.lock is committed; no package-lock.json exists),
+# so the image MUST install with `yarn install --frozen-lockfile`. If you
+# previously saw "missing frontend/package-lock.json" errors on the VPS, that
+# was because an older Dockerfile used `npm ci`.
 FROM node:20-alpine AS build
 WORKDIR /app
-COPY package*.json ./
-RUN npm ci --legacy-peer-deps
+RUN corepack enable
+
+# Copy lockfile + manifest first so docker caches the install layer.
+COPY package.json yarn.lock ./
+RUN yarn install --frozen-lockfile --network-timeout 600000
+
 COPY . .
 ARG REACT_APP_BACKEND_URL
 ENV REACT_APP_BACKEND_URL=$REACT_APP_BACKEND_URL
-RUN npm run build
+RUN yarn build
 
 FROM nginx:1.27-alpine AS runtime
 RUN apk add --no-cache curl

@@ -3,16 +3,15 @@
 # Axistra Portal — Production update script
 # ---------------------------------------------------------------------------
 # Run this on your VPS after pushing new code to GitHub (`Save to Github` in the
-# Emergent chat). It pulls the latest commit, rebuilds the changed Docker
-# images and rolls the containers safely.
+# Emergent chat). It validates the working tree, pulls the latest commit,
+# rebuilds the changed Docker images and rolls the containers safely.
 #
 # One-time install on the VPS:
-#   sudo install -m 0755 update.sh /opt/axistra/update.sh
+#   sudo install -m 0755 deploy/update.sh /opt/axistra/update.sh
 #
 # Usage:
-#   ssh root@axistratech.com 'cd /opt/axistra/Axistra-Web-Portal && bash /opt/axistra/update.sh'
-#
-# Or interactively on the box:
+#   ssh root@axistratech.com 'bash /opt/axistra/update.sh'
+# or interactively on the box:
 #   cd /opt/axistra/Axistra-Web-Portal && bash /opt/axistra/update.sh
 # ---------------------------------------------------------------------------
 set -euo pipefail
@@ -30,6 +29,38 @@ die()  { printf '\033[31m%s ERROR:\033[0m %s\n' "$LOG_PREFIX" "$*" >&2; exit 1; 
 
 [[ -d "$REPO_DIR" ]] || die "Repo directory $REPO_DIR not found. Edit REPO_DIR at the top of this script."
 cd "$REPO_DIR"
+
+# --- Doctor: catch broken trees before docker build ever runs ----------------
+# This is the gate that prevents the "missing frontend/package-lock.json"
+# class of error from breaking production.
+doctor() {
+  local errors=0
+  log "Running pre-deploy doctor…"
+
+  [[ -f "$COMPOSE_FILE" ]] || { warn "missing $COMPOSE_FILE"; errors=$((errors+1)); }
+
+  # The repo is yarn-managed. Both frontend & backend MUST have yarn.lock and
+  # MUST NOT carry a stale package-lock.json (which would shadow yarn.lock
+  # inside the docker build).
+  for svc in frontend backend-nest; do
+    [[ -f "$svc/Dockerfile" ]] || { warn "$svc/Dockerfile missing"; errors=$((errors+1)); }
+    [[ -f "$svc/package.json" ]] || { warn "$svc/package.json missing"; errors=$((errors+1)); }
+    [[ -f "$svc/yarn.lock" ]] || { warn "$svc/yarn.lock missing — repo uses yarn, lockfile must be committed"; errors=$((errors+1)); }
+    if [[ -f "$svc/package-lock.json" ]]; then
+      warn "$svc/package-lock.json is committed alongside yarn.lock — these conflict. Delete it: 'git rm $svc/package-lock.json'"
+      errors=$((errors+1))
+    fi
+    if grep -qE '^[[:space:]]*RUN[[:space:]]+npm[[:space:]]+(ci|install)' "$svc/Dockerfile"; then
+      warn "$svc/Dockerfile uses 'npm ci/install' but the repo is yarn-managed. Switch the install step to 'yarn install --frozen-lockfile'."
+      errors=$((errors+1))
+    fi
+  done
+
+  if (( errors > 0 )); then
+    die "Doctor found $errors issue(s) above. Fix them, push again, then re-run update.sh."
+  fi
+  ok "Doctor passed."
+}
 
 # --- 1. Optional Postgres safety backup --------------------------------------
 if [[ "$BACKUP_BEFORE" == "yes" ]]; then
@@ -63,7 +94,10 @@ log "Resetting workdir to origin/${BRANCH}…"
 git reset --hard "origin/${BRANCH}"
 ok  "Now at $(git rev-parse --short HEAD) — $(git log -1 --pretty=%s)"
 
-# --- 3. Detect what changed and rebuild only those services ------------------
+# --- 3. Run the doctor on the FRESH tree --------------------------------------
+doctor
+
+# --- 4. Detect what changed and rebuild only those services ------------------
 CHANGED="$(git diff --name-only "$LOCAL_SHA" "$REMOTE_SHA")"
 REBUILD_BACKEND=no
 REBUILD_FRONTEND=no
@@ -78,7 +112,7 @@ echo "$CHANGED" | grep -qE '^(docker-compose\.yml|deploy/)' && COMPOSE_TOUCHED=y
 
 log "Changes: backend=$REBUILD_BACKEND  frontend=$REBUILD_FRONTEND  schema=$SCHEMA_TOUCHED"
 
-# --- 4. Rebuild ---------------------------------------------------------------
+# --- 5. Rebuild ---------------------------------------------------------------
 BUILD_TARGETS=()
 [[ "$REBUILD_BACKEND"  == "yes" ]] && BUILD_TARGETS+=("backend-nest")
 [[ "$REBUILD_FRONTEND" == "yes" ]] && BUILD_TARGETS+=("frontend")
@@ -92,7 +126,7 @@ else
   docker compose -f "$COMPOSE_FILE" up -d --no-deps "${BUILD_TARGETS[@]}"
 fi
 
-# --- 5. Health check ----------------------------------------------------------
+# --- 6. Health check ----------------------------------------------------------
 log "Waiting for backend health…"
 for i in $(seq 1 30); do
   if curl -fsS http://127.0.0.1:9001/api/health >/dev/null 2>&1 \
@@ -104,7 +138,7 @@ for i in $(seq 1 30); do
   [[ $i -eq 30 ]] && warn "Health endpoint did not respond in 60s — check 'docker compose logs backend-nest'."
 done
 
-# --- 6. Prune unused images (keeps disk in check) ----------------------------
+# --- 7. Prune unused images (keeps disk in check) ----------------------------
 log "Pruning dangling images…"
 docker image prune -f >/dev/null || true
 

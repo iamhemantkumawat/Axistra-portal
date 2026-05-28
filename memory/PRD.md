@@ -76,6 +76,16 @@ Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corpora
   - New endpoints: `GET|POST|PATCH|DELETE /api/settings/receiving-wallets`, `GET|POST|PATCH|DELETE /api/settings/vendors`
   - 14/14 backend tests + full frontend regression PASS (iteration_7.json).
 
+- **HOTFIX (May 28, 2026 v4): VPS deployment unblocked — yarn.lock now tracked + Dockerfiles fixed**
+  - **Root cause of "new branch doesn't include a frontend/package-lock.json"**: the old Dockerfiles invoked `npm ci` which REQUIRES a `package-lock.json`, but the repo is yarn-managed (`yarn.lock` only). Worse — `frontend/yarn.lock` and `backend-nest/yarn.lock` had **never been committed to git**, so every "Save to Github" push produced a branch with NO lockfile of either flavor. The VPS docker build then died trying to run `npm ci` with no lockfile.
+  - **Fixes shipped**:
+    - `frontend/Dockerfile` + `backend-nest/Dockerfile` rewritten to use `corepack enable` + `yarn install --frozen-lockfile` (build stage) and again in the backend runtime stage with `--production`.
+    - Stale `backend-nest/package-lock.json` deleted from the repo (kept conflicting with yarn.lock).
+    - Both `yarn.lock` files force-added to git (`git add -f`) so future GitHub pushes carry them. They will be in the next "Save to Github" commit.
+    - New `frontend/.dockerignore` + `backend-nest/.dockerignore` exclude `node_modules`, `dist`, `.env*` from the build context — faster builds, smaller images.
+  - **`deploy/update.sh` pre-deploy doctor** added: validates BOTH services have `yarn.lock`, NEITHER service has a stale `package-lock.json`, and NEITHER Dockerfile uses `npm ci/install` — exits with a clear error BEFORE Docker is ever invoked. Verified working by deliberately breaking the tree (renaming yarn.lock + adding a fake package-lock.json) — doctor catches it; restored — doctor passes.
+  - **End-to-end install verified** with the real lockfiles in `/tmp`: `yarn install --frozen-lockfile` succeeds in 37s for frontend and 11s for backend-nest, and resolves the new `@nestjs/schedule` dependency correctly.
+
 - **UPDATE (May 28, 2026 v3): Treasury ↔ Wallet Ledger auto-sync + OxaPay history cron + coin-aware UI**
   - **P0 — Treasury → Wallet Ledger fan-out (the headline)**. Every `TreasuryService.upsertMovement(...)` now mirrors the 3 boolean stages into double-entry wallet_ledger pairs via a new `WalletsService.syncMovementStep({ step, enabled, ... })` helper. Idempotency is guaranteed by a deterministic `external_ref = 'movement-<recharge_id>-step-<okx|aed|wio>'` — every upsert deletes the prior pair before re-inserting, so re-saves or step toggles never duplicate rows. Verified with iteration_9 tests (9/9 pass): a $100 OxaPay → OKX → AED → Wio chain produces exactly 6 ledger rows that net to **+367 AED in WIO_BANK** with every intermediate balance == 0.
   - **Cascade delete extended**: `RechargesService.delete()` now also calls `wallets.dropMovementLedger(id)` so deleting a recharge removes the 3 movement-step pairs (no orphan ledger rows).

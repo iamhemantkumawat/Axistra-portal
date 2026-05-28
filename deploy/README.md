@@ -1,5 +1,21 @@
 # Axistra Portal — VPS Deployment
 
+## Why the previous push to your VPS failed
+
+Old Dockerfiles used `npm ci`, which requires `package-lock.json`. The
+codebase is **yarn-managed** (only `yarn.lock` is committed). On the VPS, the
+build crashed with:
+
+```
+new branch doesn't include a frontend/package-lock.json, so Docker can't install dependencies
+```
+
+**Fixed in this version.** Both `frontend/Dockerfile` and `backend-nest/Dockerfile`
+now use `yarn install --frozen-lockfile`. The stale `backend-nest/package-lock.json`
+was deleted so `yarn.lock` is the single source of truth. `update.sh` now runs
+a **pre-deploy doctor** that catches this class of error before `docker compose
+build` is ever invoked.
+
 ## One-time setup on the VPS
 
 ```bash
