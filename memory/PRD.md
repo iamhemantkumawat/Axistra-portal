@@ -76,6 +76,19 @@ Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corpora
   - New endpoints: `GET|POST|PATCH|DELETE /api/settings/receiving-wallets`, `GET|POST|PATCH|DELETE /api/settings/vendors`
   - 14/14 backend tests + full frontend regression PASS (iteration_7.json).
 
+- **UPDATE (May 29, 2026 v11 — Phase A): Sweep-only Treasury + Convert modal UX overhaul**
+  - **Treasury Transfer modal**: Cards 2 (Convert to USDT), 3 (Convert to AED), 4 (Withdraw to Wio) now COLLAPSED by default — only Card 1 (Sweep) is required. User can finish just the sweep ("Held as BTC at Binance") and convert later. Each card has a `▼ Expand` / `▲ Hide` toggle (`data-testid='treasury-step{2,3,4}-toggle'`). Auto-expands a card only if data already exists for it.
+  - **Wallet Ledger Convert modal**: rewritten to mirror real exchange UX.
+    - Wallet, From Coin, To Coin all SELECT dropdowns (no free-text typos)
+    - From Coin dropdown shows current balance beside each coin
+    - **MAX button** auto-fills `from_amount` with the available balance (disabled when ≤ 0)
+    - **Received Amount** is the primary input; rate is auto-computed and displayed live ("1 BTC = 109,230.71 USDT") + inverse rate
+    - **Conversion Date** input defaults to today, sent to backend as `event_at`
+    - Visual warning if `from_amount` > available balance (overdraft block)
+  - **Backend `wallets.service.ts convert()`**: now accepts optional `event_at` (default = now); prioritizes user-supplied `to_amount` and derives rate from it (rate = to/from); throws `BadRequestException` with clear messages for "Same coin" / "From amount must be positive" / "Either Received Amount or Rate is required".
+  - **Testing**: iteration_13 — pytest 10/10 PASS at `/app/backend/tests/test_wallets_convert_iter13.py`. Wallet Ledger Convert modal live-verified end-to-end (live rate display shows '1 BTC = 109,230.70883293 USDT' as expected). Treasury batch-detail toggles structurally verified.
+  - **Phase B (next)**: Withdraw-to-Bank standalone action, coin dropdowns on other forms (Expenses / New Recharge), and a "Mark as Held at Exchange" quick-save button on Card 1.
+
 - **UPDATE (May 29, 2026 v10): Wallet ↔ on-chain reconciliation diagnostic + tightened dedupe**
   - **Investigation**: User reported BTCPay ledger total = 0.01896745 BTC while real BLUEwallet shows 0.01895680 BTC — a 0.00001065 BTC (~1065 sats) orphan row hidden somewhere in the ledger. Couldn't pinpoint from screenshots alone.
   - **Fix 1 — Tighter dedupe in `wallets.recordRechargeDeposit()`**: previously the duplicate check required both `tx_hash` AND `linked_recharge_id` to match. Now any existing **deposit** row with the same `tx_hash` blocks a second credit — the same on-chain TX can never credit the wallet twice regardless of which recharge claimed it.

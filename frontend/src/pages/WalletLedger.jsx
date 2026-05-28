@@ -536,9 +536,11 @@ export default function WalletLedger() {
                     />
                     <button
                       type="button"
-                      onClick={() => setConvertForm({ ...convertForm, from_amount: fromBalance > 0 ? String(fromBalance) : '' })}
-                      className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md bg-axistra-green/10 px-2 py-0.5 text-[11px] font-semibold text-axistra-green hover:bg-axistra-green/20"
+                      onClick={() => setConvertForm({ ...convertForm, from_amount: fromBalance > 0 ? String(fromBalance) : '0' })}
+                      disabled={!(fromBalance > 0)}
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md bg-axistra-green/10 px-2 py-0.5 text-[11px] font-semibold text-axistra-green hover:bg-axistra-green/20 disabled:opacity-40 disabled:cursor-not-allowed"
                       data-testid="convert-from-max"
+                      title={fromBalance > 0 ? 'Fill with available balance' : 'No positive balance to fill'}
                     >
                       MAX
                     </button>
