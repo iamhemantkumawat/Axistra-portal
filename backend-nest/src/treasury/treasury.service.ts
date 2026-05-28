@@ -20,14 +20,17 @@ export class TreasuryService {
     private wallets: WalletsService,
   ) {}
 
-  /** Map the recharge's `payment_gateway` string to a WalletCode. */
+  /** Map the recharge's `payment_gateway` string to a WalletCode. Falls back
+   *  to BINANCE rather than the invalid 'MANUAL' so the ledger fan-out always
+   *  targets a real wallet — corrupt ledger rows would be far worse than a
+   *  best-guess default that an admin can fix afterwards. */
   private sourceWalletFor(recharge: Recharge): WalletCode {
     const g = (recharge.payment_gateway || '').toLowerCase();
     if (g.includes('oxapay')) return 'OXAPAY';
     if (g.includes('btcpay')) return 'BTCPAY';
     if (g.includes('binance')) return 'BINANCE';
     if (g.includes('okx')) return 'OKX';
-    return 'MANUAL';
+    return 'BINANCE';
   }
 
   private async nextBatchCode(sourceGateway?: string) {

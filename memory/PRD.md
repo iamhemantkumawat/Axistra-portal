@@ -76,6 +76,24 @@ Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corpora
   - New endpoints: `GET|POST|PATCH|DELETE /api/settings/receiving-wallets`, `GET|POST|PATCH|DELETE /api/settings/vendors`
   - 14/14 backend tests + full frontend regression PASS (iteration_7.json).
 
+- **UPDATE (May 28, 2026 v3): Treasury ↔ Wallet Ledger auto-sync + OxaPay history cron + coin-aware UI**
+  - **P0 — Treasury → Wallet Ledger fan-out (the headline)**. Every `TreasuryService.upsertMovement(...)` now mirrors the 3 boolean stages into double-entry wallet_ledger pairs via a new `WalletsService.syncMovementStep({ step, enabled, ... })` helper. Idempotency is guaranteed by a deterministic `external_ref = 'movement-<recharge_id>-step-<okx|aed|wio>'` — every upsert deletes the prior pair before re-inserting, so re-saves or step toggles never duplicate rows. Verified with iteration_9 tests (9/9 pass): a $100 OxaPay → OKX → AED → Wio chain produces exactly 6 ledger rows that net to **+367 AED in WIO_BANK** with every intermediate balance == 0.
+  - **Cascade delete extended**: `RechargesService.delete()` now also calls `wallets.dropMovementLedger(id)` so deleting a recharge removes the 3 movement-step pairs (no orphan ledger rows).
+  - **`sourceWalletFor()` hardening**: defaults to `BINANCE` (never `MANUAL`) so the fan-out always targets a real WalletCode — caught by the testing agent's RCA.
+  - **P1 — OxaPay history auto-sync**. New `OxaPaySyncService` (`/app/backend-nest/src/webhooks/oxapay-sync.service.ts`) with two entry points:
+    - `@Cron(EVERY_30_MINUTES)` — silent background sync.
+    - `POST /api/webhooks/oxapay/sync-history` (JWT-guarded) — manual admin trigger; returns `{ scanned, matched, errors, by_key }`.
+    - Uses BOTH `OXAPAY_PORTAL_MERCHANT_KEY` and `OXAPAY_CALLS_BOT_MERCHANT_KEY`. Fetches `/payment/list` (fallback `/payment`) with each key, matches incoming rows by `tx_hash` or `track_id`, and back-fills `original_coin`/`original_amount`/`final_usdt_amount` on existing wallet_ledger rows whose data is missing. Skips already-populated rows.
+    - Added `@nestjs/schedule` to package.json and `ScheduleModule.forRoot()` to WebhooksModule.
+  - **P1 — Coin-aware Wallet Ledger UI**. Each wallet card now renders its full allowed-coins grid:
+    - OxaPay → 1 row (USDT) — "auto-converted to USDT"
+    - BTCPay → 1 row (BTC) — "BTC only"
+    - Binance & OKX → 4 rows (USDT / BTC / ETH / AED) — "multi-coin + AED"
+    - Wio Bank → 1 row (AED)
+    - The **Convert Coin** button is now disabled (opacity-40, with tooltip explaining why) for single-coin wallets (OXAPAY / BTCPAY / WIO_BANK) and enabled for Binance / OKX, mirroring the user's mental model.
+  - **VPS update script & docs**: `/app/deploy/update.sh` (idempotent pg_dump + git pull + `docker compose build` of changed services + health-check + image prune) and `/app/deploy/README.md` (one-time install + day-to-day usage + rollback).
+  - **Testing**: iteration_9 — 9/9 backend pytest passes; 5/5 frontend wallet UI / Convert-button assertions pass. Regression suite at `/app/backend/tests/test_treasury_fanout.py`.
+
 - **UPDATE (May 28, 2026 v2): VPS update script + OxaPay Final USDT columns + auto-refresh fix**
   - **`/app/deploy/update.sh`** — production update script. Single command on the VPS:
     ```bash
