@@ -279,6 +279,10 @@ export class WalletsService {
     received_wallet?: WalletCode;
     /** Free-text hint from webhook payloads (e.g. "binance-pay", "okx") */
     wallet_tag?: string;
+    /** Original coin paid by customer when the gateway auto-converted (OxaPay) */
+    original_coin?: string;
+    /** Original amount in `original_coin` (before auto-conversion) */
+    original_amount?: string;
   }, actor?: any) {
     const amt = parseFloat(input.amount || '0');
     if (!(amt > 0)) return null;
@@ -295,6 +299,8 @@ export class WalletsService {
     return this.ledger.save(this.ledger.create({
       wallet, coin: (input.coin || 'USDT').toUpperCase(), network: input.network,
       amount: amt.toFixed(8), tx_type: 'deposit',
+      original_coin: input.original_coin ? input.original_coin.toUpperCase() : null,
+      original_amount: input.original_amount ? parseFloat(input.original_amount).toFixed(8) : null,
       linked_recharge_id: input.recharge_id, linked_invoice_id: input.invoice_id,
       tx_hash: input.tx_hash, external_ref: input.external_ref,
       counterparty: input.counterparty,

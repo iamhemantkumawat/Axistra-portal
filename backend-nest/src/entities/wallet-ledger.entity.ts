@@ -28,6 +28,12 @@ export class WalletLedger {
   @Column({ type: 'decimal', precision: 30, scale: 10 }) amount: string; // SIGNED: +deposit, -outflow
   @Column({ type: 'varchar', length: 20 }) tx_type: LedgerTxType;
 
+  // For gateways that auto-convert on receipt (e.g. OxaPay → USDT), the row's
+  // `coin`/`amount` reflect the FINAL coin (what hit the wallet balance) and
+  // these two capture what the customer originally paid in.
+  @Column({ type: 'varchar', length: 12, nullable: true }) original_coin: string;
+  @Column({ type: 'decimal', precision: 30, scale: 10, nullable: true }) original_amount: string;
+
   // Cross-references (any subset may be filled)
   @Column({ nullable: true }) linked_recharge_id: string;
   @Column({ nullable: true }) linked_batch_id: string;

@@ -380,6 +380,11 @@ export class RechargesService implements OnModuleInit {
       wallet_balance_after: data.wallet_balance_after,
       aed_rate_at_payment: aed.rate,
       aed_value: aed.value,
+      // Capture auto-conversion data when the gateway already swapped to USDT
+      // (OxaPay flow). The original coin stays in `coin`/`crypto_amount`; the
+      // converted USDT lands in `final_usdt_amount`.
+      received_amount: data.received_amount || data.crypto_amount || r.crypto_amount,
+      final_usdt_amount: data.final_usdt_amount || undefined,
       status: 'received',
       notes: data.notes,
     });
@@ -403,13 +408,20 @@ export class RechargesService implements OnModuleInit {
       action: 'add_crypto_tx', entity_type: 'recharge', entity_id: id,
       details: `Crypto TX recorded ${saved.tx_hash}`,
     });
+    // Determine ledger row coin/amount: if the gateway auto-converted to USDT,
+    // the wallet balance reflects USDT; the original coin is kept for audit.
+    const manualAutoConverted = !!(saved.final_usdt_amount && (saved.coin || '').toUpperCase() !== 'USDT');
+    const ledgerAmount = manualAutoConverted ? saved.final_usdt_amount : saved.crypto_amount;
+    const ledgerCoin = manualAutoConverted ? 'USDT' : (saved.coin || r.crypto_coin);
     await this.wallets.recordRechargeDeposit({
       recharge_id: id,
       invoice_id: r.invoice_id,
       payment_gateway: r.payment_gateway,
-      coin: saved.coin || r.crypto_coin,
+      coin: ledgerCoin,
       network: saved.network || r.crypto_network,
-      amount: String(saved.crypto_amount || '0'),
+      amount: String(ledgerAmount || '0'),
+      original_coin: manualAutoConverted ? saved.coin : undefined,
+      original_amount: manualAutoConverted ? String(saved.crypto_amount || '0') : undefined,
       tx_hash: saved.tx_hash,
       external_ref: r.recharge_code,
       counterparty: r.magnus_username,
@@ -453,9 +465,14 @@ export class RechargesService implements OnModuleInit {
       coin: data.coin || data.crypto_coin || recharge.crypto_coin,
       network: data.network || data.crypto_network || recharge.crypto_network,
       receiving_wallet: data.receiving_wallet || data.wallet_address || recharge.wallet_address,
-      final_usdt_amount: String(data.coin || data.crypto_coin || recharge.crypto_coin).toUpperCase() === 'USDT'
-        ? String(data.crypto_amount || recharge.crypto_amount || '')
-        : undefined,
+      // Either the client tells us the auto-converted USDT directly (OxaPay manual entry)
+      // or we infer it for USDT-native payments (1:1).
+      final_usdt_amount: data.final_usdt_amount
+        ? String(data.final_usdt_amount)
+        : (String(data.coin || data.crypto_coin || recharge.crypto_coin).toUpperCase() === 'USDT'
+          ? String(data.crypto_amount || recharge.crypto_amount || '')
+          : undefined),
+      received_amount: data.received_amount || data.crypto_amount || recharge.crypto_amount,
       gateway_track_id: data.gateway_track_id,
       payment_date: data.payment_date || data.paid_at || new Date(),
     }];
@@ -625,10 +642,9 @@ export class RechargesService implements OnModuleInit {
 
     // Wallet ledger deposit (idempotent on tx_hash + recharge)
     for (const tx of savedTransactions) {
-      const depositAmount = (tx.final_usdt_amount && (tx.coin || '').toUpperCase() !== 'USDT')
-        ? tx.final_usdt_amount
-        : (tx.received_amount || tx.crypto_amount);
-      const depositCoin = tx.final_usdt_amount ? 'USDT' : tx.coin;
+      const autoConverted = !!(tx.final_usdt_amount && (tx.coin || '').toUpperCase() !== 'USDT');
+      const depositAmount = autoConverted ? tx.final_usdt_amount : (tx.received_amount || tx.crypto_amount);
+      const depositCoin = autoConverted ? 'USDT' : tx.coin;
       await this.wallets.recordRechargeDeposit({
         recharge_id: id,
         invoice_id: r.invoice_id,
@@ -636,6 +652,9 @@ export class RechargesService implements OnModuleInit {
         coin: depositCoin || 'USDT',
         network: tx.network || r.crypto_network,
         amount: String(depositAmount || '0'),
+        // Audit trail: keep the original coin/amount the customer paid in
+        original_coin: autoConverted ? tx.coin : undefined,
+        original_amount: autoConverted ? String(tx.received_amount || tx.crypto_amount || '0') : undefined,
         tx_hash: tx.tx_hash,
         external_ref: r.recharge_code,
         counterparty: r.magnus_username,

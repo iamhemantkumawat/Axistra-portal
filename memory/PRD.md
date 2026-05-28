@@ -76,6 +76,22 @@ Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corpora
   - New endpoints: `GET|POST|PATCH|DELETE /api/settings/receiving-wallets`, `GET|POST|PATCH|DELETE /api/settings/vendors`
   - 14/14 backend tests + full frontend regression PASS (iteration_7.json).
 
+- **UPDATE (May 28, 2026 v2): VPS update script + OxaPay Final USDT columns + auto-refresh fix**
+  - **`/app/deploy/update.sh`** — production update script. Single command on the VPS:
+    ```bash
+    bash /opt/axistra/update.sh
+    ```
+    Pulls origin/emergent, takes a pre-update `pg_dump` (gzip'd into `/opt/axistra/backups/pre-update-*.dump.gz`), detects which images changed, rebuilds only those, rolls containers with `--no-deps`, health-checks `/api/health`, prunes dangling images. Idempotent — exits immediately if `git rev-parse` matches origin. Docs at `/app/deploy/README.md` with one-time install + rollback instructions.
+  - **OxaPay "Final USDT" + "Original Coin" columns on Wallet Ledger.**
+    - `wallet_ledgers` entity gained two nullable columns: `original_coin` (varchar 12) + `original_amount` (decimal 30,10). The main `coin`/`amount` still reflect what actually hit the wallet balance (USDT for OxaPay) — original_coin/amount are the audit trail of what the customer paid in BEFORE OxaPay auto-converted.
+    - `recordRechargeDeposit()` accepts `original_coin` + `original_amount` and persists them.
+    - `RechargesService.addCryptoTx()` (manual entry path) and the gateway-payment path BOTH now detect auto-conversion (`tx.final_usdt_amount && coin !== 'USDT'`) and record `coin=USDT, amount=final_usdt_amount, original_coin=<paid coin>, original_amount=<paid amount>`. Verified end-to-end: paying 0.001 BTC with `final_usdt_amount=105.50` writes a single row showing **`+105.5 USDT`** main + `0.001 BTC → converted` in the new "Customer Paid" column.
+    - `WalletLedger.jsx` shows the new "Customer Paid" column **only** when active wallet is `OXAPAY` (BTCPay rows stay BTC-only). Web app verified — KPI "Total USDT" correctly tallies converted rows.
+    - The webhook path (`webhooks.service.ts`) already extracted `payCurrency`/`payAmount`/`final_usdt_amount` from OxaPay payloads via `normalizeOxaPayTxs`; the flow now carries those forward into the ledger row through `recordRechargeDeposit`.
+  - **Auto-refresh bug fixed.** The `/auth/me` heartbeat in `auth.jsx` was calling `logout()` on ANY error (network blip, 502/503 during backend restart). Combined with the axios 401 interceptor's `window.location.href` hard reload, any API stutter looked like an "auto-refresh" to the preview URL. Now the heartbeat only logs out on **explicit 401**, and the 401 interceptor skips reloads for `/auth/me`.
+  - **Body scroll-lock when a modal is open** — added `document.body.style.overflow = 'hidden'` while any Modal is mounted, so the page content below the dim overlay can no longer scroll up into the modal view (root cause of the "Vendors overlapping the wallet modal" screenshot the user reported).
+  - **PostgreSQL note** — the sandbox container was rebooted today, wiping the local Postgres. Reinstalled `postgresql-15`, re-created `axistra/axistra_db`, and re-seeded admin + receiving wallets. **VPS data is independent and untouched.**
+
 - **UPDATE (May 28, 2026): Cleanup tools + critical Modal positioning bug fix**
   - **Modal positioning RCA + fix** — `Add Receiving Wallet` / `Add Vendor` modals (and any other) were appearing offset toward the bottom of the page with their Save buttons clipped. Root cause: `.card-axistra` had `animation: surfaceIn` (with translateY transform) and `transition: transform ...` — the lingering `matrix(1,0,0,1,0,0)` computed transform created a CSS containing block that captured `position: fixed` overlays. Fixed by switching `surfaceIn` to an opacity-only keyframe and removing `transform` from the `.card-axistra` transition. Modals now center in viewport and Save buttons are always visible.
   - **Atoms.jsx Modal** restructured to a flex-col with a sticky header and a scrolling body (`overflow-y-auto` only on the inner body).

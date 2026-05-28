@@ -253,6 +253,7 @@ export default function WalletLedger() {
               <th>Type</th>
               <th>Coin</th>
               <th>Amount</th>
+              {active === 'OXAPAY' && <th data-testid="ledger-th-original">Customer Paid</th>}
               <th>Counterparty</th>
               <th>Ref</th>
               <th>Tx Hash</th>
@@ -261,7 +262,7 @@ export default function WalletLedger() {
           </thead>
           <tbody>
             {ledger.rows.length === 0 && (
-              <tr><td colSpan="8"><EmptyState title="No ledger entries" hint="Send a batch, convert coins or run a cashout to populate this wallet's history." /></td></tr>
+              <tr><td colSpan={active === 'OXAPAY' ? 9 : 8}><EmptyState title="No ledger entries" hint="Send a batch, convert coins or run a cashout to populate this wallet's history." /></td></tr>
             )}
             {ledger.rows.map((row) => {
               const meta = TX_TYPE_META[row.tx_type] || { label: row.tx_type, cls: 'badge-neutral' };
@@ -274,6 +275,16 @@ export default function WalletLedger() {
                   <td className={`font-mono text-sm font-semibold ${amt < 0 ? 'text-red-700' : 'text-axistra-green'}`}>
                     {amt < 0 ? '' : '+'}{fmtCrypto(amt, row.coin)}
                   </td>
+                  {active === 'OXAPAY' && (
+                    <td className="font-mono text-xs text-gray-700" data-testid={`ledger-original-${row.id}`}>
+                      {row.original_coin
+                        ? <>
+                            <span className="text-gray-900">{fmtCrypto(row.original_amount, row.original_coin)}</span>
+                            <div className="text-[10px] text-gray-400">→ converted</div>
+                          </>
+                        : <span className="text-gray-400">—</span>}
+                    </td>
+                  )}
                   <td className="text-xs text-gray-700 max-w-[160px] truncate">{row.counterparty || '—'}</td>
                   <td className="font-mono text-xs">{row.external_ref || '—'}</td>
                   <td><Hash value={row.tx_hash} /></td>
