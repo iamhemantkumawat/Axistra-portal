@@ -76,6 +76,21 @@ Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corpora
   - New endpoints: `GET|POST|PATCH|DELETE /api/settings/receiving-wallets`, `GET|POST|PATCH|DELETE /api/settings/vendors`
   - 14/14 backend tests + full frontend regression PASS (iteration_7.json).
 
+- **UPDATE (May 28, 2026): Cleanup tools + critical Modal positioning bug fix**
+  - **Modal positioning RCA + fix** — `Add Receiving Wallet` / `Add Vendor` modals (and any other) were appearing offset toward the bottom of the page with their Save buttons clipped. Root cause: `.card-axistra` had `animation: surfaceIn` (with translateY transform) and `transition: transform ...` — the lingering `matrix(1,0,0,1,0,0)` computed transform created a CSS containing block that captured `position: fixed` overlays. Fixed by switching `surfaceIn` to an opacity-only keyframe and removing `transform` from the `.card-axistra` transition. Modals now center in viewport and Save buttons are always visible.
+  - **Atoms.jsx Modal** restructured to a flex-col with a sticky header and a scrolling body (`overflow-y-auto` only on the inner body).
+  - **Settings.jsx** — Receiving Wallets + Vendors modals bumped to `size="lg"` for breathing room.
+  - **Recharges customer column** now shows `customer.full_name` + `@magnus_username` (falls back to `customer_code` when no Magnus username is set).
+  - **Delete + gap-fill numbering** — full CRUD-with-cascade support:
+    - `DELETE /api/recharges/:id` cascades: `crypto_transactions` + `treasury_movements` + `wallet_ledgers.linked_recharge_id` + `magnus_sync_logs` + the linked invoice. Audit-logged.
+    - `DELETE /api/invoices/:id` blocks (400) when a recharge still references the invoice; succeeds for stand-alone invoices.
+    - `DELETE /api/customers/:id` cascades all the customer's recharges (and their chains) + KYC docs + stand-alone invoices.
+    - `nextCode()` (recharges), `nextNumber()` (invoices), `nextCode()` (customers) all rebuilt as **smallest-free-slot** algorithms — when you delete RCH-2605-00050, the next new recharge reuses 00050.
+    - `RechargesService.create()` now has a **retry-on-duplicate** loop (5 attempts, fresh code per attempt, orphan-invoice rollback) so webhook races can never bubble up `UQ_*` duplicate-key errors.
+  - **Frontend deletes**: red `Delete` button on the Recharge detail page header (`data-testid="delete-recharge-btn"`), trash icon on each invoice row (`data-testid="invoice-delete-<num>"`), Customers page already had delete and now benefits from the cascade.
+  - **PostgreSQL note**: this sandbox was rebooted and lost its Postgres install. Was re-installed (`apt-get install postgresql-15`) and the `axistra` user/`axistra_db` were re-created; the NestJS seeder rebuilt the admin + receiving wallets. No production impact — production VPS already runs Postgres in Docker.
+  - **Testing**: iteration_8 — 5/5 pytest pass, screenshots confirm modal centering, no regressions in earlier flows.
+
 - **UPDATE (May 27, 2026 v2): Record Crypto TX modal aligned with New Recharge**
   - `RechargeDetail.jsx` "Record Crypto TX" modal rebuilt: Payment Gateway + Coin + Network + Crypto Amount only — manual AED Rate / AED Value inputs removed.
   - Modal fetches saved Receiving Wallets from `/api/settings/receiving-wallets` and auto-fills the destination address when `{gateway, coin, network}` matches a saved wallet, with a green "Saved address auto-filled" banner; falls back to a "Save it under Settings → Receiving Wallets" hint when none matches.
