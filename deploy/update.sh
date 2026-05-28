@@ -29,6 +29,10 @@ BACKUP_BEFORE="${BACKUP_BEFORE:-yes}"
 NO_SELF_UPDATE="${NO_SELF_UPDATE:-no}"   # set to yes to skip step 0
 
 LOG_PREFIX="[axistra-update]"
+# Docker compose paths are relative to the compose file's dir by default, but
+# our context is ./frontend (relative to REPO_DIR, not deploy/). Always pass
+# --project-directory so 'context: ./frontend' resolves to REPO_DIR/frontend.
+DC=(docker compose --project-directory "$REPO_DIR" -f "$COMPOSE_FILE" --env-file "$ENV_FILE")
 log()  { printf '\033[36m%s\033[0m %s\n' "$LOG_PREFIX" "$*"; }
 ok()   { printf '\033[32m%s\033[0m %s\n' "$LOG_PREFIX" "$*"; }
 warn() { printf '\033[33m%s\033[0m %s\n' "$LOG_PREFIX" "$*"; }
@@ -120,12 +124,15 @@ if [[ "$BACKUP_BEFORE" == "yes" ]]; then
   BACKUP_DIR="/opt/axistra/backups"
   mkdir -p "$BACKUP_DIR"
   STAMP="$(date +%Y%m%d-%H%M%S)"
-  if docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" ps postgres >/dev/null 2>&1; then
-    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T postgres \
-      pg_dump -U "${POSTGRES_USER:-axistra}" -d "${POSTGRES_DB:-axistra_db}" -F c \
+  # Read DB creds from .env so pg_dump uses the right user/db
+  DB_USER="$(grep -E '^DATABASE_USER=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo axistra)"
+  DB_NAME="$(grep -E '^DATABASE_NAME=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo axistra_db)"
+  if "${DC[@]}" ps postgres >/dev/null 2>&1; then
+    "${DC[@]}" exec -T postgres \
+      pg_dump -U "${DB_USER:-axistra}" -d "${DB_NAME:-axistra_db}" -F c \
       2>/dev/null | gzip > "$BACKUP_DIR/pre-update-${STAMP}.dump.gz" \
       && ok  "Backup saved to $BACKUP_DIR/pre-update-${STAMP}.dump.gz" \
-      || warn "Backup failed — continuing anyway."
+      || warn "Backup failed — continuing anyway (check creds in $ENV_FILE)."
   else
     warn "No running postgres container — skipping backup."
   fi
@@ -169,9 +176,9 @@ if [[ ${#BUILD_TARGETS[@]} -eq 0 ]]; then
   ok "No backend/frontend changes — restart not required."
 else
   log "Rebuilding: ${BUILD_TARGETS[*]}"
-  docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build "${BUILD_TARGETS[@]}"
+  "${DC[@]}" build "${BUILD_TARGETS[@]}"
   log "Rolling: ${BUILD_TARGETS[*]}"
-  docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --no-deps "${BUILD_TARGETS[@]}"
+  "${DC[@]}" up -d --no-deps "${BUILD_TARGETS[@]}"
 fi
 
 # ----- Step 6: health check + post-deploy verification ----------------------
