@@ -76,7 +76,14 @@ Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corpora
   - New endpoints: `GET|POST|PATCH|DELETE /api/settings/receiving-wallets`, `GET|POST|PATCH|DELETE /api/settings/vendors`
   - 14/14 backend tests + full frontend regression PASS (iteration_7.json).
 
-- **UPDATE (May 28, 2026 v6): Final USDT column + on-demand OxaPay sync button**
+- **UPDATE (May 28, 2026 v7): UI polish from user feedback — OxaPay ledger columns + Treasury chronological order + Expense edit/delete**
+  - **Wallet Ledger OxaPay tab — Coin / Amount columns now show the RECEIVED coin** (not the converted USDT). Previously every OxaPay deposit looked like `USDT · Bitcoin Network +116.50913146 USDT` even though the customer actually paid 0.00156404 BTC. New behaviour: when `original_coin` + `original_amount` are populated, Coin column renders `BTC · Bitcoin Network`, Amount renders `+0.00156404 BTC`, and the dedicated **Final USDT** column continues to show the converted `116.50913146 USDT`. Rows without conversion data still show "pending sync" in the Final USDT column.
+  - **Crypto Treasury & Reconciliation (OKX/Binance tabs) now interleaves entries by date** (newest first). Previously batches → receipts → expense outflows were rendered as three separate groups, so an expense from the 12th would sink to the bottom under a transfer recorded on the 28th. Single merged feed: `[...batches, ...receipts, ...expenses].sort((a,b) => b.ts - a.ts)`.
+  - **Expenses page — Edit + Delete actions**. New Actions column with Pencil (opens the same modal in "Edit Expense" mode and pre-fills all fields → `PATCH /api/expenses/:id`) and Trash (window.confirm → `DELETE /api/expenses/:id`) icons per row. Wallet ledger is correctly reversed on delete and refreshed on edit (backend `ExpensesService` already supported both — only the UI was missing).
+  - Auto-cron OxaPay sync was already shipped in v3 (`@Cron(EVERY_30_MINUTES)` + `ScheduleModule.forRoot()`), confirmed still registered.
+  - **Testing**: iteration_10 — backend pytest 7/7 PASS (`/app/backend/tests/test_expenses_oxapay_iter10.py`), frontend Playwright covers Add/Edit modal title switch, prefilled form, PATCH save and Trash → DELETE flow.
+
+
   - Wallet Ledger OxaPay column renamed **"Customer Paid" → "Final USDT"**. The cell now shows the converted USDT amount with the original coin/amount as a small subtitle ("from 0.001 BTC"). For older rows that have no conversion data yet, the cell shows "pending sync" in gray — making it obvious which rows need to be enriched via the OxaPay API.
   - New **"Sync from OxaPay"** button on the OxaPay ledger view (only). Hits `POST /api/webhooks/oxapay/sync-history`, displays a toast with the scanned/matched/by-key counts, and refreshes the table + overview cards. Disabled state while syncing.
   - `OxaPaySyncService.applyToRow` hardened:
