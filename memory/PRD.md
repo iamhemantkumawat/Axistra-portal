@@ -76,7 +76,26 @@ Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corpora
   - New endpoints: `GET|POST|PATCH|DELETE /api/settings/receiving-wallets`, `GET|POST|PATCH|DELETE /api/settings/vendors`
   - 14/14 backend tests + full frontend regression PASS (iteration_7.json).
 
+- **UPDATE (May 29, 2026 v12): Treasury Batch ↔ Wallet Ledger fan-out (the missing link)**
+  - **Root cause** (live VPS report): BPAY-2605-00001 was saved with sweep+conversion fields but the Binance USDT balance stayed at 0 — `applyBatchStatus()` only updated each recharge's status; it NEVER wrote rows to `wallet_ledgers`. So the Treasury page showed "Converted to USDT" but the Wallet Ledger had no idea the batch happened.
+  - **Fix — `applyBatchLedger()`**: new private method (called from `applyBatchStatus` on every batch save) that idempotently writes 4 step-scoped ledger pairs:
+    1. **Sweep**: `-coin` on source (BTCPAY/OXAPAY) + `+coin` at exchange (BINANCE/OKX), `external_ref = '${batch_code}-SWEEP'`.
+    2. **Convert to USDT**: `-coin` + `+USDT` both on exchange, `external_ref = '-CONV-USDT'`.
+    3. **Convert to AED**: `-USDT` + `+AED` both on exchange, `external_ref = '-CONV-AED'`.
+    4. **Withdraw to Wio**: `-AED` from exchange + `+AED` at `WIO_BANK`, `external_ref = '-WIO'`.
+    Each step is gated by data availability AND `findByExternalRef` so re-saving a batch never duplicates the rows.
+  - **New `POST /api/treasury/batches/:id/sync-ledger`** manual re-fan endpoint + **"Sync to Wallet Ledger"** button in the batch detail modal (data-testid `treasury-sync-ledger-btn`) — needed because user already had BPAY-2605-00001 saved on live VPS with NO ledger entries. One click backfills it.
+  - **Helpers added to `wallets.service.ts`**: `recordTransferPair()` (two-leg transfer between wallets) and `recordConvertPair()` (in-wallet conversion). Used by `applyBatchLedger` and reusable for future flows.
+  - **Treasury merged-feed sort fix**: a batch's `ts` now uses `Math.max(bank_deposit_date, conversion_date, usdt_conversion_date, exchange_received_at, updated_at, period_end, period_start, created_at)` so a batch with `period_start = 2 weeks ago` but settled today bubbles to the TOP of the Binance/OKX feed instead of sinking to the bottom.
+  - **Testing**: iteration_14 — pytest 5/5 PASS at `/app/backend/tests/test_treasury_batch_ledger_iter14.py`. Frontend Playwright verified the sync button + new sort order with a real BPAY-2605-00001 batch.
+
 - **UPDATE (May 29, 2026 v11 — Phase A): Sweep-only Treasury + Convert modal UX overhaul**
+  - **Treasury Transfer modal**: Cards 2/3/4 collapsed by default — sweep is enough. Toggle buttons (`treasury-step{2,3,4}-toggle`). Auto-expands a card only if data already exists.
+  - **Wallet Ledger Convert modal**: dropdowns for wallet/from-coin/to-coin (with balances), MAX button, Received Amount-primary with live rate display, Conversion Date default today.
+  - **Backend `convert()`**: accepts `event_at`; prefers `to_amount` over `rate`.
+  - **Testing**: iteration_13 — pytest 10/10 PASS.
+
+
   - **Treasury Transfer modal**: Cards 2 (Convert to USDT), 3 (Convert to AED), 4 (Withdraw to Wio) now COLLAPSED by default — only Card 1 (Sweep) is required. User can finish just the sweep ("Held as BTC at Binance") and convert later. Each card has a `▼ Expand` / `▲ Hide` toggle (`data-testid='treasury-step{2,3,4}-toggle'`). Auto-expands a card only if data already exists for it.
   - **Wallet Ledger Convert modal**: rewritten to mirror real exchange UX.
     - Wallet, From Coin, To Coin all SELECT dropdowns (no free-text typos)
