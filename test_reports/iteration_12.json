@@ -1,0 +1,34 @@
+{
+  "summary": "Iteration 12 — Validated the BTCPay missed-webhook backfill fix in /app/backend-nest/src/recharges/recharges.service.ts. All three reported bugs from the live VPS Cugino1Napoli incident are confirmed resolved. 6/6 backend tests pass against the public preview URL: (1) crypto_amount now persists EXACTLY as posted (e.g. '0.00320770') and never falls back to fiat amount; (2) when tx_hash + positive crypto_amount are present, the create() flow now also writes a crypto_transactions row AND calls wallets.recordRechargeDeposit (BTCPAY wallet ledger appended); (3) POST /api/treasury/btcpay/:rechargeId/verify no longer fails with 'No BTC transaction found' — the precondition row exists. Off-chain manual credit (no tx_hash + no crypto_amount) gracefully stores crypto_amount='0' with no side-effects, and duplicate tx_hash backfill is handled silently without crashing the recharge save. Frontend New Recharge modal verified visually: data-testid='rch-form-crypto-amount' input is present with step='0.00000001', label reactively updates with the selected coin ('Crypto Amount Received (BTC)'), helper text 'Required when recording an on-chain TX. Leave blank only for off-chain / manual Binance credit.' is rendered, and the placeholder echoes the coin ('Actual BTC received (e.g. 0.00320770').",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_recharges_btcpay_backfill_iter12.py",
+    "/app/test_reports/pytest/iter12_btcpay_backfill.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "recharges.service.ts create() correctly wraps the manual TX backfill in try/catch so the recharge save never fails because of downstream issues (mempool lookup, ledger write, etc.) — good defensive pattern.",
+    "isPositiveNumber() gates both the crypto_amount fallback and the backfill block — single source of truth, well done.",
+    "applyGatewayPayment / addGatewayCryptoTx already do their own crypto_transactions + ledger writes; the new backfill block correctly checks for duplicate tx_hash via cryptoRepo.findOne before inserting, so webhook arrival AFTER a manual backfill (or vice versa) cannot duplicate. Verified by test_duplicate_tx_hash_backfill_does_not_crash.",
+    "Off-chain credits with no crypto_amount now write '0' into the column — downstream UI must format '0 USDT' nicely (verified: empty recharges table shows no formatting issue; treasury sums skip zero).",
+    "OPTIONAL: Frontend Recharges.jsx still shows '{r.crypto_amount} {r.crypto_coin}' for off-chain rows, which means a row with crypto_amount='0' will render as '0 USDT'. Consider hiding when zero, or showing '—' for clarity."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_recharges_btcpay_backfill_iter12.py (new pytest suite — 6 tests, all pass)"
+  ],
+  "success_rate": {"backend": "100% (6/6)", "frontend": "100% modal structure verified visually"},
+  "test_credentials": "admin@axistratech.com / admin123 — Sign-In requires the Terms & Conditions checkbox to be ticked first.",
+  "seed_data_creation": "Seeded one customer (TEST Cugino1Napoli, magnus_username='cugino1napoli_test', code AXC-00001) and one BTCPay receiving wallet (gateway=BTCPay, coin=BTC, network=BTC, label='TEST BTCPay BTC'). The DB was recreated this iteration so these seeds were freshly created via POST /api/customers and POST /api/settings/receiving-wallets. The pytest fixtures (customer, btcpay_wallet) are idempotent — they reuse if already present, create otherwise.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "BTCPay backfill regression suite lives at /app/backend/tests/test_recharges_btcpay_backfill_iter12.py — reuse it on any future change to recharges.service.ts create() or wallets.recordRechargeDeposit. Each test generates a fresh 64-hex tx_hash via secrets.token_hex(32) and cleans up via DELETE /api/recharges/:id afterwards, so it's safe to re-run repeatedly. The seeded test customer AXC-00001 / 'cugino1napoli_test' and the seeded TEST BTCPay BTC wallet now live in the DB.",
+  "rca_of_the_issue": "ORIGINAL BUGS (now FIXED in /app/backend-nest/src/recharges/recharges.service.ts): (1) line 156 — `crypto_amount: this.isPositiveNumber(data.crypto_amount) ? data.crypto_amount : '0'` replaces the previous `data.crypto_amount || data.amount` fallback that caused '200 BTC' to be recorded; (2) lines 192-226 — new manual TX backfill block runs when saved.tx_hash && isPositiveNumber(saved.crypto_amount). It (a) checks cryptoRepo.findOne for duplicate tx_hash, (b) inserts a crypto_transactions row tagged with notes='${gateway} manual backfill (missed webhook)', (c) calls this.wallets.recordRechargeDeposit to add the BTCPAY/OXAPAY ledger entry, (d) kicks off non-blocking mempool verify. The block is wrapped in try/catch logging .warn so any failure (e.g. duplicate, network error, mempool down) does NOT roll back the parent recharge.save(). Verified via 6 pytest scenarios + visual confirmation of the new UI field."
+}

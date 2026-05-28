@@ -149,7 +149,11 @@ export class RechargesService implements OnModuleInit {
         magnus_username: data.magnus_username || customer.magnus_username,
         amount: data.amount,
         currency: data.currency || 'USD',
-        crypto_amount: data.crypto_amount || data.amount,
+        // crypto_amount must reflect ACTUAL coin received — never fall back
+        // to fiat `amount` (would make a $232 EUR invoice look like 232 BTC).
+        // For off-chain / Binance internal credits the admin can leave it
+        // blank; we record `0` then.
+        crypto_amount: this.isPositiveNumber(data.crypto_amount) ? data.crypto_amount : '0',
         crypto_coin: data.crypto_coin || 'USDT',
         crypto_network: data.crypto_network || 'TRC20',
         wallet_address: data.wallet_address,
@@ -180,6 +184,47 @@ export class RechargesService implements OnModuleInit {
           action: 'create_recharge', entity_type: 'recharge', entity_id: saved.id,
           details: `Created recharge ${saved.recharge_code} for ${customer.customer_code} amount ${saved.amount} ${saved.currency}`,
         });
+
+        // When the admin supplies a real on-chain TX (missed-webhook backfill),
+        // also create the crypto_transactions row + wallet ledger entry. Without
+        // this, Treasury "Verify with mempool" returns "No BTC transaction found"
+        // and the BTCPay/OxaPay Wallet Ledger never sees the deposit.
+        if (saved.tx_hash && this.isPositiveNumber(saved.crypto_amount)) {
+          try {
+            const dupTx = await this.cryptoRepo.findOne({ where: { tx_hash: saved.tx_hash } });
+            if (!dupTx) {
+              const tx = this.cryptoRepo.create({
+                recharge_id: saved.id, customer_id: customer.id,
+                crypto_amount: saved.crypto_amount,
+                coin: saved.crypto_coin,
+                network: saved.crypto_network,
+                receiving_wallet: saved.wallet_address,
+                tx_hash: saved.tx_hash,
+                received_amount: saved.crypto_amount,
+                status: 'received',
+                notes: `${gateway} manual backfill (missed webhook)`,
+              });
+              const savedTx = await this.cryptoRepo.save(tx);
+              this.kickoffOnchainVerify(savedTx);
+              await this.wallets.recordRechargeDeposit({
+                recharge_id: saved.id,
+                invoice_id: saved.invoice_id,
+                payment_gateway: gateway,
+                coin: saved.crypto_coin,
+                network: saved.crypto_network,
+                amount: String(saved.crypto_amount || '0'),
+                tx_hash: saved.tx_hash,
+                external_ref: saved.recharge_code,
+                counterparty: saved.magnus_username,
+                event_at: saved.payment_date,
+                notes: `${gateway} manual backfill`,
+              }, actor);
+            }
+          } catch (txErr) {
+            this.logger.warn(`Manual TX backfill failed for ${saved.recharge_code}: ${(txErr as any)?.message}`);
+          }
+        }
+
         return saved;
       } catch (err: any) {
         const msg = String(err?.message || '');

@@ -18,6 +18,7 @@ const emptyForm = {
   payment_gateway: 'Binance',
   crypto_coin: 'BTC',
   crypto_network: 'BTC',
+  crypto_amount: '',
   wallet_address: '',
   tx_hash: '',
   admin_notes: '',
@@ -214,7 +215,19 @@ export default function Recharges() {
           <Field label="Wallet Address" span={2}>
             <input value={form.wallet_address} onChange={(e) => setForm({ ...form, wallet_address: e.target.value })} placeholder={matchedWallet ? matchedWallet.address : 'Receiving wallet address'} className="input-axistra font-mono text-sm" data-testid="rch-form-wallet" />
           </Field>
-          <Field label={form.crypto_network === 'OFF_CHAIN' ? 'Internal TX ID' : 'TX Hash'} span={2}>
+          <Field label={`Crypto Amount Received (${form.crypto_coin})`}>
+            <input
+              type="number"
+              step="0.00000001"
+              value={form.crypto_amount}
+              onChange={(e) => setForm({ ...form, crypto_amount: e.target.value })}
+              placeholder={`Actual ${form.crypto_coin} received (e.g. 0.00320770)`}
+              className="input-axistra font-mono text-sm"
+              data-testid="rch-form-crypto-amount"
+            />
+            <div className="text-[10px] text-gray-500 mt-1">Required when recording an on-chain TX. Leave blank only for off-chain / manual Binance credit.</div>
+          </Field>
+          <Field label={form.crypto_network === 'OFF_CHAIN' ? 'Internal TX ID' : 'TX Hash'}>
             <input value={form.tx_hash} onChange={(e) => setForm({ ...form, tx_hash: e.target.value })} placeholder={form.crypto_network === 'OFF_CHAIN' ? 'Binance internal txid' : 'On-chain transaction hash'} className="input-axistra font-mono text-sm" data-testid="rch-form-tx" />
           </Field>
           <Field label="Admin Notes" span={2}>
