@@ -69,6 +69,34 @@ export class WalletsService {
     return row;
   }
 
+  /**
+   * Admin-only delete of a single wallet_ledger row.
+   *
+   * Note: rows fan-out from recharges / treasury movements / expenses are
+   * idempotently recreated by their source on the next save. This delete
+   * is intended for one-off cleanup (test rows, manual mistakes). For a
+   * full reversal of a recharge/expense/movement, delete the source record
+   * instead — that already cascades to the ledger.
+   *
+   * If the row is linked (linked_ledger_id) we also delete the paired row
+   * so the double-entry remains balanced.
+   */
+  async deleteLedgerRow(id: string, actor?: any) {
+    const row = await this.ledger.findOne({ where: { id } });
+    if (!row) throw new NotFoundException('Ledger row not found');
+    const pairedId = row.linked_ledger_id;
+    await this.ledger.delete({ id: row.id });
+    if (pairedId) {
+      await this.ledger.delete({ id: pairedId }).catch(() => undefined);
+    }
+    await this.audit.log({
+      actor_id: actor?.id, actor_email: actor?.email,
+      action: 'wallet_ledger_delete', entity_type: 'wallet_ledger', entity_id: row.id,
+      details: `Deleted ${row.wallet} ${row.coin} ${row.amount}${pairedId ? ` (paired ${pairedId})` : ''}`,
+    });
+    return { deleted: true, paired_deleted: !!pairedId };
+  }
+
   // ----- Actions -----
 
   async sendBatch(input: {

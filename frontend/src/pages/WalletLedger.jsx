@@ -5,7 +5,7 @@ import { PageHeader, KpiCard, Modal, Field, Hash, Badge, EmptyState } from '../c
 import { fmtDateTime, fmtNumber } from '../lib/format';
 import {
   Wallet, Bank, Buildings, Coin, ArrowsLeftRight, ArrowSquareOut, Sparkle,
-  PaperPlaneTilt, MagnifyingGlass, Receipt,
+  PaperPlaneTilt, MagnifyingGlass, Receipt, Trash,
 } from '@phosphor-icons/react';
 
 const WALLET_ICONS = {
@@ -123,6 +123,19 @@ export default function WalletLedger() {
     params.set('limit', '200');
     const { data } = await api.get(`/wallets/${wallet}/ledger?${params.toString()}`);
     setLedger(data);
+  };
+
+  const deleteRow = async (row) => {
+    const amt = parseFloat(row.amount || '0');
+    if (!window.confirm(`Delete this ledger row?\n\n${row.tx_type} ${amt} ${row.coin} on ${active}\n\nIf this row was generated from a recharge / expense / treasury movement, deleting it here is a one-off cleanup — the source record will recreate it on its next save. The matching paired row (if any) is also removed to keep the double-entry balanced.`)) return;
+    try {
+      const res = await api.delete(`/wallets/ledger/${row.id}`);
+      toast.success(res.data?.paired_deleted ? 'Ledger row + paired row deleted' : 'Ledger row deleted');
+      await loadOverview();
+      await loadLedger();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to delete row');
+    }
   };
 
   useEffect(() => { loadOverview(); }, []);
@@ -309,11 +322,12 @@ export default function WalletLedger() {
               <th>Ref</th>
               <th>Tx Hash</th>
               <th>Notes</th>
+              <th className="text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
             {ledger.rows.length === 0 && (
-              <tr><td colSpan={active === 'OXAPAY' ? 9 : 8}><EmptyState title="No ledger entries" hint="Send a batch, convert coins or run a cashout to populate this wallet's history." /></td></tr>
+              <tr><td colSpan={active === 'OXAPAY' ? 10 : 9}><EmptyState title="No ledger entries" hint="Send a batch, convert coins or run a cashout to populate this wallet's history." /></td></tr>
             )}
             {ledger.rows.map((row) => {
               const meta = TX_TYPE_META[row.tx_type] || { label: row.tx_type, cls: 'badge-neutral' };
@@ -353,6 +367,17 @@ export default function WalletLedger() {
                   <td className="font-mono text-xs">{row.external_ref || '—'}</td>
                   <td><Hash value={row.tx_hash} /></td>
                   <td className="text-xs text-gray-500 max-w-[260px] truncate">{row.notes || '—'}</td>
+                  <td className="text-right">
+                    <button
+                      type="button"
+                      onClick={() => deleteRow(row)}
+                      className="rounded-md p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+                      title="Delete this ledger row"
+                      data-testid={`ledger-delete-${row.id}`}
+                    >
+                      <Trash size={14} />
+                    </button>
+                  </td>
                 </tr>
               );
             })}

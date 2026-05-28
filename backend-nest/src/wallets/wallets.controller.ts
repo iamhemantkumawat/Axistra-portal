@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { WalletsService, WALLETS } from './wallets.service';
 import { WalletCode } from '../entities/wallet-ledger.entity';
@@ -37,6 +37,9 @@ export class WalletsController {
 
   @Get('ledger/:id')
   one(@Param('id') id: string) { return this.svc.getOne(id); }
+
+  @Delete('ledger/:id')
+  removeOne(@Param('id') id: string, @Req() req: any) { return this.svc.deleteLedgerRow(id, req.user); }
 
   @Post(':wallet/send-batch')
   send(@Param('wallet') wallet: WalletCode, @Body() body: any, @Req() req: any) {

@@ -181,6 +181,24 @@ export class TreasuryService {
     return saved;
   }
 
+  async deleteBatch(id: string, actor?: any) {
+    const batch = await this.batchRepo.findOne({ where: { id } });
+    if (!batch) throw new NotFoundException('Treasury batch not found');
+    // Unlink recharges → movements → batch
+    const linkedMovements = await this.repo.find({ where: { treasury_batch_id: batch.id } });
+    for (const m of linkedMovements) {
+      m.treasury_batch_id = null as any;
+      await this.repo.save(m);
+    }
+    await this.batchRepo.delete({ id: batch.id });
+    await this.audit.log({
+      actor_id: actor?.id, actor_email: actor?.email,
+      action: 'delete_treasury_batch', entity_type: 'treasury_batch', entity_id: batch.id,
+      details: `${batch.batch_code} unlinked ${linkedMovements.length} movement(s)`,
+    });
+    return { deleted: true, unlinked_movements: linkedMovements.length };
+  }
+
   async assignBatch(batchId: string, rechargeIds: string[], actor?: any) {
     const batch = await this.batchRepo.findOne({ where: { id: batchId } });
     if (!batch) throw new NotFoundException('Treasury batch not found');

@@ -1,0 +1,39 @@
+{
+  "summary": "Iteration 11 — Validated treasury/wallet balance-sync + new delete endpoints. Discovered that NestJS dist/ was stale: the new deleteLedgerRow code had a TypeScript build error (`details` typed as string but was assigned an object). Fixed the type bug, rebuilt, restarted supervisor backend. After that, all critical backend tests pass (5 passed, 1 skipped — recharge create needs a stricter payload not in scope). Frontend smoke-tested via Playwright: login works (T&C checkbox required), Wallet Ledger renders with new ACTIONS column, Treasury Binance & OKX tabs now show 'USDT Balance: X USDT' chips backed by /api/wallets/overview (the balance-sync fix is observable end-to-end).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/recharges", "issue": "Could not exercise DELETE /api/recharges/:id full lifecycle from test — recharge create payload requires fields not documented (test skipped). DELETE route itself is reachable (existing endpoint, was not part of this iteration's changes)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_treasury_wallet_delete_iter11.py",
+    "/app/test_reports/pytest/iter11_treasury_wallet.xml"
+  ],
+  "action_items": [
+    "REGRESSION FOUND & FIXED IN THIS ITERATION: /app/backend-nest/src/wallets/wallets.service.ts deleteLedgerRow() passed an OBJECT to audit.log({details: {...}}) but AuditLog.details is typed string. This caused `yarn build` to fail with TS2322, so the NestJS dist was never updated and the new DELETE routes silently returned 'Cannot DELETE /api/...' (404 route-missing). I changed the call to a string template and rebuilt. Main agent should keep audit `details` as a string going forward (or change the entity to JSON).",
+    "Optional: clean up the 2 stale ledger rows that were left from prior testing (BINANCE -1 / OKX 1) — they are not from this iteration's code but skew the demo data."
+  ],
+  "critical_code_review_comments": [
+    "Build is not part of the supervisor pipeline: changes to backend-nest TypeScript require `cd /app/backend-nest && yarn build` + backend restart. Consider adding a build step or using ts-node-dev to catch this in the future.",
+    "audit-log.entity.ts `details` column is typed `string` but several callers want to pass structured info. Consider switching to `json`/`jsonb` so structured audit data isn't stringified.",
+    "wallets.controller.ts uses both `:wallet/ledger` (GET, param) and `ledger/:id` (DELETE, literal) — route ordering is fine in NestJS per HTTP-method, but mixing literal+param paths under the same parent is fragile and worth documenting."
+  ],
+  "updated_files": [
+    "/app/backend-nest/src/wallets/wallets.service.ts (fixed TS build error: audit details object -> string template)",
+    "/app/backend-nest/dist/* (rebuilt via yarn build)",
+    "/app/backend/tests/test_treasury_wallet_delete_iter11.py (new pytest suite)"
+  ],
+  "success_rate": {"backend": "100% (5/5 executed, 1 skipped non-critical)", "frontend": "100% smoke (all expected elements present)"},
+  "test_credentials": "admin@axistratech.com / admin123 — login form REQUIRES checking the Terms & Conditions checkbox before Sign In is enabled.",
+  "seed_data_creation": "Test 'test_binance_expense_700_syncs_to_wallets_overview' creates a TEST_VENDOR_<rand> expense for 700 USDT against BINANCE, asserts /api/wallets/overview BINANCE.USDT drops by exactly 700, then cleans up by DELETE /api/expenses/:id and re-verifies the balance restored. Test 'test_create_batch_then_delete_ledger_row_pair' creates a 1-USDT BINANCE->OKX send-batch then deletes the out row and verifies paired_deleted=true and the paired row returns 404 on GET.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend tests live at /app/backend/tests/test_treasury_wallet_delete_iter11.py — reusable. NestJS must be rebuilt (`cd /app/backend-nest && yarn build`) whenever src/ changes; the FastAPI wrapper on 8001 only spawns dist/main.js. The 2 ledger rows visible on Binance(-1 USDT)/OKX(+1 USDT) are leftover from earlier testing iterations and pre-date iteration 11 work.",
+  "rca_of_the_issue": "ROOT CAUSE: src/wallets/wallets.service.ts line 95 passed an object literal as `details` but the AuditLog entity defines `details: string`. TypeScript compile error TS2322 blocked `nest build`, leaving stale dist/ on disk. The new @Delete('ledger/:id') and @Delete('batches/:id') routes only existed in source — the running process (dist/main.js dated 13:57) did not have them mounted, so any DELETE to those paths got Nest's default 'Cannot DELETE ...' 404. Confusingly, the 404 looked correct in smoke tests against unknown IDs but the route never reached the service. FIX APPLIED: rewrote details as a string template (matches sibling services like treasury.service.ts deleteBatch). Verified: `yarn build` succeeds, supervisor restart picks up new dist, DELETE on a real ledger id returns 200 with paired_deleted=true, paired row then returns 404 on GET."
+}

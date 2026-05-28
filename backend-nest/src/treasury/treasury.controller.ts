@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { TreasuryService } from './treasury.service';
 
@@ -40,6 +40,11 @@ export class TreasuryController {
   @Patch('batches/:id')
   updateBatch(@Param('id') id: string, @Body() body: any, @Req() req: any) {
     return this.svc.updateBatch(id, body, req.user);
+  }
+
+  @Delete('batches/:id')
+  deleteBatch(@Param('id') id: string, @Req() req: any) {
+    return this.svc.deleteBatch(id, req.user);
   }
 
   @Post('batches/:id/assign')

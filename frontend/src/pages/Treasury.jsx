@@ -13,6 +13,7 @@ import {
   DownloadSimple,
   Funnel,
   Receipt,
+  Trash,
   Wallet,
   Warning,
 } from '@phosphor-icons/react';
@@ -164,17 +165,59 @@ export default function Treasury() {
   const [operationForm, setOperationForm] = useState({});
   const [verifyingId, setVerifyingId] = useState('');
   const [loading, setLoading] = useState(false);
+  // Authoritative wallet balances from the double-entry ledger. Treasury's
+  // header chips read straight from this so the numbers can NEVER drift from
+  // what the Wallet Ledger page shows.
+  const [walletOverview, setWalletOverview] = useState([]);
 
   const load = async () => {
-    const [treasuryRes, expenseRes] = await Promise.all([
+    const [treasuryRes, expenseRes, walletsRes] = await Promise.all([
       api.get('/treasury/reconciliation'),
       api.get('/expenses'),
+      api.get('/wallets/overview'),
     ]);
     setData(treasuryRes.data);
     setExpenses(expenseRes.data);
+    setWalletOverview(walletsRes.data || []);
   };
 
   useEffect(() => { load(); }, []);
+
+  const walletBalanceFor = (walletCode, coin) => {
+    const w = walletOverview.find((x) => x.code === walletCode);
+    if (!w) return 0;
+    const row = (w.balances || []).find((b) => String(b.coin).toUpperCase() === String(coin).toUpperCase());
+    return parseFloat(row?.balance || 0) || 0;
+  };
+  const walletBalancesFor = (walletCode) => {
+    const w = walletOverview.find((x) => x.code === walletCode);
+    return (w?.balances || []).map((b) => [String(b.coin).toUpperCase(), parseFloat(b.balance) || 0]);
+  };
+
+  const deleteReceipt = async (recharge) => {
+    if (!window.confirm(`Delete recharge ${recharge.recharge_code}? This cascades to its crypto transactions, invoice (if any) and wallet ledger rows.`)) return;
+    try {
+      await api.delete(`/recharges/${recharge.id}`);
+      toast.success(`Recharge ${recharge.recharge_code} deleted`);
+      await load();
+    } catch (err) { toast.error(err?.response?.data?.message || 'Failed to delete recharge'); }
+  };
+  const deleteBatch = async (batch) => {
+    if (!window.confirm(`Delete treasury batch ${batch.batch_code || batch.name || batch.id.slice(0, 8)}? This reverses any wallet ledger fan-out tagged to it.`)) return;
+    try {
+      await api.delete(`/treasury/batches/${batch.id}`);
+      toast.success('Batch deleted');
+      await load();
+    } catch (err) { toast.error(err?.response?.data?.message || 'Failed to delete batch'); }
+  };
+  const deleteExpenseRow = async (expense) => {
+    if (!window.confirm(`Delete expense ${expense.expense_code || expense.vendor_name}? This reverses its wallet ledger entry.`)) return;
+    try {
+      await api.delete(`/expenses/${expense.id}`);
+      toast.success('Expense deleted');
+      await load();
+    } catch (err) { toast.error(err?.response?.data?.message || 'Failed to delete expense'); }
+  };
 
   const filterRows = (rows) => rows.filter((row) => (
     inDateRange(row.payment_date || row.created_at || row.expense_date || row.conversion_date || row.period_start, dateFilter, customFrom, customTo)
@@ -270,43 +313,15 @@ export default function Treasury() {
     setSelectedIds([]);
     setSelectedBatchIds([]);
   };
-  const exchangeUsdtBalance = (() => {
-    let total = 0;
-    exchangeReceipts.forEach((r) => {
-      if (!r.treasury?.treasury_batch_id && entryCoin(r) === 'USDT') total += receiptCryptoAmount(r);
-    });
-    exchangeBatchRows.forEach((b) => {
-      const usdt = numeric(b.usdt_amount);
-      if (usdt > 0) total += usdt;
-      else if (entryCoin(b) === 'USDT') total += batchCryptoAmount(b);
-      total -= numeric(b.crypto_converted);
-    });
-    exchangePayoutRows.forEach((e) => {
-      if (entryCoin(e) === 'USDT' || e.paid_in_usdt) total -= numeric(e.amount);
-    });
-    return total;
-  })();
-  const activeExchangeCoinSummary = (() => {
-    const totals = new Map();
-    const add = (coin, value) => {
-      const key = String(coin || 'UNKNOWN').toUpperCase();
-      const numeric = parseFloat(value || '0');
-      if (!Number.isFinite(numeric)) return;
-      totals.set(key, (totals.get(key) || 0) + numeric);
-    };
-    exchangeReceipts.forEach((r) => {
-      if (!r.treasury?.treasury_batch_id) add(r.crypto_coin, r.crypto_amount);
-    });
-    exchangeBatchRows.forEach((b) => {
-      add(b.coin, b.received_crypto_amount || b.total_crypto_amount);
-      if (numeric(b.usdt_amount)) add('USDT', b.usdt_amount);
-      if (numeric(b.crypto_converted)) add('USDT', -numeric(b.crypto_converted));
-    });
-    exchangePayoutRows.forEach((e) => add(e.currency, -parseFloat(e.amount || '0')));
-    return [...totals.entries()]
-      .filter(([, value]) => Math.abs(value) > 0.00000001)
-      .sort(([a], [b]) => a.localeCompare(b));
-  })();
+  // Pull balances STRAIGHT from the double-entry ledger so the chips here
+  // match the Wallet Ledger page exactly. The legacy computation from
+  // recharges+batches+expenses tended to over-count (it summed USDT-equivalent
+  // values of native-coin receipts instead of the actual converted USDT).
+  const exchangeWalletCode = activeTab === 'okx' ? 'OKX' : 'BINANCE';
+  const exchangeUsdtBalance = walletBalanceFor(exchangeWalletCode, 'USDT');
+  const activeExchangeCoinSummary = walletBalancesFor(exchangeWalletCode)
+    .filter(([, value]) => Math.abs(value) > 0.00000001)
+    .sort(([a], [b]) => a.localeCompare(b));
 
   const openSourceBatch = ({ sourceGateway, sourceWallet, destinationExchange = 'OKX', coin, network, receipts, name }) => {
     const available = receipts.filter(isReadyReceipt);
@@ -759,9 +774,12 @@ export default function Treasury() {
             </div>
             <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
               <div className="text-right">
-                <div className="label-xs">BTC Received</div>
+                <div className="label-xs">BTCPay Wallet Balance</div>
                 <div className="font-mono text-sm font-semibold text-axistra-green">
-                  {fmtCrypto(btcpayReceipts.reduce((sum, r) => sum + parseFloat(r.crypto_amount || '0'), 0))} BTC
+                  {fmtCrypto(walletBalanceFor('BTCPAY', 'BTC'))} BTC
+                </div>
+                <div className="text-[10px] text-gray-400 mt-0.5">
+                  Today received: {fmtCrypto(btcpayReceipts.filter((r) => inDateRange(r.payment_date || r.created_at, 'today')).reduce((sum, r) => sum + parseFloat(r.crypto_amount || '0'), 0))} BTC
                 </div>
               </div>
               <button onClick={openBtcpayBatch} disabled={btcpayReadyReceipts.length === 0} className="btn-primary disabled:opacity-50">
@@ -855,14 +873,15 @@ export default function Treasury() {
             </div>
             <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
               <div className="text-right">
-                <div className="label-xs">Total / Today USDT</div>
+                <div className="label-xs">OxaPay Wallet Balance</div>
                 <div className="font-mono text-sm font-semibold text-axistra-green">
-                  {fmtCrypto(oxapayReceipts.reduce((sum, r) => sum + rechargeFinalUsdt(r), 0))}
-                  <span className="text-gray-400"> / </span>
-                  {fmtCrypto((data?.recharges || [])
+                  {fmtCrypto(walletBalanceFor('OXAPAY', 'USDT'))} USDT
+                </div>
+                <div className="text-[10px] text-gray-400 mt-0.5">
+                  Today received: {fmtCrypto((data?.recharges || [])
                     .filter((r) => (r.payment_gateway || '').toLowerCase() === 'oxapay')
                     .filter((r) => inDateRange(r.payment_date || r.created_at, 'today'))
-                    .reduce((sum, r) => sum + rechargeFinalUsdt(r), 0))}
+                    .reduce((sum, r) => sum + rechargeFinalUsdt(r), 0))} USDT
                 </div>
               </div>
               <button onClick={openOxaPayBatch} disabled={oxapayReceipts.filter(isReadyReceipt).length === 0} className="btn-primary disabled:opacity-50">
@@ -1029,11 +1048,12 @@ export default function Treasury() {
                   <th>TX Hash</th>
                   <th>Status</th>
                   <th>Converted USDT</th>
+                  <th className="text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {exchangeReceipts.length === 0 && exchangeBatchRows.length === 0 && exchangePayoutRows.length === 0 && (
-                  <tr><td colSpan="9" className="text-center text-gray-500 py-10">No {activeExchangeName} receipts, source transfers, or expense outflows yet.</td></tr>
+                  <tr><td colSpan="10" className="text-center text-gray-500 py-10">No {activeExchangeName} receipts, source transfers, or expense outflows yet.</td></tr>
                 )}
                 {(() => {
                   // Merge batches, direct receipts and expense outflows into a
@@ -1069,6 +1089,17 @@ export default function Treasury() {
                     <td><Hash value={b.settlement_tx_hash} /></td>
                     <td><BatchStatus status={b.status} /></td>
                     <td className="font-mono text-sm font-semibold text-axistra-green">{b.usdt_amount ? `${fmtCrypto(b.usdt_amount)} USDT` : '—'}</td>
+                    <td className="text-right">
+                      <button
+                        type="button"
+                        onClick={(ev) => { ev.stopPropagation(); deleteBatch(b); }}
+                        className="rounded-md p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+                        title="Delete this batch"
+                        data-testid={`treasury-batch-delete-${b.id}`}
+                      >
+                        <Trash size={14} />
+                      </button>
+                    </td>
                   </tr>
                       );
                     }
@@ -1093,6 +1124,17 @@ export default function Treasury() {
                     <td><Hash value={r.tx_hash} /></td>
                     <td><Badge className={RECHARGE_STATUS_META[r.status]?.cls}>{RECHARGE_STATUS_META[r.status]?.label}</Badge></td>
                     <td className="font-mono text-sm font-semibold text-axistra-green">{entryCoin(r) === 'USDT' ? `${fmtCrypto(r.crypto_amount)} USDT` : '—'}</td>
+                    <td className="text-right">
+                      <button
+                        type="button"
+                        onClick={(ev) => { ev.stopPropagation(); deleteReceipt(r); }}
+                        className="rounded-md p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+                        title="Delete this recharge"
+                        data-testid={`treasury-receipt-delete-${r.id}`}
+                      >
+                        <Trash size={14} />
+                      </button>
+                    </td>
                   </tr>
                       );
                     }
@@ -1115,6 +1157,17 @@ export default function Treasury() {
                     <td><Hash value={e.tx_hash} /></td>
                     <td><Badge className="badge-warning">Expense</Badge></td>
                     <td className="font-mono text-sm text-red-700">{entryCoin(e) === 'USDT' || e.paid_in_usdt ? `-${fmtCrypto(e.amount)} USDT` : '—'}</td>
+                    <td className="text-right">
+                      <button
+                        type="button"
+                        onClick={(ev) => { ev.stopPropagation(); deleteExpenseRow(e); }}
+                        className="rounded-md p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+                        title="Delete this expense"
+                        data-testid={`treasury-expense-delete-${e.id}`}
+                      >
+                        <Trash size={14} />
+                      </button>
+                    </td>
                   </tr>
                     );
                   });
