@@ -25,8 +25,18 @@ git clone https://github.com/<your-org>/Axistra-Web-Portal.git
 cd Axistra-Web-Portal
 cp deploy/update.sh /opt/axistra/update.sh
 chmod +x /opt/axistra/update.sh
+# Optional but recommended — make the deploy a single short word:
+ln -sf /opt/axistra/update.sh /usr/local/bin/axistra-deploy
 docker compose up -d
 ```
+
+After the symlink, deploys become:
+
+```bash
+axistra-deploy
+```
+
+(Run from anywhere — no path required.)
 
 That bootstraps everything (Postgres + backend-nest + frontend + nginx).
 

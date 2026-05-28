@@ -43,18 +43,25 @@ export class OxaPaySyncService {
   async sync(opts?: { silent?: boolean }): Promise<{
     scanned: number; matched: number; errors: number;
     by_key: Array<{ key_label: string; count: number; error?: string }>;
+    db_backfilled: number;
   }> {
-    const out = { scanned: 0, matched: 0, errors: 0, by_key: [] as any[] };
+    const out = { scanned: 0, matched: 0, errors: 0, by_key: [] as any[], db_backfilled: 0 };
+
+    // 1) PRIMARY back-fill path — webhooks already saved the converted-USDT
+    //    amount on `crypto_transactions.final_usdt_amount`. Mirror it onto the
+    //    matching OXAPAY wallet_ledger rows. This is the same data source the
+    //    Crypto Treasury "OxaPay" tab uses (Auto convert: X USDT) so the two
+    //    views will always agree after a sync.
+    out.db_backfilled = await this.backfillFromCryptoTx();
+    out.matched += out.db_backfilled;
+
+    // 2) Secondary path — try the OxaPay payment-list API as well in case any
+    //    rows have no matching crypto_transaction row (e.g. manual entries).
     const keys = [
       { label: 'portal', value: process.env.OXAPAY_PORTAL_MERCHANT_KEY },
       { label: 'calls-bot', value: process.env.OXAPAY_CALLS_BOT_MERCHANT_KEY },
       { label: 'fallback', value: process.env.OXAPAY_MERCHANT_KEY },
     ].filter((k) => k.value && (k.label !== 'fallback' || (!process.env.OXAPAY_PORTAL_MERCHANT_KEY && !process.env.OXAPAY_CALLS_BOT_MERCHANT_KEY)));
-
-    if (keys.length === 0) {
-      if (!opts?.silent) this.log.warn('No OXAPAY_*_MERCHANT_KEY configured — skipping sync.');
-      return out;
-    }
 
     for (const k of keys) {
       try {
@@ -71,6 +78,62 @@ export class OxaPaySyncService {
       }
     }
     return out;
+  }
+
+  /**
+   * Walk every OXAPAY ledger row whose coin isn't USDT, look up the matching
+   * `crypto_transaction` (by tx_hash, then by linked_recharge_id), and if we
+   * have a `final_usdt_amount` there, convert the ledger row over. Returns
+   * how many rows we touched.
+   */
+  private async backfillFromCryptoTx(): Promise<number> {
+    const rows = await this.ledger.find({
+      where: { wallet: 'OXAPAY' as any, tx_type: 'deposit' as any },
+    });
+    let touched = 0;
+    for (const row of rows) {
+      // Skip rows where coin already shows the final USDT AND the original is
+      // recorded — nothing to do.
+      if ((row.coin || '').toUpperCase() === 'USDT' && row.original_coin) continue;
+
+      let tx = row.tx_hash ? await this.cryptos.findOne({ where: { tx_hash: row.tx_hash } }) : null;
+      if (!tx && row.linked_recharge_id) {
+        // fall back to whichever crypto_transaction belongs to this recharge
+        tx = await this.cryptos.findOne({ where: { recharge_id: row.linked_recharge_id } });
+      }
+      if (!tx) continue;
+
+      const finalUsdt = parseFloat(String(tx.final_usdt_amount || '0'));
+      const origAmt = tx.received_amount || tx.crypto_amount;
+      const origCoin = (tx.coin || '').toUpperCase();
+      let changed = false;
+
+      // Case A: customer paid in non-USDT and OxaPay auto-converted.
+      //   ledger row should become coin=USDT, amount=final_usdt_amount,
+      //   original_*=what customer actually paid.
+      if (finalUsdt > 0 && origCoin !== 'USDT') {
+        if ((row.coin || '').toUpperCase() !== 'USDT' || parseFloat(row.amount) !== finalUsdt) {
+          row.coin = 'USDT';
+          row.amount = finalUsdt.toFixed(8);
+          changed = true;
+        }
+        if (!row.original_coin) { row.original_coin = origCoin; row.original_amount = parseFloat(String(origAmt || '0')).toFixed(8); changed = true; }
+      }
+      // Case B: USDT-native payment. The row already shows USDT; nothing to flip
+      //   but we can mark the row by setting original_coin = USDT so the UI
+      //   stops showing "pending sync" (it's already final).
+      else if (origCoin === 'USDT' && !row.original_coin) {
+        row.original_coin = 'USDT';
+        row.original_amount = parseFloat(String(origAmt || row.amount || '0')).toFixed(8);
+        changed = true;
+      }
+
+      if (changed) {
+        await this.ledger.save(row);
+        touched += 1;
+      }
+    }
+    return touched;
   }
 
   /** Calls OxaPay's inbound payment list with a single merchant key. */

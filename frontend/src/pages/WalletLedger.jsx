@@ -95,10 +95,11 @@ export default function WalletLedger() {
     try {
       const { data } = await api.post('/webhooks/oxapay/sync-history');
       const detail = (data.by_key || []).map((k) => `${k.key_label}: ${k.count}`).join(' · ');
+      const filled = data.db_backfilled || 0;
       if (data.errors > 0) {
-        toast.warning(`OxaPay sync had ${data.errors} error(s). Scanned ${data.scanned}, matched ${data.matched}. ${detail}`);
+        toast.warning(`OxaPay sync had ${data.errors} error(s). Back-filled ${filled} row(s) from DB · scanned ${data.scanned} from API${detail ? ' · ' + detail : ''}`);
       } else {
-        toast.success(`OxaPay sync OK — scanned ${data.scanned} payment(s), back-filled ${data.matched} row(s). ${detail}`);
+        toast.success(`OxaPay sync OK — back-filled ${filled} row(s) from webhook data${detail ? ' · API list: ' + detail : ''}.`);
       }
       await loadLedger(active);
       await loadOverview();
