@@ -76,6 +76,18 @@ Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corpora
   - New endpoints: `GET|POST|PATCH|DELETE /api/settings/receiving-wallets`, `GET|POST|PATCH|DELETE /api/settings/vendors`
   - 14/14 backend tests + full frontend regression PASS (iteration_7.json).
 
+- **HOTFIX (May 28, 2026 v5): Production login fixed + one-command deploys**
+  - **Root cause of "wrong credentials" on production**: the frontend Docker image had been built WITHOUT the `REACT_APP_BACKEND_URL` build-arg. Vite bakes that variable into the static JS at build time, so the bundle fell back to `http://localhost:9001`. The browser then issued login POSTs to `localhost:9001` which were CORS-blocked by Chrome's loopback-address policy — login looked like "wrong credentials" but was actually network-failed. Direct curl to `https://axistratech.com/api/auth/login` always worked.
+  - **Fix in `deploy/docker-compose.yml`**: added `build.args.REACT_APP_BACKEND_URL: ${REACT_APP_BACKEND_URL}` under the `frontend` service so the production URL is forwarded at build time. **Live VPS already patched** — rebuilt the frontend container in place with `--project-directory /opt/axistra`, verified the new bundle now contains `https://axistratech.com` (no more `localhost`), and the browser login goes through `POST https://axistratech.com/api/auth/login → 200` and lands on the dashboard with all 68 customers + 12 recharges intact.
+  - **`deploy/update.sh` overhauled for one-command deploys**:
+    - Defaults now match the real VPS layout: `REPO_DIR=/opt/axistra`, `COMPOSE_FILE=deploy/docker-compose.yml`, `ENV_FILE=.env`.
+    - **Self-updating**: step 0 fetches the latest `deploy/update.sh` from origin/emergent and re-execs itself. After a single one-time install, the user never has to copy update.sh again — even if I improve the script later, the next `bash /opt/axistra/update.sh` invocation transparently updates itself first.
+    - **Doctor extended** to also flag:
+      - `.env` missing `REACT_APP_BACKEND_URL` (so deploys fail before producing a broken bundle).
+      - `docker-compose.yml` not forwarding `REACT_APP_BACKEND_URL` as a build arg.
+    - **Post-deploy verification** now smoke-tests the public `${REACT_APP_BACKEND_URL}/api/health` so a misconfigured nginx / DNS / build arg is reported immediately.
+    - Uses `--project-directory $REPO_DIR` on every `docker compose` call (matches the existing /opt/axistra layout where backend-nest/ + frontend/ live one level up from deploy/).
+
 - **HOTFIX (May 28, 2026 v4): VPS deployment unblocked — yarn.lock now tracked + Dockerfiles fixed**
   - **Root cause of "new branch doesn't include a frontend/package-lock.json"**: the old Dockerfiles invoked `npm ci` which REQUIRES a `package-lock.json`, but the repo is yarn-managed (`yarn.lock` only). Worse — `frontend/yarn.lock` and `backend-nest/yarn.lock` had **never been committed to git**, so every "Save to Github" push produced a branch with NO lockfile of either flavor. The VPS docker build then died trying to run `npm ci` with no lockfile.
   - **Fixes shipped**:

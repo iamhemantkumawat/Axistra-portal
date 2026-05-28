@@ -62,6 +62,13 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      # ⚠ Vite bakes process.env.REACT_APP_BACKEND_URL into the static bundle
+      # at build time, so it MUST be forwarded as a build-arg — env_file alone
+      # is too late (it only sets runtime env on the nginx container). Without
+      # this line the bundle falls back to http://localhost:9001 and every
+      # browser request gets blocked by CORS / loopback-address policy.
+      args:
+        REACT_APP_BACKEND_URL: ${REACT_APP_BACKEND_URL}
     restart: unless-stopped
     env_file: .env
     environment:
