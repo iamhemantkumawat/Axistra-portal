@@ -35,7 +35,7 @@ services:
 
   backend:
     build:
-      context: ../backend-nest
+      context: ./backend-nest
       dockerfile: Dockerfile
     restart: unless-stopped
     depends_on:
@@ -60,7 +60,7 @@ services:
 
   frontend:
     build:
-      context: ../frontend
+      context: ./frontend
       dockerfile: Dockerfile
       # ⚠ Vite bakes process.env.REACT_APP_BACKEND_URL into the static bundle
       # at build time, so it MUST be forwarded as a build-arg — env_file alone
