@@ -170,6 +170,103 @@ export class WalletsService {
 
   // ----- Actions -----
 
+  /**
+   * Idempotent two-leg wallet transfer (e.g. BTCPay → Binance sweep) used by
+   * Treasury batch fan-out. Writes:  -amount coin on from_wallet, +amount coin
+   * on to_wallet. Dedupe is enforced by the caller via findByExternalRef.
+   */
+  async recordTransferPair(input: {
+    from_wallet: WalletCode;
+    to_wallet: WalletCode;
+    coin: string;
+    network?: string;
+    amount: number;
+    tx_hash?: string;
+    external_ref: string;
+    event_at: Date;
+    notes?: string;
+  }) {
+    if (input.from_wallet === input.to_wallet) return;
+    const coin = String(input.coin || '').toUpperCase();
+    const out = await this.ledger.save(this.ledger.create({
+      wallet: input.from_wallet,
+      coin,
+      network: input.network,
+      amount: (-input.amount).toFixed(8),
+      tx_type: 'batch_out' as any,
+      external_ref: input.external_ref,
+      tx_hash: input.tx_hash,
+      counterparty: input.to_wallet,
+      notes: input.notes,
+      event_at: input.event_at,
+    }));
+    const inn = await this.ledger.save(this.ledger.create({
+      wallet: input.to_wallet,
+      coin,
+      network: input.network,
+      amount: input.amount.toFixed(8),
+      tx_type: 'batch_in' as any,
+      external_ref: input.external_ref,
+      tx_hash: input.tx_hash,
+      counterparty: input.from_wallet,
+      linked_ledger_id: out.id,
+      notes: input.notes,
+      event_at: input.event_at,
+    }));
+    out.linked_ledger_id = inn.id;
+    await this.ledger.save(out);
+    return { out, in: inn };
+  }
+
+  /**
+   * Idempotent in-wallet conversion (e.g. BTC → USDT on Binance) used by
+   * Treasury batch fan-out. Writes a `convert_from` and a `convert_to` row
+   * on the same wallet with a shared external_ref.
+   */
+  async recordConvertPair(input: {
+    wallet: WalletCode;
+    from_coin: string;
+    from_amount: number;
+    to_coin: string;
+    to_amount: number;
+    external_ref: string;
+    event_at: Date;
+    notes?: string;
+  }) {
+    const fromCoin = String(input.from_coin || '').toUpperCase();
+    const toCoin = String(input.to_coin || '').toUpperCase();
+    if (fromCoin === toCoin) return;
+    const rate = input.from_amount > 0 ? (input.to_amount / input.from_amount).toFixed(8) : '0';
+    const out = await this.ledger.save(this.ledger.create({
+      wallet: input.wallet,
+      coin: fromCoin,
+      amount: (-input.from_amount).toFixed(8),
+      tx_type: 'convert_from' as any,
+      external_ref: input.external_ref,
+      rate_used: rate,
+      notes: input.notes,
+      event_at: input.event_at,
+    }));
+    const inn = await this.ledger.save(this.ledger.create({
+      wallet: input.wallet,
+      coin: toCoin,
+      amount: input.to_amount.toFixed(8),
+      tx_type: 'convert_to' as any,
+      external_ref: input.external_ref,
+      rate_used: rate,
+      linked_ledger_id: out.id,
+      notes: input.notes,
+      event_at: input.event_at,
+    }));
+    out.linked_ledger_id = inn.id;
+    await this.ledger.save(out);
+    return { out, in: inn };
+  }
+
+  async findByExternalRef(ref: string) {
+    return this.ledger.find({ where: { external_ref: ref } });
+  }
+
   async sendBatch(input: {
     from_wallet: WalletCode;
     to_wallet: WalletCode;

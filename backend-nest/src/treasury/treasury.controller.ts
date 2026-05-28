@@ -47,6 +47,11 @@ export class TreasuryController {
     return this.svc.deleteBatch(id, req.user);
   }
 
+  @Post('batches/:id/sync-ledger')
+  syncBatchLedger(@Param('id') id: string, @Req() req: any) {
+    return this.svc.syncBatchLedger(id, req.user);
+  }
+
   @Post('batches/:id/assign')
   assignBatch(@Param('id') id: string, @Body() body: { recharge_ids: string[] }, @Req() req: any) {
     return this.svc.assignBatch(id, body.recharge_ids || [], req.user);

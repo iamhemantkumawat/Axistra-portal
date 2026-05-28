@@ -1073,8 +1073,21 @@ export default function Treasury() {
                   // single chronologically-sorted feed so an expense that
                   // happened on the 12th doesn't sink to the bottom under a
                   // transfer recorded on the 28th. Most recent first.
+                  // For a batch we prefer the most-recent EVENT date (sweep /
+                  // conversion / bank deposit) over its creation date so an
+                  // older batch that was just settled bubbles to the top.
+                  const batchTs = (b) => Math.max(
+                    new Date(b.bank_deposit_date || 0).getTime(),
+                    new Date(b.conversion_date || 0).getTime(),
+                    new Date(b.usdt_conversion_date || 0).getTime(),
+                    new Date(b.exchange_received_at || 0).getTime(),
+                    new Date(b.updated_at || 0).getTime(),
+                    new Date(b.period_end || 0).getTime(),
+                    new Date(b.period_start || 0).getTime(),
+                    new Date(b.created_at || 0).getTime(),
+                  );
                   const merged = [
-                    ...exchangeBatchRows.map((b) => ({ kind: 'batch', row: b, ts: new Date(b.period_end || b.period_start || b.created_at || 0).getTime() })),
+                    ...exchangeBatchRows.map((b) => ({ kind: 'batch', row: b, ts: batchTs(b) })),
                     ...exchangeReceipts.map((r) => ({ kind: 'receipt', row: r, ts: new Date(r.payment_date || r.created_at || 0).getTime() })),
                     ...exchangePayoutRows.map((e) => ({ kind: 'expense', row: e, ts: new Date(e.expense_date || e.created_at || 0).getTime() })),
                   ].sort((a, b) => b.ts - a.ts);
@@ -1396,6 +1409,24 @@ export default function Treasury() {
             <Field label="Notes"><textarea rows={2} className="input-axistra" value={settlementForm.notes || ''} onChange={(e) => setSettlementForm({ ...settlementForm, notes: e.target.value })} /></Field>
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => { setActiveBatch(null); setBatchDetail(null); }} className="btn-secondary">Cancel</button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!activeBatch?.id) return;
+                  try {
+                    await api.post(`/treasury/batches/${activeBatch.id}/sync-ledger`);
+                    toast.success('Wallet ledger re-synced — open Wallet Ledger to confirm balances.');
+                    await load();
+                  } catch (err) {
+                    toast.error(err?.response?.data?.message || 'Sync failed');
+                  }
+                }}
+                className="btn-secondary inline-flex items-center gap-1"
+                data-testid="treasury-sync-ledger-btn"
+                title="Re-create the wallet_ledger rows for this batch's sweep / conversions / bank deposit. Idempotent — safe to click multiple times."
+              >
+                Sync to Wallet Ledger
+              </button>
               <button type="submit" disabled={loading} className="btn-primary inline-flex items-center gap-2">
                 <DownloadSimple size={16} /> {loading ? 'Saving...' : 'Save Settlement'}
               </button>

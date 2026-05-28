@@ -1,0 +1,26 @@
+{
+  "summary": "Iteration 14 verified the Treasury Batch → Wallet Ledger fan-out fix (applyBatchLedger). Created pytest suite covering sweep+conv-USDT pair writes, idempotency on re-PATCH, the new POST /sync-ledger endpoint, and the AED+WIO extend step. Also ran Playwright UI tests confirming the new 'Sync to Wallet Ledger' button works and the merged-feed batch sort surfaces the most recent batch on top. ALL 5 backend tests pass; UI sync button + sort verified end-to-end with a real BPAY-2605-00001 batch.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_treasury_batch_ledger_iter14.py",
+    "/app/test_reports/pytest/iter14_treasury_batch_ledger.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "applyBatchLedger() correctly gates each of the 4 steps by data availability AND external_ref uniqueness — verified no duplicates on repeated PATCH and on /sync-ledger re-runs.",
+    "recordTransferPair / recordConvertPair create the 2 ledger rows with shared external_ref linking — confirmed in DB via /api/wallets/{code}/ledger query.",
+    "Treasury.jsx batchTs(b) uses Math.max over 8 event dates — confirmed BPAY-2605-00001 (period_start 2026-05-01, settled 2026-05-28) now bubbles to TOP of the Binance merged feed.",
+    "Sync to Wallet Ledger button visible in batch detail modal footer with data-testid='treasury-sync-ledger-btn'. POST .../sync-ledger returns 201 with {synced:true, batch_code}."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_treasury_batch_ledger_iter14.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@axistratech.com / admin123 (accept_terms:true on login)",
+  "seed_data_creation": "Created persistent batch BPAY-2605-00001 (id 280bde8d-95aa-4466-a813-d07e5db5a2df) for UI smoke. Pytest fixtures create/cleanup their own TEST batch each run.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "applyBatchLedger writes 4 ref types: ${code}-SWEEP, -CONV-USDT, -CONV-AED, -WIO. All idempotent via findByExternalRef. Wallet overview is a list of {code,balances:[{coin,balance,tx_count}]}. Wallet ledger endpoint returns plain array. Login response key is 'token' (not 'access_token'). Treasury batch PATCH requires settlement_tx_hash any time received_crypto_amount or usdt_amount is supplied (assertBatchEvidence). If re-patching with only some fields, must include the existing settlement_tx_hash. UI batch detail modal opens by clicking the batch row in the merged feed (Binance/OKX tab).",
+  "rca of the issue": "User reported BPAY-2605-00001 showed 'Converted to USDT' but Binance USDT was 0. Root cause was applyBatchStatus() only updated recharge.status; it never fanned out to wallet_ledgers. Fix: applyBatchStatus now calls new applyBatchLedger() which idempotently writes per-step ledger pairs using external_ref dedupe. New POST /api/treasury/batches/:id/sync-ledger exposes a manual re-fan for backfill of existing batches. Verified: BTCPAY BTC=-0.03159609 (sweep), BINANCE BTC nets to 0 (sweep + conv), BINANCE USDT increased by 2309.76. All re-runs (PATCH same fields + double /sync-ledger) produce no duplicates."
+}

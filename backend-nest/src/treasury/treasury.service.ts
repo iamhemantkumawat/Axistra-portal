@@ -199,6 +199,18 @@ export class TreasuryService {
     return { deleted: true, unlinked_movements: linkedMovements.length };
   }
 
+  async syncBatchLedger(id: string, actor?: any) {
+    const batch = await this.batchRepo.findOne({ where: { id } });
+    if (!batch) throw new NotFoundException('Treasury batch not found');
+    await this.applyBatchLedger(batch);
+    await this.audit.log({
+      actor_id: actor?.id, actor_email: actor?.email,
+      action: 'sync_batch_ledger', entity_type: 'treasury_batch', entity_id: batch.id,
+      details: `Re-fanned ${batch.batch_code} to wallet_ledgers`,
+    });
+    return { synced: true, batch_code: batch.batch_code };
+  }
+
   async assignBatch(batchId: string, rechargeIds: string[], actor?: any) {
     const batch = await this.batchRepo.findOne({ where: { id: batchId } });
     if (!batch) throw new NotFoundException('Treasury batch not found');
@@ -575,6 +587,119 @@ export class TreasuryService {
         recharge.status = 'sent_to_okx';
       }
       await this.rechargeRepo.save(recharge);
+    }
+    // Fan-out to wallet_ledgers so balances in Wallet Ledger / Treasury chips
+    // reflect the batch's sweep + conversion + bank deposit. Idempotent per
+    // step via external_ref = `${batch_code}-<STEP>`.
+    await this.applyBatchLedger(batch);
+  }
+
+  /**
+   * Idempotently writes wallet_ledger rows for each completed batch step.
+   * Re-runs on every batch save and skips steps whose external_ref already
+   * exists.  This is what makes a Treasury Transfer also update Binance USDT
+   * + Binance BTC balance + Wio AED balance — without it, the batch only
+   * advances recharge statuses (the bug the user reported).
+   */
+  private async applyBatchLedger(batch: TreasuryBatch) {
+    const exchangeWallet: WalletCode = (() => {
+      const e = (batch.destination_exchange || '').toLowerCase();
+      if (e.includes('okx')) return 'OKX';
+      return 'BINANCE';
+    })();
+    const sourceWallet: WalletCode = (() => {
+      const s = (batch.source_wallet || batch.source_gateway || '').toLowerCase();
+      if (s.includes('btcpay')) return 'BTCPAY';
+      if (s.includes('oxapay')) return 'OXAPAY';
+      if (s.includes('binance')) return 'BINANCE';
+      if (s.includes('okx')) return 'OKX';
+      return exchangeWallet;
+    })();
+    const coin = (batch.coin || 'BTC').toUpperCase();
+    const network = batch.network || coin;
+    const txHash = batch.settlement_tx_hash || batch.settlement_reference || batch.batch_code;
+    const sweptAmount = parseFloat(
+      batch.received_crypto_amount || batch.total_crypto_amount || '0',
+    );
+
+    // STEP 1 — Sweep: -coin from source, +coin at exchange (skip if source IS
+    // the exchange — i.e. a direct-on-exchange batch — those deposits were
+    // already recorded when the recharge fanned out individually).
+    if (sweptAmount > 0 && sourceWallet !== exchangeWallet) {
+      const sweepRef = `${batch.batch_code}-SWEEP`;
+      const existing = await this.wallets.findByExternalRef(sweepRef);
+      if (!existing.length) {
+        await this.wallets.recordTransferPair({
+          from_wallet: sourceWallet,
+          to_wallet: exchangeWallet,
+          coin,
+          network,
+          amount: sweptAmount,
+          tx_hash: txHash,
+          external_ref: sweepRef,
+          event_at: batch.exchange_received_at || batch.period_end || batch.period_start || new Date(),
+          notes: `${batch.batch_code} sweep: ${batch.source_gateway || sourceWallet} → ${batch.destination_exchange || exchangeWallet}`,
+        });
+      }
+    }
+
+    // STEP 2 — Conversion to USDT (-coin from exchange, +USDT at exchange).
+    // Skip if the source coin already IS USDT.
+    const usdtAmount = parseFloat(batch.usdt_amount || '0');
+    if (usdtAmount > 0 && coin !== 'USDT' && sweptAmount > 0) {
+      const convRef = `${batch.batch_code}-CONV-USDT`;
+      const existing = await this.wallets.findByExternalRef(convRef);
+      if (!existing.length) {
+        await this.wallets.recordConvertPair({
+          wallet: exchangeWallet,
+          from_coin: coin,
+          from_amount: sweptAmount,
+          to_coin: 'USDT',
+          to_amount: usdtAmount,
+          external_ref: convRef,
+          event_at: batch.usdt_conversion_date || batch.exchange_received_at || new Date(),
+          notes: `${batch.batch_code}: ${coin} → USDT conversion (${batch.usdt_conversion_reference || 'on-exchange'})`,
+        });
+      }
+    }
+
+    // STEP 3 — Conversion to AED (-USDT from exchange, +AED at exchange).
+    const aedAmount = parseFloat(batch.fiat_received || '0');
+    const usdtConverted = parseFloat(batch.crypto_converted || '0');
+    if (aedAmount > 0 && usdtConverted > 0) {
+      const convRef = `${batch.batch_code}-CONV-AED`;
+      const existing = await this.wallets.findByExternalRef(convRef);
+      if (!existing.length) {
+        await this.wallets.recordConvertPair({
+          wallet: exchangeWallet,
+          from_coin: 'USDT',
+          from_amount: usdtConverted,
+          to_coin: (batch.fiat_currency || 'AED').toUpperCase(),
+          to_amount: aedAmount,
+          external_ref: convRef,
+          event_at: batch.conversion_date || batch.usdt_conversion_date || new Date(),
+          notes: `${batch.batch_code}: USDT → AED conversion`,
+        });
+      }
+    }
+
+    // STEP 4 — Bank deposit (-AED from exchange, +AED at WIO_BANK).
+    const wioAmount = parseFloat(batch.net_bank_deposit_amount || batch.fiat_received || '0');
+    if (wioAmount > 0 && batch.bank_reference) {
+      const wioRef = `${batch.batch_code}-WIO`;
+      const existing = await this.wallets.findByExternalRef(wioRef);
+      if (!existing.length) {
+        await this.wallets.recordTransferPair({
+          from_wallet: exchangeWallet,
+          to_wallet: 'WIO_BANK',
+          coin: (batch.fiat_currency || 'AED').toUpperCase(),
+          amount: wioAmount,
+          tx_hash: batch.bank_reference,
+          external_ref: wioRef,
+          event_at: batch.bank_deposit_date || new Date(),
+          notes: `${batch.batch_code}: Withdrawn to ${batch.bank_name || 'Wio Bank'}`,
+        });
+      }
     }
   }
 }
