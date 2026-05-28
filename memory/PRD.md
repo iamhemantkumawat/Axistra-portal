@@ -76,7 +76,18 @@ Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corpora
   - New endpoints: `GET|POST|PATCH|DELETE /api/settings/receiving-wallets`, `GET|POST|PATCH|DELETE /api/settings/vendors`
   - 14/14 backend tests + full frontend regression PASS (iteration_7.json).
 
-- **UPDATE (May 28, 2026 v7): UI polish from user feedback — OxaPay ledger columns + Treasury chronological order + Expense edit/delete**
+- **UPDATE (May 28, 2026 v8): Balance reconciliation + delete endpoints**
+  - **Treasury page balance chips now read straight from `/api/wallets/overview`** (the double-entry `wallet_ledgers` source of truth) — they can never drift from the Wallet Ledger page again. Previously Treasury's Binance/OKX "USDT Balance" chip summed `recharges + batches + expenses` independently, producing figures like 3,358.73 USDT while the Wallet Ledger correctly showed -700 USDT for the same wallet. New helpers `walletBalanceFor(code, coin)` and `walletBalancesFor(code)` derive both `exchangeUsdtBalance` and `activeExchangeCoinSummary` chips from the ledger overview. Same fix applied to OxaPay (`OxaPay Wallet Balance` chip + `Today received` subtitle) and BTCPay (`BTCPay Wallet Balance: X BTC`).
+  - **New DELETE endpoints**:
+    - `DELETE /api/wallets/ledger/:id` — deletes a single ledger row + paired `linked_ledger_id` row (keeps double-entry balanced); audit log; returns `{deleted, paired_deleted}`.
+    - `DELETE /api/treasury/batches/:id` — unlinks all `treasury_movements.treasury_batch_id` then deletes the batch; audit log; returns `{deleted, unlinked_movements}`.
+  - **Frontend delete UX**:
+    - Wallet Ledger page: new Actions column with Trash icon on every row (confirms first, refreshes overview + list).
+    - Treasury page (OKX/Binance merged feed): new Actions column with Trash icons per row that route to the correct backend (batch / recharge / expense). Tooltip explains what gets reversed.
+  - **Build-system note caught by testing agent**: backend `AuditLog.details` column is typed `string` — always pass a string template (don't pass an object). I had to fix one regression where `audit.log({ details: { ... } })` blocked `yarn build` and left the running NestJS dist stale. Now fixed.
+  - **Testing**: iteration_11 backend 100% (5/5 + 1 minor skip), frontend 100% smoke. Pytest suite at `/app/backend/tests/test_treasury_wallet_delete_iter11.py` covers the balance-sync fix (create 700-USDT BINANCE expense → overview drops 700 → undo + verify restore) and the paired-row delete behaviour.
+
+
   - **Wallet Ledger OxaPay tab — Coin / Amount columns now show the RECEIVED coin** (not the converted USDT). Previously every OxaPay deposit looked like `USDT · Bitcoin Network +116.50913146 USDT` even though the customer actually paid 0.00156404 BTC. New behaviour: when `original_coin` + `original_amount` are populated, Coin column renders `BTC · Bitcoin Network`, Amount renders `+0.00156404 BTC`, and the dedicated **Final USDT** column continues to show the converted `116.50913146 USDT`. Rows without conversion data still show "pending sync" in the Final USDT column.
   - **Crypto Treasury & Reconciliation (OKX/Binance tabs) now interleaves entries by date** (newest first). Previously batches → receipts → expense outflows were rendered as three separate groups, so an expense from the 12th would sink to the bottom under a transfer recorded on the 28th. Single merged feed: `[...batches, ...receipts, ...expenses].sort((a,b) => b.ts - a.ts)`.
   - **Expenses page — Edit + Delete actions**. New Actions column with Pencil (opens the same modal in "Edit Expense" mode and pre-fills all fields → `PATCH /api/expenses/:id`) and Trash (window.confirm → `DELETE /api/expenses/:id`) icons per row. Wallet ledger is correctly reversed on delete and refreshed on edit (backend `ExpensesService` already supported both — only the UI was missing).
@@ -112,6 +123,13 @@ Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corpora
     - New `frontend/.dockerignore` + `backend-nest/.dockerignore` exclude `node_modules`, `dist`, `.env*` from the build context — faster builds, smaller images.
   - **`deploy/update.sh` pre-deploy doctor** added: validates BOTH services have `yarn.lock`, NEITHER service has a stale `package-lock.json`, and NEITHER Dockerfile uses `npm ci/install` — exits with a clear error BEFORE Docker is ever invoked. Verified working by deliberately breaking the tree (renaming yarn.lock + adding a fake package-lock.json) — doctor catches it; restored — doctor passes.
   - **End-to-end install verified** with the real lockfiles in `/tmp`: `yarn install --frozen-lockfile` succeeds in 37s for frontend and 11s for backend-nest, and resolves the new `@nestjs/schedule` dependency correctly.
+
+- **UPDATE (May 28, 2026 v7): UI polish from user feedback — OxaPay ledger columns + Treasury chronological order + Expense edit/delete**
+  - **Wallet Ledger OxaPay tab — Coin / Amount columns now show the RECEIVED coin** (not the converted USDT). When `original_coin` + `original_amount` are populated, Coin column renders `BTC · Bitcoin Network`, Amount renders `+0.00156404 BTC`, and the dedicated **Final USDT** column continues to show the converted `116.50913146 USDT`.
+  - **Crypto Treasury & Reconciliation (OKX/Binance tabs) now interleaves entries by date** (newest first). Previously batches → receipts → expense outflows were rendered as three separate groups.
+  - **Expenses page — Edit + Delete actions**. New Actions column with Pencil + Trash icons.
+  - **Auto-cron OxaPay sync** re-verified as registered.
+  - **Testing**: iteration_10 — backend pytest 7/7 PASS, frontend Playwright covers Add/Edit modal title switch.
 
 - **UPDATE (May 28, 2026 v3): Treasury ↔ Wallet Ledger auto-sync + OxaPay history cron + coin-aware UI**
   - **P0 — Treasury → Wallet Ledger fan-out (the headline)**. Every `TreasuryService.upsertMovement(...)` now mirrors the 3 boolean stages into double-entry wallet_ledger pairs via a new `WalletsService.syncMovementStep({ step, enabled, ... })` helper. Idempotency is guaranteed by a deterministic `external_ref = 'movement-<recharge_id>-step-<okx|aed|wio>'` — every upsert deletes the prior pair before re-inserting, so re-saves or step toggles never duplicate rows. Verified with iteration_9 tests (9/9 pass): a $100 OxaPay → OKX → AED → Wio chain produces exactly 6 ledger rows that net to **+367 AED in WIO_BANK** with every intermediate balance == 0.
