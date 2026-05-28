@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 
 export const PageHeader = ({ title, subtitle, actions, eyebrow }) => (
   <div className="mb-6 flex flex-col md:flex-row md:items-end md:justify-between gap-4">
@@ -39,6 +39,14 @@ export const EmptyState = ({ title, hint }) => (
 );
 
 export const Modal = ({ open, onClose, title, children, testId, size = 'md' }) => {
+  // Lock body scroll while a modal is open so the page underneath can't be
+  // scrolled into view (which would expose content past the fixed dim overlay).
+  useEffect(() => {
+    if (!open) return undefined;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [open]);
   if (!open) return null;
   const width = size === 'lg' ? 'max-w-4xl' : size === 'xl' ? 'max-w-6xl' : 'max-w-2xl';
   return (

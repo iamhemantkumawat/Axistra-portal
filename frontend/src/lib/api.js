@@ -14,9 +14,13 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (r) => r,
   (err) => {
+    // Only force-redirect to /login when the server EXPLICITLY says 401.
+    // Network errors, 502/503 (backend restart blip), and 504s must NOT log the user out.
     if (err.response && err.response.status === 401) {
       const path = window.location.pathname;
-      if (path !== '/login') {
+      const reqUrl = String(err.config?.url || '');
+      // Don't redirect for the heartbeat /auth/me — let auth.jsx decide.
+      if (path !== '/login' && !reqUrl.includes('/auth/me')) {
         localStorage.removeItem('axistra_token');
         localStorage.removeItem('axistra_user');
         window.location.href = '/login';

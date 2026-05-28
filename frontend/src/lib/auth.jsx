@@ -31,7 +31,14 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     if (user && localStorage.getItem('axistra_token')) {
-      api.get('/auth/me').catch(() => logout());
+      // Only log out if the token is EXPLICITLY rejected (401). Network errors,
+      // backend restart 502/503s, and timeouts must NOT log the user out — otherwise
+      // the preview URL appears to "auto-refresh" every time the API blips.
+      api.get('/auth/me').catch((err) => {
+        if (err.response && err.response.status === 401) {
+          logout();
+        }
+      });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
