@@ -1060,22 +1060,22 @@ export default function Treasury() {
                   <th>Crypto Amount</th>
                   <th>TX Hash</th>
                   <th>Status</th>
-                  <th>Converted USDT</th>
                   <th className="text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {exchangeReceipts.length === 0 && exchangeBatchRows.length === 0 && exchangePayoutRows.length === 0 && (
-                  <tr><td colSpan="10" className="text-center text-gray-500 py-10">No {activeExchangeName} receipts, source transfers, or expense outflows yet.</td></tr>
+                  <tr><td colSpan="9" className="text-center text-gray-500 py-10">No {activeExchangeName} receipts, source transfers, or expense outflows yet.</td></tr>
                 )}
                 {(() => {
                   // Merge batches, direct receipts and expense outflows into a
-                  // single chronologically-sorted feed so an expense that
-                  // happened on the 12th doesn't sink to the bottom under a
-                  // transfer recorded on the 28th. Most recent first.
-                  // For a batch we prefer the most-recent EVENT date (sweep /
-                  // conversion / bank deposit) over its creation date so an
-                  // older batch that was just settled bubbles to the top.
+                  // single chronologically-sorted feed. We render each batch
+                  // as TWO rows when a USDT conversion is recorded:
+                  //   (a) Transfer: source → exchange (the sweep)
+                  //   (b) Conversion: coin → USDT (the in-exchange swap)
+                  // Each row has its own delete button — deleting the
+                  // conversion clears only the convert ledger pair and the
+                  // batch's USDT fields, NOT the sweep.
                   const batchTs = (b) => Math.max(
                     new Date(b.bank_deposit_date || 0).getTime(),
                     new Date(b.conversion_date || 0).getTime(),
@@ -1086,16 +1086,22 @@ export default function Treasury() {
                     new Date(b.period_start || 0).getTime(),
                     new Date(b.created_at || 0).getTime(),
                   );
-                  const merged = [
-                    ...exchangeBatchRows.map((b) => ({ kind: 'batch', row: b, ts: batchTs(b) })),
-                    ...exchangeReceipts.map((r) => ({ kind: 'receipt', row: r, ts: new Date(r.payment_date || r.created_at || 0).getTime() })),
-                    ...exchangePayoutRows.map((e) => ({ kind: 'expense', row: e, ts: new Date(e.expense_date || e.created_at || 0).getTime() })),
-                  ].sort((a, b) => b.ts - a.ts);
+                  const merged = [];
+                  exchangeBatchRows.forEach((b) => {
+                    const baseTs = batchTs(b);
+                    merged.push({ kind: 'batch-transfer', row: b, ts: baseTs - 1 });
+                    if (parseFloat(b.usdt_amount || '0') > 0) {
+                      merged.push({ kind: 'batch-conversion', row: b, ts: baseTs });
+                    }
+                  });
+                  exchangeReceipts.forEach((r) => merged.push({ kind: 'receipt', row: r, ts: new Date(r.payment_date || r.created_at || 0).getTime() }));
+                  exchangePayoutRows.forEach((e) => merged.push({ kind: 'expense', row: e, ts: new Date(e.expense_date || e.created_at || 0).getTime() }));
+                  merged.sort((a, b) => b.ts - a.ts);
                   return merged.map((item) => {
-                    if (item.kind === 'batch') {
+                    if (item.kind === 'batch-transfer') {
                       const b = item.row;
                       return (
-                <tr key={`batch-${b.id}`} onClick={() => openBatch(b)} className="cursor-pointer hover:bg-[var(--axistra-bg)]">
+                <tr key={`batch-${b.id}-transfer`} onClick={() => openBatch(b)} className="cursor-pointer hover:bg-[var(--axistra-bg)]">
                     <td><input type="checkbox" checked={selectedBatchIds.includes(b.id)} onClick={(e) => e.stopPropagation()} onChange={() => toggleBatch(b.id)} /></td>
                     <td>
                       <button type="button" onClick={(e) => { e.stopPropagation(); openBatch(b); }} className="font-mono text-axistra-green hover:underline">{b.batch_code}</button>
@@ -1108,20 +1114,63 @@ export default function Treasury() {
                       <div className="font-mono text-xs text-gray-500 truncate max-w-[180px]">{b.destination_wallet || 'No wallet saved'}</div>
                     </td>
                     <td className="font-mono">{b.total_invoice_amount ? fmtMoney(b.total_invoice_amount, b.invoice_currency || 'EUR') : '—'}</td>
-                    <td className="font-mono">
-                      {b.received_crypto_amount || b.total_crypto_amount || '0'} {b.coin || ''}
-                      {b.usdt_amount && <div className="text-xs text-axistra-green">{b.usdt_amount} USDT after conversion</div>}
-                    </td>
+                    <td className="font-mono">{b.received_crypto_amount || b.total_crypto_amount || '0'} {b.coin || ''}</td>
                     <td><Hash value={b.settlement_tx_hash} /></td>
                     <td><BatchStatus status={b.status} /></td>
-                    <td className="font-mono text-sm font-semibold text-axistra-green">{b.usdt_amount ? `${fmtCrypto(b.usdt_amount)} USDT` : '—'}</td>
                     <td className="text-right">
                       <button
                         type="button"
                         onClick={(ev) => { ev.stopPropagation(); deleteBatch(b); }}
                         className="rounded-md p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
-                        title="Delete this batch"
+                        title="Delete this batch (sweep + any conversions/withdrawal)"
                         data-testid={`treasury-batch-delete-${b.id}`}
+                      >
+                        <Trash size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                      );
+                    }
+                    if (item.kind === 'batch-conversion') {
+                      const b = item.row;
+                      const from = parseFloat(b.received_crypto_amount || b.total_crypto_amount || '0');
+                      const to = parseFloat(b.usdt_amount || '0');
+                      const rate = from > 0 ? (to / from) : 0;
+                      return (
+                <tr key={`batch-${b.id}-conv`} onClick={() => openBatch(b)} className="cursor-pointer hover:bg-[var(--axistra-bg)]">
+                    <td></td>
+                    <td>
+                      <button type="button" onClick={(e) => { e.stopPropagation(); openBatch(b); }} className="font-mono text-axistra-green hover:underline">{b.batch_code}</button>
+                      <div className="text-xs text-gray-500">{b.coin || 'BTC'} → USDT</div>
+                      <div className="mt-1"><Badge className="badge-success">Conversion</Badge></div>
+                    </td>
+                    <td><Badge className="badge-neutral">{activeExchangeName}</Badge></td>
+                    <td>
+                      <div className="font-semibold">{activeExchangeName}</div>
+                      <div className="text-xs text-gray-500">In-exchange swap</div>
+                    </td>
+                    <td className="font-mono text-xs text-gray-500">{rate > 0 ? `@ ${rate.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDT/${b.coin || 'BTC'}` : '—'}</td>
+                    <td className="font-mono">
+                      <span className="text-red-700">-{from} {b.coin || 'BTC'}</span>
+                      <div className="text-axistra-green">+{to.toLocaleString(undefined, { maximumFractionDigits: 6 })} USDT</div>
+                    </td>
+                    <td className="text-xs text-gray-500">{b.usdt_conversion_reference || '—'}</td>
+                    <td><BatchStatus status="converted_to_usdt" /></td>
+                    <td className="text-right">
+                      <button
+                        type="button"
+                        onClick={async (ev) => {
+                          ev.stopPropagation();
+                          if (!window.confirm(`Delete the BTC → USDT conversion for ${b.batch_code}?\n\nThis removes only the conversion ledger rows (-${from} ${b.coin || 'BTC'} and +${to} USDT on ${activeExchangeName}) and clears the batch's USDT fields. The Sweep step + recharge links stay intact.`)) return;
+                          try {
+                            await api.delete(`/treasury/batches/${b.id}/step/usdt`);
+                            toast.success('Conversion cleared');
+                            await load();
+                          } catch (err) { toast.error(err?.response?.data?.message || 'Failed to clear conversion'); }
+                        }}
+                        className="rounded-md p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+                        title="Delete this conversion only (keeps the sweep)"
+                        data-testid={`treasury-batch-conv-delete-${b.id}`}
                       >
                         <Trash size={14} />
                       </button>
@@ -1149,7 +1198,6 @@ export default function Treasury() {
                     <td className="font-mono">{rechargeCryptoLabel(r)}</td>
                     <td><Hash value={r.tx_hash} /></td>
                     <td><Badge className={RECHARGE_STATUS_META[r.status]?.cls}>{RECHARGE_STATUS_META[r.status]?.label}</Badge></td>
-                    <td className="font-mono text-sm font-semibold text-axistra-green">{entryCoin(r) === 'USDT' ? `${fmtCrypto(r.crypto_amount)} USDT` : '—'}</td>
                     <td className="text-right">
                       <button
                         type="button"
@@ -1182,7 +1230,6 @@ export default function Treasury() {
                     <td className="font-mono text-red-700">-{fmtLedgerAmount(e.amount, e.currency)}</td>
                     <td><Hash value={e.tx_hash} /></td>
                     <td><Badge className="badge-warning">Expense</Badge></td>
-                    <td className="font-mono text-sm text-red-700">{entryCoin(e) === 'USDT' || e.paid_in_usdt ? `-${fmtCrypto(e.amount)} USDT` : '—'}</td>
                     <td className="text-right">
                       <button
                         type="button"

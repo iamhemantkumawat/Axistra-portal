@@ -1,0 +1,24 @@
+{
+  "summary": "Iteration 15 testing PASSED. All 5 backend pytest tests green and Treasury UI restructure verified live. (1) stampNowTime() correctly stamps batch.updated_at hh:mm:ss onto fan-out wallet_ledger rows for both BTCPAY-SWEEP and BINANCE CONV-USDT — event_at is no longer 00:00:00 UTC, so newly recorded batch rows now bubble above same-day 00:00 deposits when sorted DESC. (2) wallets.convert() applies same time-bump when event_at='YYYY-MM-DD'. (3) DELETE /api/treasury/batches/:id cascade-removes all 4 step ledger rows (BTCPAY out, BINANCE in, CONV-USDT pair) and returns {deleted:true, ledger_rows_removed:N}. (4) DELETE /api/treasury/batches/:id/step/usdt clears only usdt_* fields + CONV-USDT pair (2 rows); sweep rows intact; batch_status drops back to sent_to_exchange. (5) Frontend Treasury Binance tab: 9-column header (Select|Entry|Source|Exchange|Invoice/Expense|Crypto Amount|TX Hash|Status|Actions), 'Converted USDT' column REMOVED. (6) Existing batch BPAY-2605-00001 renders as TWO rows: Conversion row (badge 'Conversion', subtitle 'BTC → USDT', stacked '-0.03159609 BTC' / '+2,309.762584 USDT', data-testid treasury-batch-conv-delete-{id}) AND Transfer row (badge 'Transfer', source BTCPAY, 0.03159609 BTC, data-testid treasury-batch-delete-{id}). Conversion row's trash button calls api.delete('/treasury/batches/{id}/step/usdt') per source line 1166.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_treasury_iter15.py",
+    "/app/test_reports/pytest/iter15_treasury.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Treasury.jsx is now ~1300+ lines — consider extracting MergedFeedTable + batch row renderers into smaller components (file-size code-review rule).",
+    "Conversion-row delete uses window.confirm via openBatch flow; consider using shadcn AlertDialog for consistent UX with rest of app.",
+    "stampNowTime helper is duplicated across treasury.service.ts and wallets.service.ts — extract to a shared util for DRY."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_treasury_iter15.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@axistratech.com / admin123 (accept_terms:true on login). data-testid login-email-input, login-password-input, login-terms-checkbox, login-submit-btn.",
+  "seed_data_creation": "Tests create transient TEST_ITER15_* batches and clean them up via DELETE in teardown. Pre-existing BPAY-2605-00001 (from iter_14) was used for the live UI render verification — not modified.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend test file /app/backend/tests/test_treasury_iter15.py covers stampNowTime, wallets.convert time-bump, /step/usdt granular delete, and cascade-delete of batch ledger rows. Login flow: use data-testid selectors and check terms checkbox with force=True. Treasury page route /treasury — Binance tab is a button with text 'Binance'. Batch split rows: kind 'batch-conversion' (rendered first/above) for usdt_amount>0, kind 'batch-transfer' always. The previous iter_14 seed BPAY-2605-00001 is still in the system."
+}

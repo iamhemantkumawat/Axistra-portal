@@ -361,7 +361,20 @@ export class WalletsService {
     } else {
       throw new BadRequestException('Either Received Amount or Rate is required');
     }
-    const eventAt = input.event_at ? new Date(input.event_at) : new Date();
+    const eventAt = (() => {
+      // Same idea as treasury fan-out: keep user date but stamp current time
+      // of day so freshly-saved conversions surface above the day's deposits.
+      const u = input.event_at ? new Date(input.event_at) : new Date();
+      if (isNaN(u.getTime())) return new Date();
+      // If the user input was a yyyy-mm-dd string (parses to 00:00 UTC) bump
+      // to the current time-of-day.
+      const wasDateOnly = typeof input.event_at === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input.event_at);
+      if (wasDateOnly) {
+        const now = new Date();
+        u.setUTCHours(now.getUTCHours(), now.getUTCMinutes(), now.getUTCSeconds(), now.getUTCMilliseconds());
+      }
+      return u;
+    })();
     const conv_id = nextCode(`${input.wallet.slice(0, 3)}-CONV`);
     const fromCoin = input.from_coin.toUpperCase();
     const toCoin = input.to_coin.toUpperCase();

@@ -184,6 +184,19 @@ export class TreasuryService {
   async deleteBatch(id: string, actor?: any) {
     const batch = await this.batchRepo.findOne({ where: { id } });
     if (!batch) throw new NotFoundException('Treasury batch not found');
+    // Cascade-delete the wallet_ledger rows we fanned out for this batch.
+    // Each step writes rows with external_ref = '${batch_code}-<STEP>' — we
+    // delete them all so the Wallet Ledger balance stays in sync.
+    const refSuffixes = ['SWEEP', 'CONV-USDT', 'CONV-AED', 'WIO'];
+    let ledgerRowsRemoved = 0;
+    for (const suffix of refSuffixes) {
+      const ref = `${batch.batch_code}-${suffix}`;
+      const rows = await this.wallets.findByExternalRef(ref);
+      for (const row of rows) {
+        await this.wallets.deleteLedgerRow(row.id, actor).catch(() => undefined);
+        ledgerRowsRemoved += 1;
+      }
+    }
     // Unlink recharges → movements → batch
     const linkedMovements = await this.repo.find({ where: { treasury_batch_id: batch.id } });
     for (const m of linkedMovements) {
@@ -194,9 +207,9 @@ export class TreasuryService {
     await this.audit.log({
       actor_id: actor?.id, actor_email: actor?.email,
       action: 'delete_treasury_batch', entity_type: 'treasury_batch', entity_id: batch.id,
-      details: `${batch.batch_code} unlinked ${linkedMovements.length} movement(s)`,
+      details: `${batch.batch_code} unlinked ${linkedMovements.length} movement(s), removed ${ledgerRowsRemoved} ledger row(s)`,
     });
-    return { deleted: true, unlinked_movements: linkedMovements.length };
+    return { deleted: true, unlinked_movements: linkedMovements.length, ledger_rows_removed: ledgerRowsRemoved };
   }
 
   async syncBatchLedger(id: string, actor?: any) {
@@ -209,6 +222,55 @@ export class TreasuryService {
       details: `Re-fanned ${batch.batch_code} to wallet_ledgers`,
     });
     return { synced: true, batch_code: batch.batch_code };
+  }
+
+  /**
+   * Remove just ONE step's data from a batch (and its wallet_ledger rows).
+   * Used by the "Treasury feed" delete buttons so the user can delete the
+   * Conversion row without nuking the underlying Sweep + recharge links.
+   *  step = 'sweep' | 'usdt' | 'aed' | 'wio'
+   */
+  async clearBatchStep(id: string, step: 'sweep' | 'usdt' | 'aed' | 'wio', actor?: any) {
+    const batch = await this.batchRepo.findOne({ where: { id } });
+    if (!batch) throw new NotFoundException('Treasury batch not found');
+    const suffixMap = { sweep: 'SWEEP', usdt: 'CONV-USDT', aed: 'CONV-AED', wio: 'WIO' } as const;
+    const ref = `${batch.batch_code}-${suffixMap[step]}`;
+    const rows = await this.wallets.findByExternalRef(ref);
+    let removed = 0;
+    for (const row of rows) {
+      await this.wallets.deleteLedgerRow(row.id, actor).catch(() => undefined);
+      removed += 1;
+    }
+    // Wipe the batch fields for that step so re-saving the batch doesn't
+    // immediately re-create the rows from applyBatchLedger.
+    if (step === 'usdt') {
+      batch.usdt_amount = null as any;
+      batch.usdt_conversion_rate = null as any;
+      batch.usdt_conversion_date = null as any;
+      batch.usdt_conversion_reference = null as any;
+    } else if (step === 'aed') {
+      batch.crypto_converted = null as any;
+      batch.conversion_rate = null as any;
+      batch.fiat_received = null as any;
+      batch.conversion_date = null as any;
+    } else if (step === 'wio') {
+      batch.bank_reference = null as any;
+      batch.bank_deposit_date = null as any;
+      batch.bank_fee_aed = null as any;
+      batch.net_bank_deposit_amount = null as any;
+    } else if (step === 'sweep') {
+      batch.settlement_tx_hash = null as any;
+      batch.exchange_received_at = null as any;
+      batch.received_crypto_amount = null as any;
+    }
+    batch.status = this.resolveBatchStatus(batch);
+    await this.batchRepo.save(batch);
+    await this.audit.log({
+      actor_id: actor?.id, actor_email: actor?.email,
+      action: `clear_batch_${step}`, entity_type: 'treasury_batch', entity_id: batch.id,
+      details: `${batch.batch_code}: cleared ${step} step (${removed} ledger row(s) removed)`,
+    });
+    return { cleared: step, ledger_rows_removed: removed, batch_status: batch.status };
   }
 
   async assignBatch(batchId: string, rechargeIds: string[], actor?: any) {
@@ -602,6 +664,19 @@ export class TreasuryService {
    * advances recharge statuses (the bug the user reported).
    */
   private async applyBatchLedger(batch: TreasuryBatch) {
+    // Helper: combine the user-entered DATE (which parses to 00:00 UTC and
+    // would sink below the day's deposits stamped at e.g. 14:00 UTC) with
+    // the batch's actual save time. Preserves the user's chosen date while
+    // letting freshly-saved entries surface at the top of the Wallet Ledger.
+    const stampNowTime = (userDate?: string | Date | null): Date => {
+      const updated = batch.updated_at || batch.created_at || new Date();
+      if (!userDate) return new Date(updated);
+      const d = new Date(userDate);
+      if (isNaN(d.getTime())) return new Date(updated);
+      const u = new Date(updated);
+      d.setUTCHours(u.getUTCHours(), u.getUTCMinutes(), u.getUTCSeconds(), u.getUTCMilliseconds());
+      return d;
+    };
     const exchangeWallet: WalletCode = (() => {
       const e = (batch.destination_exchange || '').toLowerCase();
       if (e.includes('okx')) return 'OKX';
@@ -637,7 +712,7 @@ export class TreasuryService {
           amount: sweptAmount,
           tx_hash: txHash,
           external_ref: sweepRef,
-          event_at: batch.exchange_received_at || batch.period_end || batch.period_start || new Date(),
+          event_at: stampNowTime(batch.exchange_received_at || batch.period_end || batch.period_start || null),
           notes: `${batch.batch_code} sweep: ${batch.source_gateway || sourceWallet} → ${batch.destination_exchange || exchangeWallet}`,
         });
       }
@@ -657,7 +732,7 @@ export class TreasuryService {
           to_coin: 'USDT',
           to_amount: usdtAmount,
           external_ref: convRef,
-          event_at: batch.usdt_conversion_date || batch.exchange_received_at || new Date(),
+          event_at: stampNowTime(batch.usdt_conversion_date || batch.exchange_received_at || null),
           notes: `${batch.batch_code}: ${coin} → USDT conversion (${batch.usdt_conversion_reference || 'on-exchange'})`,
         });
       }
@@ -677,7 +752,7 @@ export class TreasuryService {
           to_coin: (batch.fiat_currency || 'AED').toUpperCase(),
           to_amount: aedAmount,
           external_ref: convRef,
-          event_at: batch.conversion_date || batch.usdt_conversion_date || new Date(),
+          event_at: stampNowTime(batch.conversion_date || batch.usdt_conversion_date || null),
           notes: `${batch.batch_code}: USDT → AED conversion`,
         });
       }
@@ -696,7 +771,7 @@ export class TreasuryService {
           amount: wioAmount,
           tx_hash: batch.bank_reference,
           external_ref: wioRef,
-          event_at: batch.bank_deposit_date || new Date(),
+          event_at: stampNowTime(batch.bank_deposit_date || null),
           notes: `${batch.batch_code}: Withdrawn to ${batch.bank_name || 'Wio Bank'}`,
         });
       }
