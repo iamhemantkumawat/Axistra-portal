@@ -76,6 +76,14 @@ Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corpora
   - New endpoints: `GET|POST|PATCH|DELETE /api/settings/receiving-wallets`, `GET|POST|PATCH|DELETE /api/settings/vendors`
   - 14/14 backend tests + full frontend regression PASS (iteration_7.json).
 
+- **UPDATE (May 28, 2026 v6): Final USDT column + on-demand OxaPay sync button**
+  - Wallet Ledger OxaPay column renamed **"Customer Paid" → "Final USDT"**. The cell now shows the converted USDT amount with the original coin/amount as a small subtitle ("from 0.001 BTC"). For older rows that have no conversion data yet, the cell shows "pending sync" in gray — making it obvious which rows need to be enriched via the OxaPay API.
+  - New **"Sync from OxaPay"** button on the OxaPay ledger view (only). Hits `POST /api/webhooks/oxapay/sync-history`, displays a toast with the scanned/matched/by-key counts, and refreshes the table + overview cards. Disabled state while syncing.
+  - `OxaPaySyncService.applyToRow` hardened:
+    - No longer requires both `payCurrency` and `payAmount`; will still flip a stale BTC/ETH row to USDT when only `finalUsdt` is returned by OxaPay.
+    - Removes the `original_coin: IsNull()` constraint when falling back to recharge_id lookup, so we can update older rows too.
+    - Also mirrors `final_usdt_amount`/`received_amount` onto the matching `crypto_transactions` row → the Recharge Detail + Audit Chain views stay consistent with the Wallet Ledger.
+
 - **HOTFIX (May 28, 2026 v5): Production login fixed + one-command deploys**
   - **Root cause of "wrong credentials" on production**: the frontend Docker image had been built WITHOUT the `REACT_APP_BACKEND_URL` build-arg. Vite bakes that variable into the static JS at build time, so the bundle fell back to `http://localhost:9001`. The browser then issued login POSTs to `localhost:9001` which were CORS-blocked by Chrome's loopback-address policy — login looked like "wrong credentials" but was actually network-failed. Direct curl to `https://axistratech.com/api/auth/login` always worked.
   - **Fix in `deploy/docker-compose.yml`**: added `build.args.REACT_APP_BACKEND_URL: ${REACT_APP_BACKEND_URL}` under the `frontend` service so the production URL is forwarded at build time. **Live VPS already patched** — rebuilt the frontend container in place with `--project-directory /opt/axistra`, verified the new bundle now contains `https://axistratech.com` (no more `localhost`), and the browser login goes through `POST https://axistratech.com/api/auth/login → 200` and lands on the dashboard with all 68 customers + 12 recharges intact.

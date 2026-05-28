@@ -88,6 +88,26 @@ export default function WalletLedger() {
   const [cashoutOpen, setCashoutOpen] = useState(false);
   const [cashoutForm, setCashoutForm] = useState(initialCashoutForm('BINANCE'));
   const [loading, setLoading] = useState(false);
+  const [oxapaySyncing, setOxapaySyncing] = useState(false);
+
+  const runOxaPaySync = async () => {
+    setOxapaySyncing(true);
+    try {
+      const { data } = await api.post('/webhooks/oxapay/sync-history');
+      const detail = (data.by_key || []).map((k) => `${k.key_label}: ${k.count}`).join(' · ');
+      if (data.errors > 0) {
+        toast.warning(`OxaPay sync had ${data.errors} error(s). Scanned ${data.scanned}, matched ${data.matched}. ${detail}`);
+      } else {
+        toast.success(`OxaPay sync OK — scanned ${data.scanned} payment(s), back-filled ${data.matched} row(s). ${detail}`);
+      }
+      await loadLedger(active);
+      await loadOverview();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'OxaPay sync failed');
+    } finally {
+      setOxapaySyncing(false);
+    }
+  };
 
   const loadOverview = async () => {
     const { data } = await api.get('/wallets/overview');
@@ -261,6 +281,18 @@ export default function WalletLedger() {
           {Object.entries(TX_TYPE_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
         </select>
         <button onClick={() => loadLedger()} className="btn-secondary">Apply</button>
+        {active === 'OXAPAY' && (
+          <button
+            data-testid="ledger-oxapay-sync-btn"
+            onClick={runOxaPaySync}
+            disabled={oxapaySyncing}
+            title="Fetches the OxaPay payment history with both merchant keys (portal + calls-bot) and back-fills the Final USDT + customer-paid columns for any rows missing the conversion data."
+            className="btn-primary inline-flex items-center gap-2"
+          >
+            <Sparkle size={14} weight="duotone" />
+            {oxapaySyncing ? 'Syncing…' : 'Sync from OxaPay'}
+          </button>
+        )}
       </div>
 
       <div className="card-axistra overflow-x-auto" data-testid="ledger-table-wrap">
@@ -271,7 +303,7 @@ export default function WalletLedger() {
               <th>Type</th>
               <th>Coin</th>
               <th>Amount</th>
-              {active === 'OXAPAY' && <th data-testid="ledger-th-original">Customer Paid</th>}
+              {active === 'OXAPAY' && <th data-testid="ledger-th-final-usdt">Final USDT</th>}
               <th>Counterparty</th>
               <th>Ref</th>
               <th>Tx Hash</th>
@@ -294,13 +326,21 @@ export default function WalletLedger() {
                     {amt < 0 ? '' : '+'}{fmtCrypto(amt, row.coin)}
                   </td>
                   {active === 'OXAPAY' && (
-                    <td className="font-mono text-xs text-gray-700" data-testid={`ledger-original-${row.id}`}>
-                      {row.original_coin
-                        ? <>
-                            <span className="text-gray-900">{fmtCrypto(row.original_amount, row.original_coin)}</span>
-                            <div className="text-[10px] text-gray-400">→ converted</div>
-                          </>
-                        : <span className="text-gray-400">—</span>}
+                    <td className="font-mono text-xs" data-testid={`ledger-final-usdt-${row.id}`}>
+                      {/* OxaPay auto-converts incoming coins to USDT. The row's
+                          `amount`/`coin` already reflect that conversion. We
+                          surface it again as a dedicated column AND show what
+                          the customer paid in (when known) underneath. */}
+                      {(row.coin || '').toUpperCase() === 'USDT' ? (
+                        <>
+                          <span className="text-axistra-green font-semibold">{fmtCrypto(Math.abs(amt), 'USDT')}</span>
+                          {row.original_coin && (
+                            <div className="text-[10px] text-gray-400">from {fmtCrypto(row.original_amount, row.original_coin)}</div>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-gray-400">pending sync</span>
+                      )}
                     </td>
                   )}
                   <td className="text-xs text-gray-700 max-w-[160px] truncate">{row.counterparty || '—'}</td>

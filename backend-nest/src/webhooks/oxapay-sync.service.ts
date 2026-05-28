@@ -103,7 +103,7 @@ export class OxaPaySyncService {
     const payAmount = row.payAmount || row.pay_amount || row.original_amount;
     const finalUsdt = row.amount || row.received || row.received_amount || row.final_usdt_amount;
     if (!txHash && !trackId) return false;
-    if (!payCurrency || !payAmount) return false;   // nothing to back-fill
+    if (!payCurrency && !payAmount && !finalUsdt) return false; // nothing useful in this row
 
     // Find the ledger row (OxaPay deposit) by tx_hash; if missing, by external_ref.
     let ledgerRow: WalletLedger | null = null;
@@ -115,22 +115,39 @@ export class OxaPaySyncService {
       const tx = await this.cryptos.findOne({ where: [{ gateway_track_id: String(trackId) }, { gateway_invoice_id: String(trackId) }] });
       if (tx) {
         ledgerRow = await this.ledger.findOne({
-          where: { linked_recharge_id: tx.recharge_id, tx_type: 'deposit' as any, original_coin: IsNull() },
+          where: { linked_recharge_id: tx.recharge_id, tx_type: 'deposit' as any },
           order: { event_at: 'DESC' },
         });
       }
     }
     if (!ledgerRow) return false;
-    if (ledgerRow.original_coin && parseFloat(ledgerRow.original_amount || '0') > 0) return false; // already populated
-
-    ledgerRow.original_coin = String(payCurrency).toUpperCase();
-    ledgerRow.original_amount = parseFloat(String(payAmount)).toFixed(8);
+    let changed = false;
+    if (!ledgerRow.original_coin && payCurrency) {
+      ledgerRow.original_coin = String(payCurrency).toUpperCase();
+      ledgerRow.original_amount = parseFloat(String(payAmount)).toFixed(8);
+      changed = true;
+    }
+    // When the wallet ledger still shows the customer-paid coin (BTC/ETH/etc.)
+    // because the row was created BEFORE we started capturing auto-conversion,
+    // swap the row over to the converted USDT now that we know the value.
     if (finalUsdt && (ledgerRow.coin || '').toUpperCase() !== 'USDT') {
-      // Auto-converted but our row still shows the original coin → swap to USDT
       ledgerRow.amount = parseFloat(String(finalUsdt)).toFixed(8);
       ledgerRow.coin = 'USDT';
+      changed = true;
     }
+    if (!changed) return false;
     await this.ledger.save(ledgerRow);
+
+    // Mirror onto the underlying crypto_transactions row so the Recharge
+    // detail / audit chain shows the same "Final USDT" everywhere.
+    if (txHash) {
+      const tx = await this.cryptos.findOne({ where: { tx_hash: String(txHash) } });
+      if (tx && finalUsdt && !tx.final_usdt_amount) {
+        tx.final_usdt_amount = parseFloat(String(finalUsdt)).toFixed(8);
+        if (!tx.received_amount && payAmount) tx.received_amount = parseFloat(String(payAmount)).toFixed(8);
+        await this.cryptos.save(tx);
+      }
+    }
     return true;
   }
 }
