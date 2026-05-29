@@ -76,7 +76,16 @@ Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corpora
   - New endpoints: `GET|POST|PATCH|DELETE /api/settings/receiving-wallets`, `GET|POST|PATCH|DELETE /api/settings/vendors`
   - 14/14 backend tests + full frontend regression PASS (iteration_7.json).
 
+- **UPDATE (May 29, 2026 v16): Wallet Reconcile — per-tx_type breakdown for drift hunting**
+  - **User report**: Binance BTC shows `0.00476127` remaining after converting 15 selected items to USDT — sum should be 0. They couldn't tell which specific ledger rows make up the ghost balance.
+  - **Diagnostic addition**: `GET /api/wallets/:code/audit` now also returns a `breakdown` array — per coin, per tx_type, with row count + signed sum. So you can instantly see "BTC: deposit +0.017 / convert_from -0.013 / batch_in +0.001 → net 0.005 (the orphan)".
+  - **UI**: Reconcile modal renders a new "Per-coin breakdown by tx type" table for each coin in the wallet. Easy to spot mismatches at a glance.
+  - **No regression risk** — audit is read-only.
+
 - **UPDATE (May 29, 2026 v15): Convert Selected modal — editable amount + wallet balance reconciliation**
+  - Total Source Coin field made editable. 3-chip reconciliation (Selected sum / Wallet balance / Other) so the gap is visible up-front. Rate auto-recalculates from either side.
+
+
   - **Root cause of user confusion** (live VPS): clicking "Convert Selected to USDT (15)" opened a modal showing `Total Source Coin: 0.04012478` (sum of the 15 selected items' crypto_amount) while the Binance BTC chip showed `0.04488605`. The 0.00476127 BTC gap is real (other ledger rows like manual entries, conversions, orphan rows) but the Total field was `disabled` so the user couldn't override it to convert the full balance.
   - **Fix**: the "Total Source Coin" field is now EDITABLE. The modal also shows a 3-chip reconciliation panel above:
     - `Selected sum` — what the 15 items add up to (was the only thing previously shown)

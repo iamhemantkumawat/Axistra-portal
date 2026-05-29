@@ -83,6 +83,31 @@ export class WalletsService {
       balanceByCoin.set(c, (balanceByCoin.get(c) || 0) + parseFloat(r.amount || '0'));
     });
 
+    // Per-coin × tx_type breakdown so the accountant can see at a glance
+    // which row types contribute to a given coin's balance. Critical for
+    // spotting "BTC has 14 deposits +X but only 1 convert_from -Y, so the
+    // extra (X-Y) is what's drifting".
+    type Bucket = { count: number; total: number };
+    const breakdown = new Map<string, Map<string, Bucket>>();
+    rows.forEach((r) => {
+      const coin = String(r.coin || '').toUpperCase();
+      const type = String(r.tx_type || 'unknown');
+      const amt = parseFloat(r.amount || '0');
+      if (!breakdown.has(coin)) breakdown.set(coin, new Map());
+      const inner = breakdown.get(coin)!;
+      if (!inner.has(type)) inner.set(type, { count: 0, total: 0 });
+      const b = inner.get(type)!;
+      b.count += 1;
+      b.total += amt;
+    });
+    const breakdownOut = Array.from(breakdown.entries()).map(([coin, types]) => ({
+      coin,
+      balance: (balanceByCoin.get(coin) || 0).toFixed(8),
+      types: Array.from(types.entries())
+        .map(([tx_type, b]) => ({ tx_type, count: b.count, total: b.total.toFixed(8) }))
+        .sort((a, b) => a.tx_type.localeCompare(b.tx_type)),
+    })).sort((a, b) => a.coin.localeCompare(b.coin));
+
     const hashGroups = new Map<string, typeof rows>();
     const noHash: typeof rows = [];
     rows.forEach((r) => {
@@ -113,6 +138,7 @@ export class WalletsService {
     return {
       wallet,
       balance: Array.from(balanceByCoin.entries()).map(([coin, amount]) => ({ coin, amount: amount.toFixed(8) })),
+      breakdown: breakdownOut,
       deposit_row_count: rows.filter((r) => r.tx_type === 'deposit').length,
       duplicates,
       missing_tx_hash: {

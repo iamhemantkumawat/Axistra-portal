@@ -644,6 +644,37 @@ export default function WalletLedger() {
               <div className="mt-2 text-xs text-gray-500">{audit.deposit_row_count} deposit row(s) in this wallet.</div>
             </div>
 
+            {audit.breakdown && audit.breakdown.length > 0 && (
+              <div>
+                <div className="font-display font-semibold mb-2">Per-coin breakdown by tx type</div>
+                <div className="text-xs text-gray-500 mb-2">Use this to spot drift: e.g. if BTC shows <code>deposit +0.017</code> but <code>convert_from -0.013</code>, the net BTC = 0.004 (the orphan).</div>
+                <div className="space-y-3">
+                  {audit.breakdown.map((b) => (
+                    <div key={b.coin} className="rounded-md border border-gray-200 p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="font-mono font-semibold">{b.coin}</div>
+                        <div className="font-mono text-axistra-green">Balance: {b.balance}</div>
+                      </div>
+                      <table className="w-full text-xs">
+                        <thead className="text-gray-500">
+                          <tr><th className="text-left">TX Type</th><th className="text-right">Count</th><th className="text-right">Net Amount</th></tr>
+                        </thead>
+                        <tbody>
+                          {b.types.map((t) => (
+                            <tr key={t.tx_type} className="border-t border-gray-100">
+                              <td className="py-1 font-mono">{t.tx_type}</td>
+                              <td className="py-1 text-right">{t.count}</td>
+                              <td className={`py-1 text-right font-mono ${parseFloat(t.total) < 0 ? 'text-red-700' : 'text-axistra-green'}`}>{parseFloat(t.total) >= 0 ? '+' : ''}{t.total}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div>
               <div className="font-display font-semibold mb-2 flex items-center gap-2">
                 Duplicate TX hashes
