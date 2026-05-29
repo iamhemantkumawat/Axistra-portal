@@ -76,7 +76,20 @@ Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corpora
   - New endpoints: `GET|POST|PATCH|DELETE /api/settings/receiving-wallets`, `GET|POST|PATCH|DELETE /api/settings/vendors`
   - 14/14 backend tests + full frontend regression PASS (iteration_7.json).
 
+- **UPDATE (May 29, 2026 v18): Wallet Ledger Convert is now the single entry point for exchange conversions**
+  - **User decision** (live VPS workflow): use Wallet Ledger → Convert for ALL future BTC/ETH/USDT/AED swaps. Treasury "Convert Selected to USDT" is removed.
+  - **New atomic endpoint `POST /api/treasury/exchange-convert`**: atomically (a) creates the wallet_ledger pair, (b) creates a Treasury Batch (`BIN-YYMM-NNNNN` / `OKX-…` / `AED-…`), (c) finds unbatched on-chain receipts on that exchange with the matching coin (`crypto_coin = from_coin`, `payment_gateway ILIKE wallet`, no existing `treasury_movements.treasury_batch_id`) and greedily auto-assigns them (earliest payment_date first) up to `from_amount` — preserving the Customer → Invoice → TX → Batch audit chain.
+  - **Returns** `{batch, assigned_recharges_count, assigned_amount, remaining_unbatched_amount}` so the UI can show "X receipt(s) auto-assigned".
+  - **Schema note**: explicit `::text` cast in the leftJoin to bridge `Recharge.id` (uuid) ↔ `TreasuryMovement.recharge_id` (varchar). Logged as tech debt — proper migration to uuid recommended.
+  - **Frontend** (`WalletLedger.jsx submitConvert`): routes to `/api/treasury/exchange-convert` when wallet is `BINANCE|OKX|AED_TREASURY`; falls back to `/api/wallets/:wallet/convert` for `BTCPAY|OXAPAY|WIO_BANK`. Toast announces batch_code + assigned count.
+  - **Treasury page** (`Treasury.jsx`): "Convert Selected to USDT (N)" button removed from Binance + OKX tabs, replaced by an info pill "Use Wallet Ledger → Convert to swap coins. Conversions auto-batch any unassigned receipts here." "Convert USDT to AED" + "Cashout to Wio" remain for the existing batch flow.
+  - **Testing**: iteration_17 — pytest 11/11 PASS at `/app/backend/tests/test_exchange_convert_iter17.py`. Frontend Playwright verified pill text + Convert routing. 100/100.
+
 - **UPDATE (May 29, 2026 v17): "Convert remaining" one-click cleanup + root-cause of the BTC ghost**
+  - Root cause: `isReadyReceipt()` filter excluded 3 of 14 BTC deposits from "Convert Selected" because they lacked `magnus_credited_at`. Math confirmed via Reconcile breakdown.
+  - Fix: "Convert remaining →" button in Reconcile modal next to each coin balance opens the Convert modal pre-filled with the live wallet balance.
+
+
   - **Root cause confirmed** from the Reconcile breakdown (live VPS): Binance BTC had `14 deposits +0.02194426 / 2 batch_in +0.05453788 / 3 convert_from -0.07172087 = net 0.00476127`. The math is consistent — the user's "Convert Selected" only processed 11 of 14 deposits because `isReadyReceipt()` filters out receipts that don't have `magnus_credited_at` set (i.e. weren't credited to MagnusBilling) or were already-reconciled/batched. 3 deposits failed that gate and were excluded from selection → their 0.00475266 BTC stayed as ghost.
   - **Fix**: new **"Convert remaining →"** button next to each coin row in the Reconcile modal. One click opens the Wallet Ledger Convert modal pre-filled with the exact wallet balance (e.g. `0.00476127 BTC → USDT`). User enters the received USDT amount and saves — the ledger balance drops to 0 instantly.
   - **Conditional render**: button only appears when (a) balance > 0, (b) coin != USDT (no USDT→USDT), (c) wallet supports convert (BINANCE/OKX/AED Treasury).
