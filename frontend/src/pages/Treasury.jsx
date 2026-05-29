@@ -1704,11 +1704,52 @@ export default function Treasury() {
             {operationType === 'to_usdt' && (
               <span> · Transfers: <strong>{operationForm.batch_entries_count || 0}</strong> · Direct receipts: <strong>{operationForm.direct_receipts_count || 0}</strong></span>
             )}
+            {operationType === 'to_usdt' && operationForm.coin && (() => {
+              // Sanity-check the selected-items sum against the ACTUAL wallet
+              // balance the user sees in the header chip. They may differ
+              // because of manual ledger entries, orphan rows or earlier
+              // conversions — exposing the gap up-front lets the user override
+              // the input below to convert the full balance if that's what
+              // they intended.
+              const walletBalance = walletBalanceFor(exchangeWalletCode, operationForm.coin);
+              const selectedSum = parseFloat(operationForm.total_crypto || '0');
+              const gap = walletBalance - selectedSum;
+              const showGap = Math.abs(gap) > 0.00000001;
+              return (
+                <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                  <div className="rounded-md bg-white border border-gray-200 px-2 py-1">
+                    <div className="text-gray-500">Selected sum</div>
+                    <div className="font-mono font-semibold">{selectedSum.toFixed(8)} {operationForm.coin}</div>
+                  </div>
+                  <div className="rounded-md bg-white border border-gray-200 px-2 py-1">
+                    <div className="text-gray-500">{exchangeWalletCode} balance</div>
+                    <div className="font-mono font-semibold text-axistra-green">{walletBalance.toFixed(8)} {operationForm.coin}</div>
+                  </div>
+                  <div className={`rounded-md border px-2 py-1 ${showGap ? 'bg-yellow-50 border-yellow-300' : 'bg-white border-gray-200'}`}>
+                    <div className="text-gray-500">Other in wallet</div>
+                    <div className={`font-mono font-semibold ${showGap ? 'text-yellow-700' : ''}`}>{gap.toFixed(8)} {operationForm.coin}</div>
+                  </div>
+                  {showGap && (
+                    <div className="col-span-3 text-[11px] text-yellow-700">
+                      {gap > 0 ? 'Wallet holds more than the selected items. Edit the Total Source Coin below to convert the full balance if needed.' : 'Selected items sum exceeds the wallet balance — check for double-counted rows.'}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
 
           {operationType === 'to_usdt' && (
             <>
-              <Field label="Total Source Coin"><input className="input-axistra" value={operationForm.total_crypto || ''} disabled /></Field>
+              <Field label="Total Source Coin (editable)"><input className="input-axistra font-mono" value={operationForm.total_crypto || ''} onChange={(e) => {
+                const totalCrypto = parseFloat(e.target.value || '0');
+                const totalUsdt = parseFloat(operationForm.usdt_amount || '0');
+                setOperationForm({
+                  ...operationForm,
+                  total_crypto: e.target.value,
+                  usdt_conversion_rate: totalCrypto && totalUsdt ? (totalUsdt / totalCrypto).toFixed(8) : operationForm.usdt_conversion_rate,
+                });
+              }} /></Field>
               <Field label="Final USDT Received"><input required className="input-axistra" value={operationForm.usdt_amount || ''} onChange={(e) => {
                 const totalCrypto = parseFloat(operationForm.total_crypto || '0');
                 const totalUsdt = parseFloat(e.target.value || '0');

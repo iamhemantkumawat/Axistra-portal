@@ -76,7 +76,22 @@ Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corpora
   - New endpoints: `GET|POST|PATCH|DELETE /api/settings/receiving-wallets`, `GET|POST|PATCH|DELETE /api/settings/vendors`
   - 14/14 backend tests + full frontend regression PASS (iteration_7.json).
 
+- **UPDATE (May 29, 2026 v15): Convert Selected modal — editable amount + wallet balance reconciliation**
+  - **Root cause of user confusion** (live VPS): clicking "Convert Selected to USDT (15)" opened a modal showing `Total Source Coin: 0.04012478` (sum of the 15 selected items' crypto_amount) while the Binance BTC chip showed `0.04488605`. The 0.00476127 BTC gap is real (other ledger rows like manual entries, conversions, orphan rows) but the Total field was `disabled` so the user couldn't override it to convert the full balance.
+  - **Fix**: the "Total Source Coin" field is now EDITABLE. The modal also shows a 3-chip reconciliation panel above:
+    - `Selected sum` — what the 15 items add up to (was the only thing previously shown)
+    - `<EXCHANGE> balance` — the actual ledger balance from `/api/wallets/overview`
+    - `Other in wallet` — the gap (yellow if non-zero) with an inline hint: "Wallet holds more than the selected items. Edit the Total Source Coin below to convert the full balance if needed."
+  - **No backend changes** — purely a UI clarification + input enabling. The rate auto-recalculates when the user edits Total OR Final USDT.
+
 - **UPDATE (May 29, 2026 v14): Treasury feed AED + Wio rows + focused step modal + verify-mempool fix**
+  - **AED Conversion + Wio Deposit feed rows**: batch with `fiat_received > 0` renders a separate "AED Conversion" row; with `bank_reference` set renders a "Wio Deposit" row. Combined with v13 split, a fully-settled batch shows as 4 distinct rows.
+  - **Granular delete per step** for aed/wio.
+  - **Focused step modal**: `openBatch(batch, focusStep)` opens only the clicked step's card expanded.
+  - **Verify-mempool fix**: PATCH payload restricted to sweep-only fields.
+  - **Testing**: iteration_16 — backend 4/4 + frontend 6/6 PASS.
+
+
   - **AED Conversion + Wio Deposit feed rows**: a batch with `fiat_received > 0` now also renders a separate "AED Conversion" row (`-USDT / +AED`), and a batch with `bank_reference` set renders a "Wio Deposit" row (`-AED from exchange / +AED Wio Bank`). Combined with iter_15's split, a fully-settled batch now appears as 4 distinct chronologically-sortable rows in the Binance/OKX merged feed.
   - **Granular delete per step**: AED Conversion row's trash hits `DELETE /api/treasury/batches/:id/step/aed`; Wio Deposit row's trash hits `/step/wio`. Each removes only its own ledger pair and clears just that step's batch fields — earlier steps stay intact.
   - **Focused step modal**: `openBatch(batch, focusStep)` accepts an optional step name (`sweep|usdt|aed|wio`). Clicking the AED Conversion row in the feed now opens the batch modal with ONLY Step 3 expanded (showStep2=false, showStep3=true, showStep4=false). Same for the other rows. Clicking with no focusStep keeps the previous "auto-reveal completed steps" behaviour.
