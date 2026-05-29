@@ -47,6 +47,11 @@ export class TreasuryController {
     return this.svc.deleteBatch(id, req.user);
   }
 
+  @Post('exchange-convert')
+  exchangeConvert(@Body() body: any, @Req() req: any) {
+    return this.svc.recordExchangeConversion(body, req.user);
+  }
+
   @Post('batches/:id/sync-ledger')
   syncBatchLedger(@Param('id') id: string, @Req() req: any) {
     return this.svc.syncBatchLedger(id, req.user);

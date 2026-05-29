@@ -1,0 +1,29 @@
+{
+  "summary": "Phase B+ tested: Wallet Ledger -> Convert is now the SINGLE entry point for exchange coin conversions via POST /api/treasury/exchange-convert. Backend pytest: 11/11 passed (happy path, ledger fan-out, overview deltas, auto-assignment of 3 unbatched recharges, validation errors for unknown wallets / same coin / non-positive amounts, non-idempotency). Frontend verified: Treasury Binance & OKX tabs no longer show 'Convert Selected to USDT' button — replaced by the info pill 'Use Wallet Ledger -> Convert to swap coins. Conversions auto-batch any unassigned receipts here.' Convert USDT to AED + Cashout to Wio buttons preserved. WalletLedger.jsx submitConvert() routes to /treasury/exchange-convert for BINANCE|OKX|AED_TREASURY (verified via code review + presence of BIN-YYMM-NNNNN-CONV-USDT ledger rows produced by that endpoint).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_exchange_convert_iter17.py",
+    "/app/test_reports/pytest/iter17_exchange_convert.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "treasury.service.ts recordExchangeConversion uses ::text cast on recharge_id (uuid vs varchar) — correct workaround, but consider migrating treasury_movements.recharge_id to uuid for long-term schema hygiene.",
+    "WalletLedger.jsx hardcodes the exchange wallet list ['BINANCE','OKX','AED_TREASURY'] inline in submitConvert — extract to a shared constant (EXCHANGE_WALLETS) shared with backend to avoid drift if a new exchange is added.",
+    "Treasury.jsx info pill text is duplicated for Binance and OKX tabs — extract to a small reusable component to keep messaging consistent."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_exchange_convert_iter17.py"
+  ],
+  "success_rate": {"backend": "100% (11/11)", "frontend": "100% (Treasury pill + Wallet Ledger Convert routing verified)"},
+  "test_credentials": "admin@axistratech.com / admin123 (accept_terms:true) — token returned under key 'token' (not access_token)",
+  "seed_data_creation": "Created 1 test customer + 3 BTC recharges (crypto_amount=0.01 each, payment_gateway=Binance) tagged TEST_iter17 for the auto-assignment test. Multiple BIN-2605-NNNNN conversion batches created across happy-path, auto-assignment, and non-idempotency tests; visible in BINANCE wallet ledger.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend test file at /app/backend/tests/test_exchange_convert_iter17.py covers all exchange-convert flows. Backend BINANCE BTC balance is now negative because tests reduced BTC without adding deposits — this is expected for a test env and reflects the design where conversions don't gate on positive balance backend-side (frontend modal does soft-warn). For future iterations needing positive BTC balance, seed via POST /api/recharges with crypto_coin=BTC. Token key in login response is 'token' (not 'access_token').",
+  "rca_of_the_issue": "N/A — Phase B+ implementation works as designed. Single observation: frontend modal shows 'Amount exceeds the BTC balance available' as a soft validation warning when wallet balance is negative; this only blocks UI submission, the backend endpoint itself accepts the conversion (by design, conversions are events, not balance gates)."
+}

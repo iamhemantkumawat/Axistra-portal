@@ -660,6 +660,132 @@ export class TreasuryService {
   }
 
   /**
+   * Single entry point for in-exchange coin conversions (BINANCE/OKX/AED Treasury).
+   * Called from the Wallet Ledger Convert modal. Atomically:
+   *   1. Creates an auto-named Treasury batch (BIN-YYMMDD-NNNNN etc.) representing
+   *      this conversion. `source_gateway`, `source_wallet`, `destination_exchange`
+   *      and `destination_wallet` all default to the exchange name itself (the
+   *      conversion is in-wallet).
+   *   2. Finds unbatched, on-chain receipts on that exchange with matching coin
+   *      (whose `crypto_amount` sum is <= from_amount) and assigns them to the
+   *      new batch via TreasuryMovement rows. They appear as Direct Receipts
+   *      tied to this conversion for the audit chain.
+   *   3. Fans out wallet_ledger rows via applyBatchLedger (Sweep step is skipped
+   *      because source === exchange; Convert step writes the convert_from /
+   *      convert_to pair).
+   * Returns { batch, assigned_recharges_count, ledger_pair }.
+   */
+  async recordExchangeConversion(input: {
+    wallet: 'BINANCE' | 'OKX' | 'AED_TREASURY';
+    from_coin: string;
+    to_coin: string;
+    from_amount: string;
+    to_amount: string;
+    event_at?: string | Date;
+    notes?: string;
+  }, actor?: any) {
+    const wallet = String(input.wallet || '').toUpperCase();
+    if (!['BINANCE', 'OKX', 'AED_TREASURY'].includes(wallet)) {
+      throw new BadRequestException(`Unknown exchange wallet '${input.wallet}'`);
+    }
+    const fromCoin = String(input.from_coin || '').toUpperCase();
+    const toCoin = String(input.to_coin || '').toUpperCase();
+    if (fromCoin === toCoin) throw new BadRequestException('From and To coins must differ');
+    const fromAmt = parseFloat(input.from_amount);
+    const toAmt = parseFloat(input.to_amount);
+    if (!(fromAmt > 0) || !(toAmt > 0)) throw new BadRequestException('Amounts must be positive');
+    const eventAt = input.event_at ? new Date(input.event_at) : new Date();
+    const eventDate = (() => {
+      // Preserve user-entered date but adopt current time-of-day so the
+      // batch surfaces at top of the Wallet Ledger.
+      if (!input.event_at) return eventAt;
+      const wasDateOnly = typeof input.event_at === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input.event_at);
+      if (wasDateOnly) {
+        const now = new Date();
+        eventAt.setUTCHours(now.getUTCHours(), now.getUTCMinutes(), now.getUTCSeconds(), now.getUTCMilliseconds());
+      }
+      return eventAt;
+    })();
+
+    // STEP 1 — Create the batch entity.
+    const prefix = wallet === 'BINANCE' ? 'binance' : wallet === 'OKX' ? 'okx' : 'aed';
+    const batchCode = await this.nextBatchCode(prefix);
+    const isUsdtTarget = toCoin === 'USDT';
+    const batch = this.batchRepo.create({
+      batch_code: batchCode,
+      name: `${wallet} ${fromCoin} → ${toCoin} ${eventDate.toISOString().slice(0, 10)}`,
+      source_gateway: wallet,
+      source_wallet: wallet,
+      destination_exchange: wallet,
+      destination_wallet: wallet,
+      coin: fromCoin,
+      received_crypto_amount: fromAmt.toFixed(8),
+      total_crypto_amount: fromAmt.toFixed(8),
+      exchange_received_at: eventDate,
+      settlement_reference: `${batchCode} auto-conversion`,
+      usdt_amount: isUsdtTarget ? toAmt.toFixed(8) : null,
+      usdt_conversion_rate: isUsdtTarget && fromAmt > 0 ? (toAmt / fromAmt).toFixed(8) : null,
+      usdt_conversion_date: isUsdtTarget ? eventDate : null,
+      usdt_conversion_reference: `${batchCode} ${fromCoin}→${toCoin}`,
+      status: isUsdtTarget ? 'converted_to_usdt' : 'received_in_exchange',
+      notes: input.notes || `${fromAmt} ${fromCoin} → ${toAmt} ${toCoin} on ${wallet}`,
+    } as Partial<TreasuryBatch>);
+    const savedBatch = await this.batchRepo.save(batch);
+
+    // STEP 2 — Auto-assign unbatched receipts on this exchange + coin so the
+    // audit chain (Customer → Invoice → TX → Batch) is preserved without
+    // requiring manual selection.
+    const candidates = await this.rechargeRepo
+      .createQueryBuilder('r')
+      .leftJoin('treasury_movements', 'm', 'm.recharge_id::text = r.id::text')
+      .where('UPPER(r.crypto_coin) = :coin', { coin: fromCoin })
+      .andWhere('LOWER(r.payment_gateway) LIKE :gw', { gw: `%${wallet.toLowerCase()}%` })
+      .andWhere('(m.id IS NULL OR m.treasury_batch_id IS NULL)')
+      .andWhere('r.tx_hash IS NOT NULL')
+      .orderBy('r.payment_date', 'ASC')
+      .getMany();
+    let runningSum = 0;
+    const assignedIds: string[] = [];
+    for (const rch of candidates) {
+      const amt = parseFloat(rch.crypto_amount || '0');
+      if (runningSum + amt - 0.00000001 > fromAmt) break; // would exceed
+      runningSum += amt;
+      let mov = await this.repo.findOne({ where: { recharge_id: rch.id } });
+      if (!mov) {
+        mov = this.repo.create({
+          recharge_id: rch.id,
+          customer_id: rch.customer_id,
+          receiving_wallet: rch.wallet_address || wallet,
+          receive_tx_hash: rch.tx_hash,
+          total_usdt_received: '0',
+        });
+      }
+      mov.treasury_batch_id = savedBatch.id;
+      await this.repo.save(mov);
+      assignedIds.push(rch.id);
+      if (Math.abs(runningSum - fromAmt) < 0.00000001) break;
+    }
+
+    // STEP 3 — Fan out wallet ledger rows via the existing pipeline.
+    savedBatch.status = this.resolveBatchStatus(savedBatch);
+    await this.batchRepo.save(savedBatch);
+    await this.applyBatchLedger(savedBatch);
+
+    await this.audit.log({
+      actor_id: actor?.id, actor_email: actor?.email,
+      action: 'exchange_convert', entity_type: 'treasury_batch', entity_id: savedBatch.id,
+      details: `${wallet}: ${fromAmt} ${fromCoin} → ${toAmt} ${toCoin} (${batchCode}, ${assignedIds.length}/${candidates.length} receipts assigned, sum ${runningSum.toFixed(8)})`,
+    });
+
+    return {
+      batch: savedBatch,
+      assigned_recharges_count: assignedIds.length,
+      assigned_amount: runningSum.toFixed(8),
+      remaining_unbatched_amount: (fromAmt - runningSum).toFixed(8),
+    };
+  }
+
+  /**
    * Idempotently writes wallet_ledger rows for each completed batch step.
    * Re-runs on every batch save and skips steps whose external_ref already
    * exists.  This is what makes a Treasury Transfer also update Binance USDT

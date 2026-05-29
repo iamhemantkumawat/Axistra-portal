@@ -205,8 +205,25 @@ export default function WalletLedger() {
     e.preventDefault();
     setLoading(true);
     try {
-      await api.post(`/wallets/${convertForm.wallet}/convert`, convertForm);
-      toast.success('Conversion recorded');
+      const isExchange = ['BINANCE', 'OKX', 'AED_TREASURY'].includes(convertForm.wallet);
+      if (isExchange) {
+        // Routes through TreasuryService so a Treasury batch is auto-created
+        // and any unbatched receipts on this exchange + coin are auto-assigned
+        // to it — keeps the Customer → Invoice → TX → Batch audit chain.
+        const { data } = await api.post('/treasury/exchange-convert', {
+          wallet: convertForm.wallet,
+          from_coin: convertForm.from_coin,
+          to_coin: convertForm.to_coin,
+          from_amount: convertForm.from_amount,
+          to_amount: convertForm.to_amount,
+          event_at: convertForm.event_at,
+          notes: convertForm.notes,
+        });
+        toast.success(`Conversion recorded as ${data.batch?.batch_code || 'batch'} · ${data.assigned_recharges_count || 0} receipt(s) auto-assigned`);
+      } else {
+        await api.post(`/wallets/${convertForm.wallet}/convert`, convertForm);
+        toast.success('Conversion recorded');
+      }
       setConvertOpen(false);
       await loadOverview();
       await loadLedger();

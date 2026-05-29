@@ -1052,13 +1052,12 @@ export default function Treasury() {
                     Clear ({selectedExchangeEntryCount})
                   </button>
                 )}
-                <button
-                  onClick={() => openOperation('to_usdt')}
-                  disabled={selectedExchangeEntryCount === 0}
-                  className="btn-primary disabled:opacity-50"
-                >
-                  Convert Selected to USDT ({selectedExchangeEntryCount})
-                </button>
+                <div className="flex items-center gap-2 text-xs text-gray-500 mr-2">
+                  <span className="inline-flex items-center gap-1">
+                    <span className="rounded-full bg-axistra-green/10 text-axistra-green w-5 h-5 inline-flex items-center justify-center font-semibold">i</span>
+                    Use <strong className="text-axistra-green mx-1">Wallet Ledger → Convert</strong> to swap coins. Conversions auto-batch any unassigned receipts here.
+                  </span>
+                </div>
                 <button onClick={() => openOperation('to_aed')} disabled={selectedExchangeBatches.length === 0} className="btn-secondary disabled:opacity-50">
                   Convert USDT to AED
                 </button>
