@@ -76,7 +76,22 @@ Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corpora
   - New endpoints: `GET|POST|PATCH|DELETE /api/settings/receiving-wallets`, `GET|POST|PATCH|DELETE /api/settings/vendors`
   - 14/14 backend tests + full frontend regression PASS (iteration_7.json).
 
+- **UPDATE (May 29, 2026 v14): Treasury feed AED + Wio rows + focused step modal + verify-mempool fix**
+  - **AED Conversion + Wio Deposit feed rows**: a batch with `fiat_received > 0` now also renders a separate "AED Conversion" row (`-USDT / +AED`), and a batch with `bank_reference` set renders a "Wio Deposit" row (`-AED from exchange / +AED Wio Bank`). Combined with iter_15's split, a fully-settled batch now appears as 4 distinct chronologically-sortable rows in the Binance/OKX merged feed.
+  - **Granular delete per step**: AED Conversion row's trash hits `DELETE /api/treasury/batches/:id/step/aed`; Wio Deposit row's trash hits `/step/wio`. Each removes only its own ledger pair and clears just that step's batch fields — earlier steps stay intact.
+  - **Focused step modal**: `openBatch(batch, focusStep)` accepts an optional step name (`sweep|usdt|aed|wio`). Clicking the AED Conversion row in the feed now opens the batch modal with ONLY Step 3 expanded (showStep2=false, showStep3=true, showStep4=false). Same for the other rows. Clicking with no focusStep keeps the previous "auto-reveal completed steps" behaviour.
+  - **Verify-mempool fix**: previously `verifyActiveBtcTransfer` sent the entire `settlementForm` to PATCH, dragging unvalidated AED/Wio fields with it → tripped `'Conversion rate is required'`. Now the PATCH payload is restricted to sweep-only fields (`source_wallet`, `destination_exchange`, `destination_wallet`, `settlement_tx_hash`, `transfer_fee_crypto`, `exchange_received_at`, `received_crypto_amount`, `settlement_reference`, `coin`).
+  - **Defensive step-name validation** in `clearBatchStep` — rejects unknown step strings with 400.
+  - **Testing**: iteration_16 — backend 4/4 + frontend 6/6 PASS. 100% on a full 4-row batch lifecycle.
+
 - **UPDATE (May 29, 2026 v13): Treasury feed split + sort fix + cascade delete**
+  - **Sort order fix**: `stampNowTime()` helper preserves user's chosen date but bumps time-of-day to `batch.updated_at`, so freshly-saved rows surface at the top of Wallet Ledger.
+  - **Treasury feed restructure**: each batch renders as up to 2 rows (Transfer + Conversion when usdt_amount > 0). Removed "Converted USDT" column.
+  - **Granular delete**: `DELETE /api/treasury/batches/:id/step/:step` (sweep|usdt|aed|wio) — Conversion row trash clears only that step.
+  - **Cascade delete on batch**: removes all `${batch_code}-<STEP>` ledger rows.
+  - **Testing**: iteration_15 — pytest 5/5 + frontend 100%.
+
+
   - **Sort order fix**: ledger rows fanned out from a Treasury batch (BPAY-…-SWEEP / -CONV-USDT) were stamped at `00:00 UTC` because the user typed `2026-05-28` as a date-only field. They sank below same-day deposits (14:00+). New `stampNowTime()` helper preserves the user's chosen DATE but adopts the time-of-day from `batch.updated_at`, so freshly-saved batch rows bubble to the TOP of the Wallet Ledger as expected. Same fix applied to `wallets.convert()` when `event_at` is a `YYYY-MM-DD` string.
   - **Treasury feed restructure**: each batch now renders as up to TWO rows in the OKX/Binance merged feed: a "Transfer" row (sweep info) and a "Conversion" row (only when `usdt_amount > 0`, showing "-BTC / +USDT" stacked with the rate). Sweep-only batches render as 1 row. The "Converted USDT" column is removed.
   - **Granular delete**: new `DELETE /api/treasury/batches/:id/step/:step` (`step` ∈ `sweep|usdt|aed|wio`) clears just that step's fields AND removes only the matching `external_ref` ledger rows. The Conversion row's trash icon hits `/step/usdt` — keeps the Transfer intact.

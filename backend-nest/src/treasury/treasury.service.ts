@@ -231,6 +231,9 @@ export class TreasuryService {
    *  step = 'sweep' | 'usdt' | 'aed' | 'wio'
    */
   async clearBatchStep(id: string, step: 'sweep' | 'usdt' | 'aed' | 'wio', actor?: any) {
+    if (!['sweep', 'usdt', 'aed', 'wio'].includes(step)) {
+      throw new BadRequestException(`Unknown batch step '${step}'. Must be sweep, usdt, aed, or wio.`);
+    }
     const batch = await this.batchRepo.findOne({ where: { id } });
     if (!batch) throw new NotFoundException('Treasury batch not found');
     const suffixMap = { sweep: 'SWEEP', usdt: 'CONV-USDT', aed: 'CONV-AED', wio: 'WIO' } as const;
