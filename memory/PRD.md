@@ -76,7 +76,16 @@ Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corpora
   - New endpoints: `GET|POST|PATCH|DELETE /api/settings/receiving-wallets`, `GET|POST|PATCH|DELETE /api/settings/vendors`
   - 14/14 backend tests + full frontend regression PASS (iteration_7.json).
 
+- **UPDATE (May 29, 2026 v17): "Convert remaining" one-click cleanup + root-cause of the BTC ghost**
+  - **Root cause confirmed** from the Reconcile breakdown (live VPS): Binance BTC had `14 deposits +0.02194426 / 2 batch_in +0.05453788 / 3 convert_from -0.07172087 = net 0.00476127`. The math is consistent — the user's "Convert Selected" only processed 11 of 14 deposits because `isReadyReceipt()` filters out receipts that don't have `magnus_credited_at` set (i.e. weren't credited to MagnusBilling) or were already-reconciled/batched. 3 deposits failed that gate and were excluded from selection → their 0.00475266 BTC stayed as ghost.
+  - **Fix**: new **"Convert remaining →"** button next to each coin row in the Reconcile modal. One click opens the Wallet Ledger Convert modal pre-filled with the exact wallet balance (e.g. `0.00476127 BTC → USDT`). User enters the received USDT amount and saves — the ledger balance drops to 0 instantly.
+  - **Conditional render**: button only appears when (a) balance > 0, (b) coin != USDT (no USDT→USDT), (c) wallet supports convert (BINANCE/OKX/AED Treasury).
+  - **No backend changes** — uses existing `POST /api/wallets/:wallet/convert`.
+
 - **UPDATE (May 29, 2026 v16): Wallet Reconcile — per-tx_type breakdown for drift hunting**
+  - `GET /api/wallets/:code/audit` now returns a `breakdown` per coin × tx_type. UI: new table in Reconcile modal showing each coin's deposit/convert_from/convert_to/batch_in/batch_out sums so drift is identifiable in one glance.
+
+
   - **User report**: Binance BTC shows `0.00476127` remaining after converting 15 selected items to USDT — sum should be 0. They couldn't tell which specific ledger rows make up the ghost balance.
   - **Diagnostic addition**: `GET /api/wallets/:code/audit` now also returns a `breakdown` array — per coin, per tx_type, with row count + signed sum. So you can instantly see "BTC: deposit +0.017 / convert_from -0.013 / batch_in +0.001 → net 0.005 (the orphan)".
   - **UI**: Reconcile modal renders a new "Per-coin breakdown by tx type" table for each coin in the wallet. Easy to spot mismatches at a glance.

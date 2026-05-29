@@ -653,7 +653,32 @@ export default function WalletLedger() {
                     <div key={b.coin} className="rounded-md border border-gray-200 p-3">
                       <div className="flex items-center justify-between mb-2">
                         <div className="font-mono font-semibold">{b.coin}</div>
-                        <div className="font-mono text-axistra-green">Balance: {b.balance}</div>
+                        <div className="flex items-center gap-2">
+                          <div className="font-mono text-axistra-green">Balance: {b.balance}</div>
+                          {parseFloat(b.balance) > 0 && b.coin !== 'USDT' && SUPPORTS_CONVERT(active) && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAuditOpen(false);
+                                const coins = WALLET_ICONS[active]?.coins || ['USDT'];
+                                const toCoin = coins.find((c) => c !== b.coin) || 'USDT';
+                                setConvertForm({
+                                  ...initialConvertForm(active),
+                                  from_coin: b.coin,
+                                  to_coin: toCoin,
+                                  from_amount: b.balance,
+                                  fee_currency: toCoin,
+                                });
+                                setConvertOpen(true);
+                              }}
+                              className="text-[11px] rounded-md bg-axistra-green/10 hover:bg-axistra-green/20 text-axistra-green font-semibold px-2 py-1"
+                              data-testid={`audit-convert-${b.coin}`}
+                              title={`Open the Convert modal pre-filled with ${b.balance} ${b.coin} from this wallet`}
+                            >
+                              Convert remaining →
+                            </button>
+                          )}
+                        </div>
                       </div>
                       <table className="w-full text-xs">
                         <thead className="text-gray-500">
