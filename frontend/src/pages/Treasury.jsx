@@ -400,10 +400,22 @@ export default function Treasury() {
     }
     setVerifyingId(activeBatch.id);
     try {
-      const { data: saved } = await api.patch(`/treasury/batches/${activeBatch.id}`, cleanPayload({
-        ...settlementForm,
+      // Persist ONLY sweep-related fields so we don't trip the backend's
+      // step-2/3/4 evidence assertions (e.g. "Conversion rate is required"
+      // would fire if the user had typed partial AED data). The other steps
+      // get saved when the user clicks Save Settlement.
+      const sweepPayload = cleanPayload({
+        source_wallet: settlementForm.source_wallet,
+        destination_exchange: settlementForm.destination_exchange,
+        destination_wallet: settlementForm.destination_wallet,
+        settlement_tx_hash: settlementForm.settlement_tx_hash,
+        transfer_fee_crypto: settlementForm.transfer_fee_crypto,
+        exchange_received_at: settlementForm.exchange_received_at,
+        received_crypto_amount: settlementForm.received_crypto_amount,
+        settlement_reference: settlementForm.settlement_reference,
         coin: activeBatch.coin || settlementForm.coin,
-      }));
+      });
+      const { data: saved } = await api.patch(`/treasury/batches/${activeBatch.id}`, sweepPayload);
       const { data: verified } = await api.post(`/treasury/batches/${activeBatch.id}/verify-btc-transfer`);
       toast.success('BTC transfer verified from mempool');
       setActiveBatch(verified);
@@ -610,7 +622,7 @@ export default function Treasury() {
     }
   };
 
-  const openBatch = async (batch) => {
+  const openBatch = async (batch, focusStep) => {
     setActiveBatch(batch);
     setBatchDetail(null);
     setSettlementForm({
@@ -640,11 +652,17 @@ export default function Treasury() {
     });
     const { data: detail } = await api.get(`/treasury/batches/${batch.id}`);
     setBatchDetail(detail);
-    // Auto-reveal step 2/3/4 ONLY if data already exists for them, so freshly
-    // opened batches default to Sweep-only mode.
-    setShowStep2(!!(batch.usdt_amount || batch.usdt_conversion_rate || batch.usdt_conversion_date));
-    setShowStep3(!!(batch.crypto_converted || batch.conversion_rate || batch.fiat_received));
-    setShowStep4(!!(batch.bank_reference || batch.bank_deposit_date));
+    // When opened from a specific feed row, expand ONLY that step's card.
+    // Otherwise auto-reveal whichever steps already have data.
+    if (focusStep) {
+      setShowStep2(focusStep === 'usdt');
+      setShowStep3(focusStep === 'aed');
+      setShowStep4(focusStep === 'wio');
+    } else {
+      setShowStep2(!!(batch.usdt_amount || batch.usdt_conversion_rate || batch.usdt_conversion_date));
+      setShowStep3(!!(batch.crypto_converted || batch.conversion_rate || batch.fiat_received));
+      setShowStep4(!!(batch.bank_reference || batch.bank_deposit_date));
+    }
   };
 
   const updateSettlement = async (e) => {
@@ -1089,9 +1107,17 @@ export default function Treasury() {
                   const merged = [];
                   exchangeBatchRows.forEach((b) => {
                     const baseTs = batchTs(b);
-                    merged.push({ kind: 'batch-transfer', row: b, ts: baseTs - 1 });
+                    // Each completed step renders as its own feed row, so the
+                    // user can spot every distinct action chronologically.
+                    merged.push({ kind: 'batch-transfer', row: b, ts: baseTs - 3 });
                     if (parseFloat(b.usdt_amount || '0') > 0) {
-                      merged.push({ kind: 'batch-conversion', row: b, ts: baseTs });
+                      merged.push({ kind: 'batch-conversion', row: b, ts: baseTs - 2 });
+                    }
+                    if (parseFloat(b.fiat_received || '0') > 0) {
+                      merged.push({ kind: 'batch-aed-conversion', row: b, ts: baseTs - 1 });
+                    }
+                    if (b.bank_reference) {
+                      merged.push({ kind: 'batch-wio-deposit', row: b, ts: baseTs });
                     }
                   });
                   exchangeReceipts.forEach((r) => merged.push({ kind: 'receipt', row: r, ts: new Date(r.payment_date || r.created_at || 0).getTime() }));
@@ -1101,10 +1127,10 @@ export default function Treasury() {
                     if (item.kind === 'batch-transfer') {
                       const b = item.row;
                       return (
-                <tr key={`batch-${b.id}-transfer`} onClick={() => openBatch(b)} className="cursor-pointer hover:bg-[var(--axistra-bg)]">
+                <tr key={`batch-${b.id}-transfer`} onClick={() => openBatch(b, 'sweep')} className="cursor-pointer hover:bg-[var(--axistra-bg)]">
                     <td><input type="checkbox" checked={selectedBatchIds.includes(b.id)} onClick={(e) => e.stopPropagation()} onChange={() => toggleBatch(b.id)} /></td>
                     <td>
-                      <button type="button" onClick={(e) => { e.stopPropagation(); openBatch(b); }} className="font-mono text-axistra-green hover:underline">{b.batch_code}</button>
+                      <button type="button" onClick={(e) => { e.stopPropagation(); openBatch(b, 'sweep'); }} className="font-mono text-axistra-green hover:underline">{b.batch_code}</button>
                       <div className="text-xs text-gray-500">{b.name}</div>
                       <div className="mt-1"><Badge className="badge-info">Transfer</Badge></div>
                     </td>
@@ -1137,10 +1163,10 @@ export default function Treasury() {
                       const to = parseFloat(b.usdt_amount || '0');
                       const rate = from > 0 ? (to / from) : 0;
                       return (
-                <tr key={`batch-${b.id}-conv`} onClick={() => openBatch(b)} className="cursor-pointer hover:bg-[var(--axistra-bg)]">
+                <tr key={`batch-${b.id}-conv`} onClick={() => openBatch(b, 'usdt')} className="cursor-pointer hover:bg-[var(--axistra-bg)]">
                     <td></td>
                     <td>
-                      <button type="button" onClick={(e) => { e.stopPropagation(); openBatch(b); }} className="font-mono text-axistra-green hover:underline">{b.batch_code}</button>
+                      <button type="button" onClick={(e) => { e.stopPropagation(); openBatch(b, 'usdt'); }} className="font-mono text-axistra-green hover:underline">{b.batch_code}</button>
                       <div className="text-xs text-gray-500">{b.coin || 'BTC'} → USDT</div>
                       <div className="mt-1"><Badge className="badge-success">Conversion</Badge></div>
                     </td>
@@ -1171,6 +1197,102 @@ export default function Treasury() {
                         className="rounded-md p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
                         title="Delete this conversion only (keeps the sweep)"
                         data-testid={`treasury-batch-conv-delete-${b.id}`}
+                      >
+                        <Trash size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                      );
+                    }
+                    if (item.kind === 'batch-aed-conversion') {
+                      const b = item.row;
+                      const fromUsdt = parseFloat(b.crypto_converted || b.usdt_amount || '0');
+                      const aedAmt = parseFloat(b.fiat_received || '0');
+                      const fiatCcy = (b.fiat_currency || 'AED').toUpperCase();
+                      const rate = fromUsdt > 0 ? (aedAmt / fromUsdt) : 0;
+                      return (
+                <tr key={`batch-${b.id}-aed`} onClick={() => openBatch(b, 'aed')} className="cursor-pointer hover:bg-[var(--axistra-bg)]">
+                    <td></td>
+                    <td>
+                      <button type="button" onClick={(e) => { e.stopPropagation(); openBatch(b, 'aed'); }} className="font-mono text-axistra-green hover:underline">{b.batch_code}</button>
+                      <div className="text-xs text-gray-500">USDT → {fiatCcy}</div>
+                      <div className="mt-1"><Badge className="badge-success">AED Conversion</Badge></div>
+                    </td>
+                    <td><Badge className="badge-neutral">{activeExchangeName}</Badge></td>
+                    <td>
+                      <div className="font-semibold">{activeExchangeName}</div>
+                      <div className="text-xs text-gray-500">In-exchange swap</div>
+                    </td>
+                    <td className="font-mono text-xs text-gray-500">{rate > 0 ? `@ ${rate.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${fiatCcy}/USDT` : '—'}</td>
+                    <td className="font-mono">
+                      <span className="text-red-700">-{fromUsdt} USDT</span>
+                      <div className="text-axistra-green">+{aedAmt.toLocaleString(undefined, { maximumFractionDigits: 2 })} {fiatCcy}</div>
+                    </td>
+                    <td className="text-xs text-gray-500">{b.conversion_reference || '—'}</td>
+                    <td><BatchStatus status="converted_to_aed" /></td>
+                    <td className="text-right">
+                      <button
+                        type="button"
+                        onClick={async (ev) => {
+                          ev.stopPropagation();
+                          if (!window.confirm(`Delete the USDT → ${fiatCcy} conversion for ${b.batch_code}?\n\nThis removes only the AED conversion ledger rows (-${fromUsdt} USDT and +${aedAmt} ${fiatCcy} on ${activeExchangeName}) and clears the batch's AED fields. The Sweep + USDT Conversion stay intact.`)) return;
+                          try {
+                            await api.delete(`/treasury/batches/${b.id}/step/aed`);
+                            toast.success('AED conversion cleared');
+                            await load();
+                          } catch (err) { toast.error(err?.response?.data?.message || 'Failed to clear AED conversion'); }
+                        }}
+                        className="rounded-md p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+                        title="Delete this AED conversion only (keeps sweep + USDT conversion)"
+                        data-testid={`treasury-batch-aed-delete-${b.id}`}
+                      >
+                        <Trash size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                      );
+                    }
+                    if (item.kind === 'batch-wio-deposit') {
+                      const b = item.row;
+                      const grossAed = parseFloat(b.fiat_received || '0');
+                      const netAed = parseFloat(b.net_bank_deposit_amount || b.fiat_received || '0');
+                      const fee = parseFloat(b.bank_fee_aed || '0');
+                      const fiatCcy = (b.fiat_currency || 'AED').toUpperCase();
+                      return (
+                <tr key={`batch-${b.id}-wio`} onClick={() => openBatch(b, 'wio')} className="cursor-pointer hover:bg-[var(--axistra-bg)]">
+                    <td></td>
+                    <td>
+                      <button type="button" onClick={(e) => { e.stopPropagation(); openBatch(b, 'wio'); }} className="font-mono text-axistra-green hover:underline">{b.batch_code}</button>
+                      <div className="text-xs text-gray-500">{b.bank_name || 'Wio Bank'}</div>
+                      <div className="mt-1"><Badge className="badge-success">Wio Deposit</Badge></div>
+                    </td>
+                    <td><Badge className="badge-neutral">{activeExchangeName}</Badge></td>
+                    <td>
+                      <div className="font-semibold">Wio Bank</div>
+                      <div className="text-xs text-gray-500">Withdraw to bank</div>
+                    </td>
+                    <td className="font-mono text-xs text-gray-500">{fee > 0 ? `Fee: ${fee} ${fiatCcy}` : '—'}</td>
+                    <td className="font-mono">
+                      <span className="text-red-700">-{netAed} {fiatCcy}</span>
+                      <div className="text-axistra-green">+{netAed.toLocaleString(undefined, { maximumFractionDigits: 2 })} {fiatCcy} <span className="text-gray-400">(Wio)</span></div>
+                    </td>
+                    <td className="text-xs"><Hash value={b.bank_reference} /></td>
+                    <td><BatchStatus status="reconciled" /></td>
+                    <td className="text-right">
+                      <button
+                        type="button"
+                        onClick={async (ev) => {
+                          ev.stopPropagation();
+                          if (!window.confirm(`Delete the Wio Bank deposit entry for ${b.batch_code}?\n\nThis removes only the Wio transfer ledger rows (-${netAed} ${fiatCcy} from ${activeExchangeName} and +${netAed} ${fiatCcy} on Wio Bank) and clears the bank fields. Sweep + conversions stay intact.`)) return;
+                          try {
+                            await api.delete(`/treasury/batches/${b.id}/step/wio`);
+                            toast.success('Wio deposit cleared');
+                            await load();
+                          } catch (err) { toast.error(err?.response?.data?.message || 'Failed to clear Wio deposit'); }
+                        }}
+                        className="rounded-md p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+                        title="Delete this Wio Bank deposit only"
+                        data-testid={`treasury-batch-wio-delete-${b.id}`}
                       >
                         <Trash size={14} />
                       </button>

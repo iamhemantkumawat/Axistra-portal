@@ -1,0 +1,37 @@
+{
+  "summary": "Iteration 16 testing: AED Conversion + Wio Deposit feed rows, granular step/aed + step/wio deletes, and verify-mempool sweep-only PATCH fix. 4/4 backend tests pass; 6/6 frontend assertions pass. AED row renders with -USDT/+AED amounts, Wio row appears only when bank_reference is set, both rows have correct data-testids (treasury-batch-aed-delete-${id} and treasury-batch-wio-delete-${id}), deletes are granular and earlier-step data is preserved.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "DELETE /api/treasury/batches/:id/step/:step", "issue": "Accepts arbitrary step names (e.g. 'bogus') and returns 200 with cleared:'bogus', ledger_rows_removed:0 instead of 4xx. Harmless no-op but lacks input validation. Consider rejecting unknown step values with 400 BadRequest."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_treasury_iter16.py",
+    "/app/test_reports/pytest/iter16_treasury.xml"
+  ],
+  "action_items": [
+    "(Optional) Add server-side validation in clearBatchStep to 400 on unknown step values for defensive programming."
+  ],
+  "critical_code_review_comments": [
+    "Treasury.jsx is 1789 lines — exceeds 700-line guideline. Suggest splitting Binance/OKX merged-feed renderer into a dedicated component (e.g., TreasuryBatchFeedRow.jsx) with separate sub-components per row-kind (transfer, usdt, aed, wio). The merged-feed switch is now 200+ lines and growing.",
+    "Row delete onClick handlers (sweep/usdt/aed/wio) contain duplicated logic (confirm → api.delete → toast → reload). Extract into a shared helper (e.g., handleStepDelete(batch, step, opts)) to satisfy DRY guideline.",
+    "ts (timestamps) for merged feed use baseTs - 3 / -2 / -1 / 0 offsets to keep rows together; works but fragile. If two batches share an updated_at, ordering is implementation-dependent. Consider an explicit secondary sort key.",
+    "Backend clearBatchStep TypeScript type signature is `'sweep' | 'usdt' | 'aed' | 'wio'` but runtime accepts any string (controller passes raw param). Validate explicitly inside the service."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_treasury_iter16.py"
+  ],
+  "success_rate": {"backend": "100% (4/4)", "frontend": "100% (6/6 assertions)"},
+  "test_credentials": "admin@axistratech.com / admin123 (accept_terms=true required)",
+  "seed_data_creation": "Created/deleted ephemeral test batches (BPAY-2605-00003 with TEST_ prefix). Final cleanup successful — no residual test data.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All iter16 behaviors verified end-to-end. Backend granular step deletes (sweep/usdt/aed/wio) and the FE merged feed (4 row kinds) work correctly. Confirmed that BE PATCH still enforces 'Conversion rate is required' if crypto_converted is sent without rate — the fix is purely that FE verify-mempool now sends only sweep fields, bypassing the validation. The seed file /app/scripts/seed_data.py creates BPAY-2605-00001 with fiat_received=8456.26; that batch appears as 3 rows (Transfer + USDT + AED) until bank_reference is set, then 4 rows.",
+  "rca_of_the_issue": "(N/A — feature verification iteration, no production bug encountered. Bug-fix validation: verifyActiveBtcTransfer used to spread the entire settlementForm into PATCH, dragging crypto_converted without conversion_rate, tripping BE validation. Fix in Treasury.jsx 391-440 restricts payload to sweep-only fields, validated by test_sweep_only_patch_succeeds_then_verify_doesnt_trip_aed.)"
+}
