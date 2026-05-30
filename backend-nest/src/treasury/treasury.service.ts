@@ -872,7 +872,78 @@ export class TreasuryService {
       });
     }
 
-    return { dry_run: !!opts.dryRun, created, skipped, errored, total_pairs: rows.length };
+    // ───── Also backfill orphan CASHOUTS ─────
+    // Same idea but for `cashout + bank_deposit` ledger pairs (created by
+    // the legacy "Withdraw AED to Wio" endpoint before it learned to mirror
+    // a treasury_batches row).  Each pair becomes a single
+    // `status:'reconciled'` batch with bank_reference set, so the audit
+    // chain can surface it as step 6/7.
+    const cashRows = await this.ledgerRepo
+      .createQueryBuilder('l')
+      .select('l.external_ref', 'ref')
+      .addSelect("MIN(CASE WHEN l.tx_type = 'cashout' THEN l.wallet END)", 'source_wallet')
+      .addSelect("MIN(l.tx_hash)", 'bank_reference')
+      .addSelect("ABS(SUM(CASE WHEN l.tx_type = 'cashout' THEN l.amount END))::text", 'gross_aed')
+      .addSelect("SUM(CASE WHEN l.tx_type = 'bank_deposit' AND l.wallet = 'WIO_BANK' THEN l.amount END)::text", 'net_aed')
+      .addSelect("MIN(l.event_at)", 'event_at')
+      .addSelect("MIN(l.notes)", 'notes')
+      .where('l.external_ref IS NOT NULL')
+      .andWhere("l.tx_type IN ('cashout','bank_deposit')")
+      .andWhere("l.coin = 'AED'")
+      .groupBy('l.external_ref')
+      .having("COUNT(DISTINCT l.tx_type) = 2")
+      .getRawMany();
+
+    for (const r of cashRows) {
+      try {
+        const code: string = r.ref;
+        const existing = await this.batchRepo.findOne({ where: { batch_code: code } });
+        if (existing) { skipped.push({ ref: code, reason: 'cashout_batch_exists' }); continue; }
+        const gross = parseFloat(r.gross_aed || '0');
+        const net = parseFloat(r.net_aed || '0');
+        if (!(gross > 0) || !r.source_wallet) {
+          skipped.push({ ref: code, reason: 'incomplete_cashout_pair' });
+          continue;
+        }
+        const fee = Math.max(0, gross - net);
+        const eventAt = r.event_at ? new Date(r.event_at) : new Date();
+        const partial: Partial<TreasuryBatch> = {
+          batch_code: code,
+          name: `${r.source_wallet} → Wio cashout ${eventAt.toISOString().slice(0, 10)}`,
+          source_gateway: r.source_wallet,
+          source_wallet: r.source_wallet,
+          destination_exchange: r.source_wallet,
+          destination_wallet: 'WIO_BANK',
+          coin: 'AED',
+          received_crypto_amount: gross.toFixed(2),
+          total_crypto_amount: gross.toFixed(2),
+          crypto_converted: gross.toFixed(2),
+          fiat_received: gross.toFixed(2),
+          fiat_currency: 'AED',
+          conversion_rate: '1.0000' as any,
+          conversion_date: eventAt,
+          bank_reference: r.bank_reference || code,
+          bank_deposit_date: eventAt,
+          bank_fee_aed: fee.toFixed(2) as any,
+          net_bank_deposit_amount: net.toFixed(2) as any,
+          status: 'reconciled',
+          notes: r.notes || `Backfilled from wallet_ledger cashout pair ${code}`,
+        };
+        if (opts.dryRun) {
+          created.push({ ref: code, source_wallet: r.source_wallet, gross_aed: gross, net_aed: net, fee_aed: fee, status: 'reconciled', dry_run: true });
+          continue;
+        }
+        const saved = await this.batchRepo.save(this.batchRepo.create(partial));
+        await this.ledgerRepo.createQueryBuilder().update()
+          .set({ linked_batch_id: saved.id })
+          .where('external_ref = :ref', { ref: code }).execute();
+        created.push({ ref: code, id: saved.id, source_wallet: r.source_wallet, gross_aed: gross, net_aed: net, fee_aed: fee, status: 'reconciled' });
+      } catch (err) {
+        errored.push({ ref: r.ref, error: (err as any)?.message });
+      }
+    }
+
+    return { dry_run: !!opts.dryRun, created, skipped, errored, total_pairs: rows.length + cashRows.length };
   }
 
   async recordExchangeConversion(input: {
@@ -1204,30 +1275,31 @@ export class TreasuryService {
   async auditChainForRecharge(rechargeId: string) {
     const recharge = await this.rechargeRepo.findOne({ where: { id: rechargeId }, relations: ['customer'] });
     if (!recharge) throw new Error('recharge_not_found');
-    const cryptos = await this.cryptoRepo.find({ where: { recharge_id: rechargeId } });
+    const cryptos = await this.cryptoRepo.find({ where: { recharge_id: rechargeId }, order: { created_at: 'ASC' } });
     const movement = await this.repo.findOne({ where: { recharge_id: rechargeId } });
-    const batch = movement?.treasury_batch_id ? await this.batchRepo.findOne({ where: { id: movement.treasury_batch_id } }) as any : null;
-    const ledgerForBatch = batch ? await this.ledgerRepo.find({ where: { linked_batch_id: batch.id } }) : [];
+    const sweepBatch = movement?.treasury_batch_id ? await this.batchRepo.findOne({ where: { id: movement.treasury_batch_id } }) as any : null;
 
     const chain: any[] = [];
-    // 1. Customer recharge
+
+    // 1. Customer Recharge
     chain.push({
-      stage: 'customer',
-      status: 'done',
+      stage: 'customer', status: 'done',
       label: 'Customer Recharge',
       ref: recharge.recharge_code,
       when: recharge.created_at,
       detail: `${recharge.amount} ${recharge.currency} from ${recharge.customer?.full_name || recharge.customer?.email}`,
     });
-    // 2. Gateway TX (OxaPay / BTCPay / Direct)
+
+    // 2. Gateway tx
     chain.push({
       stage: 'gateway',
       status: cryptos.length > 0 ? 'done' : 'pending',
-      label: cryptos.length > 0 ? `${cryptos[0].coin} Received` : 'Awaiting On-chain',
+      label: cryptos.length > 0 ? `${cryptos[0].coin} Received` : 'Awaiting on-chain confirmation',
       ref: cryptos[0]?.tx_hash || recharge.tx_hash || null,
       when: cryptos[0]?.created_at || null,
       detail: cryptos[0] ? `${cryptos[0].crypto_amount} ${cryptos[0].coin}` : null,
     });
+
     // 3. Magnus credit
     chain.push({
       stage: 'magnus',
@@ -1237,43 +1309,94 @@ export class TreasuryService {
       when: recharge.magnus_credited_at,
       detail: recharge.magnus_credited_at ? 'Customer balance funded' : 'Not credited yet',
     });
+
     // 4. Exchange sweep
     chain.push({
       stage: 'sweep',
-      status: batch ? 'done' : 'pending',
+      status: sweepBatch ? 'done' : 'pending',
       label: 'Exchange Sweep',
-      ref: batch?.batch_code || null,
-      when: batch?.exchange_received_at || batch?.created_at || null,
-      detail: batch ? `${batch.received_crypto_amount || batch.total_crypto_amount} ${batch.coin} → ${batch.destination_exchange || batch.destination_wallet}` : 'Not assigned to a batch yet',
+      ref: sweepBatch?.batch_code || null,
+      when: sweepBatch?.exchange_received_at || sweepBatch?.created_at || null,
+      detail: sweepBatch
+        ? `${sweepBatch.received_crypto_amount || sweepBatch.total_crypto_amount} ${sweepBatch.coin} → ${sweepBatch.destination_exchange || sweepBatch.destination_wallet}`
+        : 'Not assigned to a batch yet',
     });
-    // 5. USDT conversion
-    chain.push({
-      stage: 'usdt',
-      status: batch?.usdt_amount ? 'done' : (batch ? 'pending' : 'pending'),
-      label: 'Convert to USDT',
-      ref: batch?.usdt_conversion_reference || null,
-      when: batch?.usdt_conversion_date || null,
-      detail: batch?.usdt_amount ? `${batch.usdt_amount} USDT @ ${batch.usdt_conversion_rate}` : null,
-    });
-    // 6. AED conversion
-    chain.push({
-      stage: 'aed',
-      status: batch?.fiat_received ? 'done' : 'pending',
-      label: 'Convert to AED',
-      ref: null,
-      when: batch?.conversion_date || null,
-      detail: batch?.fiat_received ? `${batch.fiat_received} AED @ ${batch.conversion_rate}` : null,
-    });
-    // 7. Wio bank deposit
-    chain.push({
-      stage: 'wio',
-      status: batch?.bank_reference ? 'done' : 'pending',
-      label: 'Wio Bank Deposit',
-      ref: batch?.bank_reference || null,
-      when: batch?.bank_deposit_date || null,
-      detail: batch?.net_bank_deposit_amount ? `${batch.net_bank_deposit_amount} AED net (fee ${batch.bank_fee_aed || 0})` : null,
-    });
-    return { recharge, batch, cryptos, ledger: ledgerForBatch, chain };
+
+    // 5+. Walk every downstream treasury_batch on the destination exchange,
+    //     chronologically, until the AED reaches Wio.  This implements the
+    //     "graph traversal" the user asked for — instead of stopping at
+    //     step 4 we follow the funds across conversions and cashouts that
+    //     happened on the same exchange after the sweep landed.
+    if (sweepBatch) {
+      const destExchange = (sweepBatch.destination_exchange || sweepBatch.destination_wallet || '').toUpperCase();
+      const sweepDate = sweepBatch.exchange_received_at || sweepBatch.created_at;
+      if (destExchange && sweepDate) {
+        const downstream = await this.batchRepo
+          .createQueryBuilder('b')
+          .where('UPPER(b.source_wallet) = :w', { w: destExchange })
+          .andWhere('b.batch_code <> :code', { code: sweepBatch.batch_code })
+          .andWhere(
+            'COALESCE(b.bank_deposit_date, b.conversion_date, b.usdt_conversion_date, b.exchange_received_at, b.created_at) >= :since',
+            { since: sweepDate },
+          )
+          .orderBy(
+            'COALESCE(b.bank_deposit_date, b.conversion_date, b.usdt_conversion_date, b.exchange_received_at, b.created_at)',
+            'ASC',
+          )
+          .limit(30)
+          .getMany();
+
+        for (const b of downstream as any[]) {
+          let stage: string = 'conversion';
+          let label: string = 'Treasury operation';
+          let detail: string | null = null;
+          let when: any = b.bank_deposit_date || b.conversion_date || b.usdt_conversion_date || b.exchange_received_at || b.created_at;
+
+          if (b.bank_reference) {
+            stage = 'wio';
+            label = 'Wio Bank Deposit';
+            detail = `${b.net_bank_deposit_amount || b.fiat_received || 0} AED → ref ${b.bank_reference}`;
+          } else if (b.fiat_currency && parseFloat(b.fiat_received || '0') > 0) {
+            stage = 'aed';
+            label = `Convert to ${b.fiat_currency}`;
+            detail = `${b.total_crypto_amount} ${b.coin} → ${b.fiat_received} ${b.fiat_currency}${b.conversion_rate ? ' @ ' + b.conversion_rate : ''}`;
+          } else if (parseFloat(b.usdt_amount || '0') > 0) {
+            stage = 'usdt';
+            label = 'Convert to USDT';
+            detail = `${b.total_crypto_amount} ${b.coin} → ${b.usdt_amount} USDT${b.usdt_conversion_rate ? ' @ ' + b.usdt_conversion_rate : ''}`;
+          } else {
+            label = b.name || 'Exchange operation';
+            detail = `${b.total_crypto_amount} ${b.coin}`;
+          }
+
+          chain.push({
+            stage,
+            status: 'done',
+            label,
+            ref: b.batch_code,
+            when,
+            detail,
+          });
+        }
+      }
+    }
+
+    // Always show the terminal Wio step — if no downstream cashout exists
+    // yet we still want a visible "pending" pill so the chain feels finite.
+    const hasWioStep = chain.some((c) => c.stage === 'wio');
+    if (!hasWioStep) {
+      chain.push({
+        stage: 'wio',
+        status: 'pending',
+        label: 'Wio Bank Deposit',
+        ref: null,
+        when: null,
+        detail: sweepBatch ? 'No cashout yet for the funds on this exchange.' : 'Awaiting earlier steps.',
+      });
+    }
+
+    const ledgerForBatch = sweepBatch ? await this.ledgerRepo.find({ where: { linked_batch_id: sweepBatch.id } }) : [];
+    return { recharge, batch: sweepBatch, cryptos, ledger: ledgerForBatch, chain };
   }
 
   /* ============================================================

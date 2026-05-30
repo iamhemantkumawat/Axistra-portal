@@ -21,6 +21,7 @@ import {
 
 const TABS = [
   { key: 'receipts', label: 'Payment Receipts' },
+  { key: 'chain', label: 'Audit Chain' },
   { key: 'btcpay', label: 'BTCPay' },
   { key: 'oxapay', label: 'OxaPay' },
   { key: 'okx', label: 'OKX' },
@@ -154,7 +155,7 @@ export default function Treasury() {
   const [expenses, setExpenses] = useState([]);
   const [activeTab, _setActiveTab] = useState(() => {
     const h = (typeof window !== 'undefined' && window.location.hash || '').replace('#', '');
-    return ['receipts','btcpay','oxapay','okx','binance','aed','profit'].includes(h) ? h : 'receipts';
+    return ['receipts','chain','btcpay','oxapay','okx','binance','aed','profit'].includes(h) ? h : 'receipts';
   });
   const setActiveTab = (key) => {
     _setActiveTab(key);
@@ -813,6 +814,10 @@ export default function Treasury() {
 
       {activeTab === 'profit' && (
         <ProfitByConversionTab />
+      )}
+
+      {activeTab === 'chain' && (
+        <AuditChainTab recharges={recharges} />
       )}
 
       {activeTab === 'receipts' && (
