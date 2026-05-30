@@ -11,6 +11,8 @@ export class AdminUser {
   @Column({ nullable: true }) last_login_at: Date;
   @Column({ nullable: true }) last_login_ip: string;
   @Column({ default: false }) two_fa_enabled: boolean;
+  @Column({ type: 'text', nullable: true }) two_fa_secret: string | null;
+  @Column({ type: 'jsonb', nullable: true }) two_fa_recovery_codes: string[] | null;
   @CreateDateColumn() created_at: Date;
   @UpdateDateColumn() updated_at: Date;
 }

@@ -9,10 +9,36 @@ export const AuthProvider = ({ children }) => {
   });
   const [loading, setLoading] = useState(false);
 
+  /**
+   * Step 1 of login. Returns:
+   *   { require_2fa: true, challenge_token, user }  → caller must call verify2fa()
+   *   or the final user object (also stored).
+   */
   const login = async (email, password) => {
     setLoading(true);
     try {
       const { data } = await api.post('/auth/login', { email, password });
+      if (data.require_2fa) {
+        return { require_2fa: true, challenge_token: data.challenge_token, partial: data.user };
+      }
+      localStorage.setItem('axistra_token', data.token);
+      localStorage.setItem('axistra_user', JSON.stringify(data.user));
+      setUser(data.user);
+      return { user: data.user };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /** Step 2 of login when require_2fa was true. */
+  const verify2faLogin = async (challenge_token, { code, recovery_code }) => {
+    setLoading(true);
+    try {
+      const { data } = await api.post('/auth/2fa/login-verify', {
+        challenge_token,
+        code: code || undefined,
+        recovery_code: recovery_code || undefined,
+      });
       localStorage.setItem('axistra_token', data.token);
       localStorage.setItem('axistra_user', JSON.stringify(data.user));
       setUser(data.user);
@@ -29,22 +55,37 @@ export const AuthProvider = ({ children }) => {
     window.location.href = '/login';
   };
 
+  /** Refresh the cached user from /auth/me (e.g. after enabling 2FA). */
+  const refreshUser = async () => {
+    try {
+      const { data } = await api.get('/auth/me');
+      const next = {
+        ...(user || {}),
+        ...data,
+      };
+      localStorage.setItem('axistra_user', JSON.stringify(next));
+      setUser(next);
+      return next;
+    } catch {
+      return user;
+    }
+  };
+
   useEffect(() => {
     if (user && localStorage.getItem('axistra_token')) {
-      // Only log out if the token is EXPLICITLY rejected (401). Network errors,
-      // backend restart 502/503s, and timeouts must NOT log the user out — otherwise
-      // the preview URL appears to "auto-refresh" every time the API blips.
-      api.get('/auth/me').catch((err) => {
-        if (err.response && err.response.status === 401) {
-          logout();
-        }
+      api.get('/auth/me').then(({ data }) => {
+        const merged = { ...user, ...data };
+        localStorage.setItem('axistra_user', JSON.stringify(merged));
+        setUser(merged);
+      }).catch((err) => {
+        if (err.response && err.response.status === 401) logout();
       });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, loading }}>
+    <AuthContext.Provider value={{ user, login, verify2faLogin, logout, refreshUser, loading }}>
       {children}
     </AuthContext.Provider>
   );

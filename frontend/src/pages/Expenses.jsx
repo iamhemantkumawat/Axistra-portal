@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import api from '../lib/api';
 import { PageHeader, Modal, Field, Hash } from '../components/Atoms';
 import { fmtDate, fmtMoney } from '../lib/format';
@@ -43,6 +44,7 @@ export default function Expenses() {
   const [form, setForm] = useState(empty);
   const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const load = () => {
     const p = {};
@@ -54,6 +56,28 @@ export default function Expenses() {
     load();
     api.get('/settings/vendors').then((r) => setVendors(r.data));
   /* eslint-disable-next-line */ }, [category]);
+
+  // Auto-open the New Expense modal pre-filled with the selected vendor when
+  // a deep-link from Settings → Vendors → Pay is followed (?pay_vendor=<id>).
+  useEffect(() => {
+    const vid = searchParams.get('pay_vendor');
+    if (!vid || vendors.length === 0) return;
+    const v = vendors.find((x) => x.id === vid);
+    if (!v) return;
+    setEditingId(null);
+    setForm({
+      ...empty,
+      vendor_id: v.id,
+      vendor_name: v.name,
+      category: v.type === 'SaaS' ? 'Software' : v.type === 'VPS / Hosting' ? 'VPS' : 'Vendor',
+      payment_method: v.default_payment_method || empty.payment_method,
+      source_wallet: v.default_wallet || empty.source_wallet,
+    });
+    setOpen(true);
+    // Strip the query param so refreshing the page doesn't re-open the modal.
+    setSearchParams({}, { replace: true });
+    toast.message(`Paying ${v.name} — fill in amount and confirm`);
+  }, [vendors, searchParams, setSearchParams]);
 
   const openNew = () => {
     setForm(empty);

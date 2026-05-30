@@ -101,6 +101,93 @@ export class ReportsController {
     await archive.finalize();
   }
 
+  /**
+   * Accountant-ready annual export — bundles EVERY report for the year as PDF + Excel
+   * plus a CSV manifest. Designed to be handed straight to an external accountant
+   * for filing/audit.
+   */
+  @Get('bundle/accountant-pack')
+  async accountantPack(@Query('year') year: string, @Res() res: Response) {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const archiver = require('archiver');
+    const y = year || String(new Date().getFullYear());
+    const label = `${y}`;
+
+    const include = [
+      'yearly-pl',
+      'monthly-sales',
+      'quarterly-sales',
+      'vat-threshold',
+      'corporate-tax',
+      'customer-recharge',
+      'crypto-to-aed',
+      'bank-reconciliation',
+      'expenses',
+      'suspicious',
+    ];
+
+    const coverPdf = await renderCoverPdf({
+      title: `Accountant Annual Pack ${label}`,
+      subtitle: `Comprehensive Axistra Technologies FZCO export for FY ${label}. Includes P&L, VAT threshold tracker, Corporate Tax estimate, full customer recharge ledger, crypto → AED conversion log, bank reconciliation, expenses and any flagged suspicious activity. All amounts computed live at generation time — TRN 105415374500001.`,
+      items: include.map((k) => ({ name: REPORT_META[k]?.title || k, desc: REPORT_META[k]?.subtitle })),
+    });
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="axistra-accountant-pack-${label}.zip"`);
+
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    archive.on('error', (err: Error) => res.status(500).send(String(err)));
+    archive.pipe(res);
+
+    archive.append(coverPdf, { name: `00-Cover-${label}.pdf` });
+
+    // Per-report PDFs + Excel exports
+    const manifestRows: Array<{ file: string; report: string; rows: number; bytes: number }> = [];
+    let idx = 1;
+    for (const key of include) {
+      const pdfBuf = await this.buildPdf(key, y);
+      const xlsxBuf = await this.buildExcel(key, y);
+      const num = String(idx).padStart(2, '0');
+      const pdfName = `${num}-${key}-${label}.pdf`;
+      const xlsxName = `${num}-${key}-${label}.xlsx`;
+      archive.append(pdfBuf, { name: pdfName });
+      archive.append(xlsxBuf, { name: xlsxName });
+      const raw = await this.fetchByName(key, y);
+      const rowCount = Array.isArray(raw) ? raw.length : raw ? 1 : 0;
+      manifestRows.push({ file: pdfName, report: REPORT_META[key]?.title || key, rows: rowCount, bytes: pdfBuf.length });
+      manifestRows.push({ file: xlsxName, report: REPORT_META[key]?.title || key, rows: rowCount, bytes: xlsxBuf.length });
+      idx += 1;
+    }
+
+    // CSV manifest so the accountant has a single index of every file in the pack.
+    const manifestCsv = [
+      'file,report,rows,bytes',
+      ...manifestRows.map((r) => `${r.file},"${r.report.replace(/"/g, '""')}",${r.rows},${r.bytes}`),
+    ].join('\n');
+    archive.append(manifestCsv, { name: `MANIFEST-${label}.csv` });
+
+    // Plain-text README explaining the audit chain and contents.
+    const readme = [
+      `Axistra Technologies — FZCO`,
+      `Accountant Annual Pack — FY ${label}`,
+      `Generated: ${new Date().toISOString()}`,
+      ``,
+      `Audit Chain (immutable):`,
+      `  Customer → Invoice → Crypto TX Hash → Magnus Credit → OKX Conversion → Wio Bank Deposit`,
+      ``,
+      `Files in this pack:`,
+      ...include.map((k, i) => `  ${String(i + 1).padStart(2, '0')}. ${REPORT_META[k]?.title || k} — ${REPORT_META[k]?.subtitle || ''}`),
+      ``,
+      `Each report is provided as PDF (printable) and XLSX (machine-readable).`,
+      `MANIFEST-${label}.csv lists every file with row counts and byte sizes.`,
+      ``,
+      `Corporate TRN: 105415374500001 · Trade License: 86256 · Authority: IFZA / Dubai Silicon Oasis`,
+    ].join('\n');
+    archive.append(readme, { name: `README-${label}.txt` });
+
+    await archive.finalize();
+  }
+
   // ---------- helpers ----------
 
   private async fetchByName(report: string, year?: string) {

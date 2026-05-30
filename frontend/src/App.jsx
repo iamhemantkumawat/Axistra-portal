@@ -27,6 +27,7 @@ import AuditLogs from './pages/AuditLogs';
 import WebhookLogs from './pages/WebhookLogs';
 import AdminUsers from './pages/AdminUsers';
 import Settings from './pages/Settings';
+import TwoFactorSetup from './pages/TwoFactorSetup';
 import { PrivacyPolicy, TermsAndConditions } from './pages/LegalPage';
 
 import './App.css';
@@ -69,6 +70,7 @@ function App() {
               <Route path="/audit-logs" element={<AuditLogs />} />
               <Route path="/admins" element={<AdminUsers />} />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/setup-2fa" element={<TwoFactorSetup />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

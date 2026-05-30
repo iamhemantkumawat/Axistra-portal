@@ -2,9 +2,11 @@ import React, { useEffect, useState } from 'react';
 import api from '../lib/api';
 import { PageHeader, Modal, Field } from '../components/Atoms';
 import BackupRestoreCard from '../components/BackupRestoreCard';
+import TwoFactorCard from '../components/TwoFactorCard';
 import { useCurrency } from '../lib/currency';
-import { Plus, Pencil, Trash, Copy } from '@phosphor-icons/react';
+import { Plus, Pencil, Trash, Copy, CreditCard } from '@phosphor-icons/react';
 import { toast } from 'sonner';
+import { useNavigate } from 'react-router-dom';
 
 const COMPANY = {
   name: 'AXISTRA TECHNOLOGIES - FZCO',
@@ -38,6 +40,7 @@ export default function Settings() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <CompanyCard />
         <ComplianceCard />
+        <TwoFactorCard />
         <ReceivingWalletsCard />
         <VendorsCard />
         <BackupRestoreCard />
@@ -246,6 +249,7 @@ const emptyVendor = { name: '', type: '', contact: '', default_wallet: '', defau
 const VENDOR_TYPES = ['SaaS', 'Telecom', 'VPS / Hosting', 'Office', 'Legal', 'Bank', 'Marketing', 'Other'];
 
 function VendorsCard() {
+  const nav = useNavigate();
   const [rows, setRows] = useState([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptyVendor);
@@ -321,7 +325,13 @@ function VendorsCard() {
                 <td className="text-sm">{r.default_wallet || '—'}</td>
                 <td><span className={`badge ${r.is_active ? 'badge-success' : 'badge-neutral'}`}>{r.is_active ? 'Active' : 'Disabled'}</span></td>
                 <td className="text-right">
-                  <button onClick={() => onEdit(r)} className="text-gray-500 hover:text-axistra-green p-1" title="Edit" data-testid={`vendor-edit-${r.name}`}><Pencil size={14} /></button>
+                  <button
+                    onClick={() => nav(`/expenses?pay_vendor=${r.id}`)}
+                    className="text-axistra-green hover:text-[var(--axistra-green-dark)] p-1"
+                    title="Pay this vendor now"
+                    data-testid={`vendor-pay-${r.name}`}
+                  ><CreditCard size={14} /></button>
+                  <button onClick={() => onEdit(r)} className="text-gray-500 hover:text-axistra-green p-1 ml-1" title="Edit" data-testid={`vendor-edit-${r.name}`}><Pencil size={14} /></button>
                   <button onClick={() => onDelete(r)} className="text-gray-500 hover:text-red-600 p-1 ml-1" title="Delete" data-testid={`vendor-delete-${r.name}`}><Trash size={14} /></button>
                 </td>
               </tr>

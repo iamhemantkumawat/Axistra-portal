@@ -57,6 +57,13 @@ export default function Reports() {
     } finally { setBundling(false); }
   };
 
+  const downloadAccountantPack = async () => {
+    setBundling(true);
+    try {
+      await downloadBlob(`${API_BASE}/reports/bundle/accountant-pack?year=${year}`, `axistra-accountant-pack-${year}.zip`);
+    } finally { setBundling(false); }
+  };
+
   const kpis = charts?.kpis;
 
   return (
@@ -77,6 +84,9 @@ export default function Reports() {
             </select>
             <button onClick={downloadBundle} disabled={bundling} className="btn-primary inline-flex items-center gap-2 disabled:opacity-50" data-testid="reports-bundle">
               <Package size={16} /> {bundling ? 'Building…' : `Month-End ZIP`}
+            </button>
+            <button onClick={downloadAccountantPack} disabled={bundling} className="btn-secondary inline-flex items-center gap-2 disabled:opacity-50" data-testid="reports-accountant-pack" title={`Full annual export with every report + manifest + README — designed for handover to an external accountant.`}>
+              <FilePdf size={16} /> {bundling ? 'Building…' : `Accountant Pack (FY ${year})`}
             </button>
           </div>
         }

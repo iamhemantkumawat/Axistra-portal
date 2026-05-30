@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import {
   ChartPieSlice, Users, CurrencyCircleDollar, FileText, Wallet, Receipt,
@@ -32,10 +32,60 @@ const NAV = [
 const LOGO_DARK_URL = '/axistra-wordmark-darkbg.png';
 const LOGO_LIGHT_URL = '/axistra-landscape-logo-2026.png';
 
+// Read environment label from build-time env. Falls back to PREVIEW for local/dev.
+const APP_ENV = (
+  import.meta.env?.VITE_APP_ENV ||
+  process.env.REACT_APP_APP_ENV ||
+  ''
+).toUpperCase();
+
+const ENV_BADGE_STYLES = {
+  PRODUCTION: 'bg-red-600 text-white',
+  STAGING: 'bg-amber-500 text-white',
+  PREVIEW: 'bg-sky-500 text-white',
+  DEV: 'bg-slate-500 text-white',
+  LOCAL: 'bg-slate-500 text-white',
+};
+
+function EnvBadge() {
+  if (!APP_ENV || APP_ENV === 'PRODUCTION') {
+    // Production is the default; show a subtle "LIVE" badge for ops clarity.
+    return APP_ENV === 'PRODUCTION' ? (
+      <span
+        data-testid="env-badge"
+        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${ENV_BADGE_STYLES.PRODUCTION}`}
+        title="Live production environment"
+      >
+        <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+        Production
+      </span>
+    ) : null;
+  }
+  const style = ENV_BADGE_STYLES[APP_ENV] || 'bg-gray-500 text-white';
+  return (
+    <span
+      data-testid="env-badge"
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${style}`}
+      title={`Environment: ${APP_ENV}`}
+    >
+      <span className="w-1.5 h-1.5 rounded-full bg-white" />
+      {APP_ENV}
+    </span>
+  );
+}
+
 export default function AppLayout() {
   const { user, logout } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
   const nav = useNavigate();
+  const location = useLocation();
+
+  // Force admins who must enable 2FA to visit the setup page first.
+  useEffect(() => {
+    if (user?.must_setup_2fa && location.pathname !== '/setup-2fa') {
+      nav('/setup-2fa', { replace: true });
+    }
+  }, [user?.must_setup_2fa, location.pathname, nav]);
 
   return (
     <div className="min-h-screen bg-[var(--axistra-bg)]">
@@ -93,7 +143,10 @@ export default function AppLayout() {
       {/* Top bar (mobile) */}
       <header className="md:hidden sticky top-0 z-30 bg-white border-b border-gray-200 flex items-center justify-between px-4 h-14">
         <button onClick={() => setMobileOpen(true)} data-testid="sidebar-toggle"><List size={22} /></button>
-        <div className="font-display font-bold text-[var(--axistra-green)]">Axistra Portal</div>
+        <div className="flex items-center gap-2">
+          <div className="font-display font-bold text-[var(--axistra-green)]">Axistra Portal</div>
+          <EnvBadge />
+        </div>
         <div className="w-6" />
       </header>
 
@@ -108,6 +161,7 @@ export default function AppLayout() {
               data-testid="topbar-logo"
             />
             <span className="hidden lg:inline text-xs text-gray-400 tracking-wide uppercase">Compliance + Accounting Portal</span>
+            <EnvBadge />
           </div>
           <div className="flex items-center gap-3">
             <CurrencyToggle />
