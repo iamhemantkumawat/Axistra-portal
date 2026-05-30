@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import api from '../lib/api';
 import { PageHeader, Badge, KpiCard, Modal, Field, Hash } from '../components/Atoms';
+import { InFlightTab, AuditChainTab, ProfitByConversionTab, BankStatementImportModal } from '../components/TreasuryAdvanced';
 import { RECHARGE_STATUS_META, fmtDate, fmtMoney, fmtNumber } from '../lib/format';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -19,12 +20,15 @@ import {
 } from '@phosphor-icons/react';
 
 const TABS = [
+  { key: 'in-flight', label: 'In Flight' },
+  { key: 'chain', label: 'Audit Chain' },
   { key: 'receipts', label: 'Payment Receipts' },
   { key: 'btcpay', label: 'BTCPay' },
   { key: 'oxapay', label: 'OxaPay' },
   { key: 'okx', label: 'OKX' },
   { key: 'binance', label: 'Binance' },
   { key: 'aed', label: 'AED & Wio' },
+  { key: 'profit', label: 'Profit by Conversion' },
 ];
 
 const BATCH_STATUS_META = {
@@ -150,7 +154,23 @@ function StepPill({ icon: Icon, label, sub }) {
 export default function Treasury() {
   const [data, setData] = useState(null);
   const [expenses, setExpenses] = useState([]);
-  const [activeTab, setActiveTab] = useState('receipts');
+  const [activeTab, _setActiveTab] = useState(() => {
+    const h = (typeof window !== 'undefined' && window.location.hash || '').replace('#', '');
+    return ['in-flight','chain','receipts','btcpay','oxapay','okx','binance','aed','profit'].includes(h) ? h : 'in-flight';
+  });
+  const setActiveTab = (key) => {
+    _setActiveTab(key);
+    if (typeof window !== 'undefined') window.history.replaceState(null, '', `#${key}`);
+  };
+  useEffect(() => {
+    const sync = () => {
+      const h = (window.location.hash || '').replace('#', '');
+      if (h && h !== activeTab) _setActiveTab(h);
+    };
+    window.addEventListener('hashchange', sync);
+    return () => window.removeEventListener('hashchange', sync);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [selectedIds, setSelectedIds] = useState([]);
   const [selectedBatchIds, setSelectedBatchIds] = useState([]);
   const [gatewayFilter, setGatewayFilter] = useState('');
@@ -186,6 +206,7 @@ export default function Treasury() {
   // (i.e. were created via the "Withdraw AED to Wio" button instead of a
   // full batch flow) — we need these to keep the AED & Wio tab honest.
   const [wioLedger, setWioLedger] = useState([]);
+  const [importBankOpen, setImportBankOpen] = useState(false);
   const [okxLedger, setOkxLedger] = useState([]);
   const [binanceLedger, setBinanceLedger] = useState([]);
 
@@ -269,6 +290,7 @@ export default function Treasury() {
   );
 
   const batches = data?.batches || [];
+  const recharges = data?.recharges || [];
   const btcpayReceipts = useMemo(
     () => filterRows((data?.recharges || []).filter((r) => (r.payment_gateway || '').toLowerCase() === 'btcpay')),
     [data, dateFilter, customFrom, customTo, coinFilter],
@@ -746,11 +768,19 @@ export default function Treasury() {
         subtitle="Customer payment proof stays on the recharge. Source transfer records track sweeps to OKX/Binance, conversion to USDT/AED, Wio deposits, and expense outflows created from the Expenses module."
       />
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-5 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3 mb-6">
         <KpiCard label="Ready Receipts" value={data.totals.ready_for_settlement} icon={Receipt} testId="treasury-kpi-ready" />
         <KpiCard label="Open Transfers" value={data.totals.open_batches} icon={Wallet} testId="treasury-kpi-open-batches" />
         <KpiCard label="Fully Reconciled" value={data.totals.reconciled} icon={CheckCircle} testId="treasury-kpi-reconciled" />
-        <KpiCard label="Bank Deposited" value={`AED ${fmtNumber(data.totals.total_bank_deposited)}`} icon={Bank} testId="treasury-kpi-bank" />
+        <KpiCard label="Bank Deposited" value={`AED ${fmtNumber(data.totals.total_bank_deposited)}`} sub="Real Wio bank deposits only" icon={Bank} testId="treasury-kpi-bank" />
+        <KpiCard
+          label="Drift to Settle"
+          value={`AED ${fmtNumber(data.totals.drift_aed || 0)}`}
+          sub={(data.totals.drift_aed || 0) > 100 ? `${data.totals.drift_components?.length || 0} non-zero exchange position(s)` : 'No pending exchange positions'}
+          accent={(data.totals.drift_aed || 0) > 100}
+          icon={ArrowsLeftRight}
+          testId="treasury-kpi-drift"
+        />
         <KpiCard label="Mismatches" value={data.totals.mismatch} icon={Warning} accent testId="treasury-kpi-mismatch" />
       </div>
 
@@ -774,6 +804,18 @@ export default function Treasury() {
           </button>
         ))}
       </div>
+
+      {activeTab === 'in-flight' && (
+        <InFlightTab recharges={recharges} batches={batches} />
+      )}
+
+      {activeTab === 'chain' && (
+        <AuditChainTab recharges={recharges} />
+      )}
+
+      {activeTab === 'profit' && (
+        <ProfitByConversionTab />
+      )}
 
       {activeTab === 'receipts' && (
         <>
@@ -1450,8 +1492,15 @@ export default function Treasury() {
             </div>
 
             <div className="card-axistra p-5">
-              <div className="label-xs mb-1">Bank Evidence</div>
-              <h2 className="font-display text-xl font-bold text-gray-900 mb-1">Recent Wio deposits</h2>
+              <div className="flex items-center justify-between mb-1 gap-2 flex-wrap">
+                <div>
+                  <div className="label-xs mb-1">Bank Evidence</div>
+                  <h2 className="font-display text-xl font-bold text-gray-900">Recent Wio deposits</h2>
+                </div>
+                <button onClick={() => setImportBankOpen(true)} className="btn-secondary text-xs inline-flex items-center gap-1.5" data-testid="aed-import-bank">
+                  Import Wio Statement
+                </button>
+              </div>
               <p className="text-xs text-gray-500 mb-4">Every AED credit into the Wio settlement bank — from batch flows AND standalone cashouts.</p>
               <div className="space-y-3">
                 {(() => {
@@ -1933,6 +1982,12 @@ export default function Treasury() {
           </div>
         </form>
       </Modal>
+
+      <BankStatementImportModal
+        open={importBankOpen}
+        onClose={() => setImportBankOpen(false)}
+        onMatched={() => load()}
+      />
 
     </div>
   );

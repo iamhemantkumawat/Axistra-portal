@@ -52,6 +52,21 @@ export class TreasuryController {
     return this.svc.backfillOrphanConversions({ dryRun: !!body?.dry_run }, req.user);
   }
 
+  @Get('customer-profit-by-conversion')
+  customerProfitByConversion() {
+    return this.svc.customerProfitByConversion();
+  }
+
+  @Get('chain/:rechargeId')
+  chain(@Param('rechargeId') id: string) {
+    return this.svc.auditChainForRecharge(id);
+  }
+
+  @Post('import-bank-statement')
+  importBankStatement(@Body() body: any, @Req() req: any) {
+    return this.svc.importBankStatement(body, req.user);
+  }
+
   @Post('exchange-convert')
   exchangeConvert(@Body() body: any, @Req() req: any) {
     return this.svc.recordExchangeConversion(body, req.user);

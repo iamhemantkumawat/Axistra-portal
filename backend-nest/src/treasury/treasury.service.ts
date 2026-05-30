@@ -81,6 +81,25 @@ export class TreasuryService {
       && !r.reconciled
       && !['mismatch', 'refunded', 'failed'].includes(r.status)
     ));
+
+    // Bank Deposited: read from the wallet_ledger (single source of truth)
+    // instead of summing batch.fiat_received — that double-counted AED
+    // sitting on exchanges as if it were already in Wio.
+    const wioRow = await this.ledgerRepo
+      .createQueryBuilder('l')
+      .select('COALESCE(SUM(l.amount), 0)', 'total')
+      .where("l.wallet = 'WIO_BANK'")
+      .andWhere("l.coin = 'AED'")
+      .andWhere("l.tx_type = 'bank_deposit'")
+      .getRawOne();
+    const totalBankDeposited = parseFloat(wioRow?.total || '0');
+
+    // Drift = (sum of wallet_ledger AED balances on exchanges) vs (sum of
+    // batches still pending Wio deposit, in their AED equivalent).  A
+    // positive drift means there's AED parked on exchanges that nobody has
+    // staged as a pending batch yet — operator action required.
+    const drift = await this.computeDrift();
+
     const totals = {
       total_recharges: all.length,
       pending: all.filter((r) => !r.reconciled && r.status !== 'mismatch' && r.status !== 'refunded').length,
@@ -89,7 +108,9 @@ export class TreasuryService {
       ready_for_settlement: readyForSettlement.length,
       open_batches: batches.filter((b: any) => b.status !== 'reconciled').length,
       total_batch_invoice_amount: batches.reduce((s: number, b: any) => s + parseFloat(b.total_invoice_amount || '0'), 0),
-      total_bank_deposited: batches.reduce((s: number, b: any) => s + parseFloat(b.net_bank_deposit_amount || b.fiat_received || '0'), 0),
+      total_bank_deposited: totalBankDeposited,
+      drift_aed: drift.drift_aed,
+      drift_components: drift.components,
     };
     return {
       totals,
@@ -100,6 +121,41 @@ export class TreasuryService {
       })),
       batches: batches.slice(0, 25),
     };
+  }
+
+  /**
+   * Computes the AED drift between exchanges and Wio.
+   *   drift_aed  = AED currently held on Binance + OKX (any non-zero balance)
+   *                + AED-equivalent of USDT/USD/BTC/ETH still on exchanges
+   *                  (best-effort: USDT and USD counted 1:1 vs AED at 3.67,
+   *                  others ignored to stay deterministic).
+   * Returns the gross AED-equivalent amount of money that *should* eventually
+   * settle to Wio but hasn't yet.
+   */
+  private async computeDrift(): Promise<{ drift_aed: number; components: any[] }> {
+    const USD_TO_AED = 3.6725;
+    const rows = await this.ledgerRepo
+      .createQueryBuilder('l')
+      .select('l.wallet', 'wallet').addSelect('l.coin', 'coin')
+      .addSelect('COALESCE(SUM(l.amount), 0)::text', 'balance')
+      .where("l.wallet IN ('BINANCE','OKX','AED_TREASURY')")
+      .groupBy('l.wallet').addGroupBy('l.coin')
+      .having('COALESCE(SUM(l.amount), 0) <> 0')
+      .getRawMany();
+    const components: any[] = [];
+    let total = 0;
+    for (const r of rows) {
+      const bal = parseFloat(r.balance);
+      if (Math.abs(bal) < 0.01) continue;
+      let aedEq = 0;
+      const coin = String(r.coin).toUpperCase();
+      if (coin === 'AED') aedEq = bal;
+      else if (coin === 'USDT' || coin === 'USD') aedEq = bal * USD_TO_AED;
+      else continue; // BTC/ETH excluded — operator must convert first
+      components.push({ wallet: r.wallet, coin, balance: bal, aed_equiv: aedEq });
+      total += aedEq;
+    }
+    return { drift_aed: total, components };
   }
 
   async listBatches() {
@@ -1078,5 +1134,189 @@ export class TreasuryService {
         });
       }
     }
+  }
+
+  /* ============================================================
+   *  REPORTS: Customer Profit by Conversion (item #6)
+   *  ============================================================
+   * For every treasury_movement (customer recharge tied to a batch) we
+   * compute the spread between what the customer paid (invoice fiat, ex.
+   * EUR/USD) and what we actually received in AED after conversion + fees.
+   * Surfaces real margin per customer/per batch.
+   */
+  async customerProfitByConversion() {
+    const FX = { AED: 1, USD: 3.6725, EUR: 4.0, GBP: 4.6 } as Record<string, number>;
+    const movements = await this.repo.find();
+    const recharges = await this.rechargeRepo.find({ relations: ['customer'] });
+    const rechargeById = new Map(recharges.map((r) => [r.id, r]));
+    const batches = await this.batchRepo.find();
+    const batchById = new Map(batches.map((b) => [b.id, b]));
+    const rows = movements.map((m) => {
+      const r = rechargeById.get(m.recharge_id) as any;
+      const b = m.treasury_batch_id ? batchById.get(m.treasury_batch_id) as any : null;
+      if (!r || !b) return null;
+      const invoiceCcy = (r.currency || 'USD').toUpperCase();
+      const invoiceAmt = parseFloat(r.amount || '0');
+      const invoiceAed = invoiceAmt * (FX[invoiceCcy] || 1);
+      const fiatReceivedAed = parseFloat(b.fiat_received || b.net_bank_deposit_amount || '0');
+      const batchAllRecharges = movements.filter((x) => x.treasury_batch_id === m.treasury_batch_id);
+      const totalInvoiceAedInBatch = batchAllRecharges.reduce((s: number, x) => {
+        const xr = rechargeById.get(x.recharge_id) as any;
+        if (!xr) return s;
+        return s + parseFloat(xr.amount || '0') * (FX[(xr.currency || 'USD').toUpperCase()] || 1);
+      }, 0);
+      const share = totalInvoiceAedInBatch > 0 ? invoiceAed / totalInvoiceAedInBatch : 0;
+      const allocatedAedReceived = fiatReceivedAed * share;
+      const profit = allocatedAedReceived - invoiceAed;
+      const margin = invoiceAed > 0 ? profit / invoiceAed : 0;
+      return {
+        recharge_code: r.recharge_code,
+        customer_name: r.customer?.full_name || r.customer?.email || 'Unknown',
+        invoice_amount: invoiceAmt,
+        invoice_currency: invoiceCcy,
+        invoice_amount_aed: invoiceAed,
+        batch_code: b.batch_code,
+        batch_status: b.status,
+        allocated_aed_received: allocatedAedReceived,
+        profit_aed: profit,
+        margin_pct: margin * 100,
+        recharge_id: r.id,
+      };
+    }).filter((x) => x !== null) as any[];
+    const totals = {
+      rows: rows.length,
+      total_invoice_aed: rows.reduce((s, r) => s + r.invoice_amount_aed, 0),
+      total_received_aed: rows.reduce((s, r) => s + r.allocated_aed_received, 0),
+      total_profit_aed: rows.reduce((s, r) => s + r.profit_aed, 0),
+      avg_margin_pct: 0,
+    };
+    totals.avg_margin_pct = totals.total_invoice_aed > 0 ? (totals.total_profit_aed / totals.total_invoice_aed) * 100 : 0;
+    return { totals, rows };
+  }
+
+  /* ============================================================
+   *  AUDIT CHAIN for a single recharge (item #2 backing data)
+   *  ============================================================
+   * Returns the full lifecycle of a recharge as a list of "links" each
+   * one being { stage, status, label, ref, when }, so the frontend can
+   * render a visual chain with green/yellow/red pills.
+   */
+  async auditChainForRecharge(rechargeId: string) {
+    const recharge = await this.rechargeRepo.findOne({ where: { id: rechargeId }, relations: ['customer'] });
+    if (!recharge) throw new Error('recharge_not_found');
+    const cryptos = await this.cryptoRepo.find({ where: { recharge_id: rechargeId } });
+    const movement = await this.repo.findOne({ where: { recharge_id: rechargeId } });
+    const batch = movement?.treasury_batch_id ? await this.batchRepo.findOne({ where: { id: movement.treasury_batch_id } }) as any : null;
+    const ledgerForBatch = batch ? await this.ledgerRepo.find({ where: { linked_batch_id: batch.id } }) : [];
+
+    const chain: any[] = [];
+    // 1. Customer recharge
+    chain.push({
+      stage: 'customer',
+      status: 'done',
+      label: 'Customer Recharge',
+      ref: recharge.recharge_code,
+      when: recharge.created_at,
+      detail: `${recharge.amount} ${recharge.currency} from ${recharge.customer?.full_name || recharge.customer?.email}`,
+    });
+    // 2. Gateway TX (OxaPay / BTCPay / Direct)
+    chain.push({
+      stage: 'gateway',
+      status: cryptos.length > 0 ? 'done' : 'pending',
+      label: cryptos.length > 0 ? `${cryptos[0].coin} Received` : 'Awaiting On-chain',
+      ref: cryptos[0]?.tx_hash || recharge.tx_hash || null,
+      when: cryptos[0]?.created_at || null,
+      detail: cryptos[0] ? `${cryptos[0].crypto_amount} ${cryptos[0].coin}` : null,
+    });
+    // 3. Magnus credit
+    chain.push({
+      stage: 'magnus',
+      status: recharge.magnus_credited_at ? 'done' : 'pending',
+      label: 'Magnus Credit',
+      ref: null,
+      when: recharge.magnus_credited_at,
+      detail: recharge.magnus_credited_at ? 'Customer balance funded' : 'Not credited yet',
+    });
+    // 4. Exchange sweep
+    chain.push({
+      stage: 'sweep',
+      status: batch ? 'done' : 'pending',
+      label: 'Exchange Sweep',
+      ref: batch?.batch_code || null,
+      when: batch?.exchange_received_at || batch?.created_at || null,
+      detail: batch ? `${batch.received_crypto_amount || batch.total_crypto_amount} ${batch.coin} → ${batch.destination_exchange || batch.destination_wallet}` : 'Not assigned to a batch yet',
+    });
+    // 5. USDT conversion
+    chain.push({
+      stage: 'usdt',
+      status: batch?.usdt_amount ? 'done' : (batch ? 'pending' : 'pending'),
+      label: 'Convert to USDT',
+      ref: batch?.usdt_conversion_reference || null,
+      when: batch?.usdt_conversion_date || null,
+      detail: batch?.usdt_amount ? `${batch.usdt_amount} USDT @ ${batch.usdt_conversion_rate}` : null,
+    });
+    // 6. AED conversion
+    chain.push({
+      stage: 'aed',
+      status: batch?.fiat_received ? 'done' : 'pending',
+      label: 'Convert to AED',
+      ref: null,
+      when: batch?.conversion_date || null,
+      detail: batch?.fiat_received ? `${batch.fiat_received} AED @ ${batch.conversion_rate}` : null,
+    });
+    // 7. Wio bank deposit
+    chain.push({
+      stage: 'wio',
+      status: batch?.bank_reference ? 'done' : 'pending',
+      label: 'Wio Bank Deposit',
+      ref: batch?.bank_reference || null,
+      when: batch?.bank_deposit_date || null,
+      detail: batch?.net_bank_deposit_amount ? `${batch.net_bank_deposit_amount} AED net (fee ${batch.bank_fee_aed || 0})` : null,
+    });
+    return { recharge, batch, cryptos, ledger: ledgerForBatch, chain };
+  }
+
+  /* ============================================================
+   *  BANK STATEMENT IMPORT + AUTO-MATCH (item #4)
+   *  ============================================================
+   * Accepts a parsed Wio statement (JSON array of {date, ref, amount,
+   * description}).  For each row we look for an exact match in
+   * wallet_ledgers (wallet=WIO_BANK, tx_hash=ref, amount=amount), and
+   * mark match/unmatch.  Unmatched rows are surfaced so the operator
+   * can convert them into a cashout in one click.
+   */
+  async importBankStatement(input: { rows: Array<{ date: string; ref?: string; amount: number; description?: string }>; }, _actor?: any) {
+    const wioRows = await this.ledgerRepo.find({ where: { wallet: 'WIO_BANK' as any } });
+    const byRef = new Map<string, any>();
+    const byAmount = new Map<string, any[]>();
+    for (const r of wioRows) {
+      if (r.tx_hash) byRef.set(String(r.tx_hash).toLowerCase(), r);
+      const amt = Math.round(parseFloat(r.amount || '0') * 100) / 100;
+      const arr = byAmount.get(amt.toFixed(2)) || [];
+      arr.push(r);
+      byAmount.set(amt.toFixed(2), arr);
+    }
+    const matched: any[] = [];
+    const unmatched: any[] = [];
+    for (const row of input.rows || []) {
+      const refKey = (row.ref || '').toLowerCase();
+      let hit: any = refKey ? byRef.get(refKey) : null;
+      if (!hit) {
+        const arr = byAmount.get(Number(row.amount).toFixed(2)) || [];
+        if (arr.length === 1) hit = arr[0];
+      }
+      if (hit) {
+        matched.push({ statement_row: row, ledger_row_id: hit.id, ledger_ref: hit.external_ref, ledger_tx_hash: hit.tx_hash });
+      } else {
+        unmatched.push(row);
+      }
+    }
+    return {
+      total_in_statement: (input.rows || []).length,
+      matched_count: matched.length,
+      unmatched_count: unmatched.length,
+      matched,
+      unmatched,
+    };
   }
 }

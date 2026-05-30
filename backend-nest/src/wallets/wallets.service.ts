@@ -537,12 +537,66 @@ export class WalletsService {
       });
     }
 
+    // Mirror the cashout as a `treasury_batches` row of type "cashout" so it
+    // shows in the Crypto Treasury & Reconciliation pages instead of only on
+    // Wallet Ledger.  If the operator passed `link_batch_code`, we instead
+    // close the chain on that existing batch (stamps bank_reference,
+    // bank_deposit_date, net_bank_deposit_amount and status = 'reconciled').
+    const linkBatchCode = (input as any).link_batch_code as string | undefined;
+    let batchRow: TreasuryBatch | null = null;
+    try {
+      if (linkBatchCode) {
+        const existing = await this.batchRepo.findOne({ where: { batch_code: linkBatchCode } });
+        if (existing) {
+          existing.bank_reference = input.bank_reference;
+          existing.bank_deposit_date = out.event_at;
+          existing.bank_fee_aed = fee.toFixed(2) as any;
+          existing.net_bank_deposit_amount = net.toFixed(2) as any;
+          existing.status = 'reconciled';
+          batchRow = await this.batchRepo.save(existing);
+          await this.ledger.createQueryBuilder().update(WalletLedger)
+            .set({ linked_batch_id: batchRow.id })
+            .where('external_ref = :ref', { ref: code }).execute();
+        }
+      }
+      if (!batchRow) {
+        batchRow = await this.batchRepo.save(this.batchRepo.create({
+          batch_code: code,
+          name: `${input.from_wallet} → Wio cashout ${out.event_at.toISOString().slice(0, 10)}`,
+          source_gateway: input.from_wallet,
+          source_wallet: input.from_wallet,
+          destination_exchange: input.from_wallet,
+          destination_wallet: 'WIO_BANK',
+          coin: 'AED',
+          received_crypto_amount: aed.toFixed(2),
+          total_crypto_amount: aed.toFixed(2),
+          crypto_converted: aed.toFixed(2),
+          fiat_received: aed.toFixed(2),
+          fiat_currency: 'AED',
+          conversion_rate: '1.0000' as any,
+          conversion_date: out.event_at,
+          bank_reference: input.bank_reference,
+          bank_deposit_date: out.event_at,
+          bank_fee_aed: fee.toFixed(2) as any,
+          net_bank_deposit_amount: net.toFixed(2) as any,
+          status: 'reconciled',
+          settlement_reference: `${code} cashout`,
+          notes: input.notes || `${input.from_wallet} → Wio cashout, gross ${aed} AED, fee ${fee}, net ${net}`,
+        }));
+        await this.ledger.createQueryBuilder().update(WalletLedger)
+          .set({ linked_batch_id: batchRow.id })
+          .where('external_ref = :ref', { ref: code }).execute();
+      }
+    } catch (err) {
+      console.warn(`[wallets.cashout] Failed to mirror batch for ${code}:`, (err as any)?.message);
+    }
+
     await this.audit.log({
       actor_id: actor?.id, actor_email: actor?.email,
       action: 'wallet_cashout', entity_type: 'wallet_ledger', entity_id: out.id,
-      details: `${input.from_wallet} → Wio: ${aed} AED (fee ${fee}), ref ${input.bank_reference}`,
+      details: `${input.from_wallet} → Wio: ${aed} AED (fee ${fee}), ref ${input.bank_reference}${batchRow ? ', batch=' + batchRow.batch_code : ''}`,
     });
-    return { code, out, in: inn, fee_expense: feeExpense };
+    return { code, out, in: inn, fee_expense: feeExpense, batch: batchRow };
   }
 
   /**
