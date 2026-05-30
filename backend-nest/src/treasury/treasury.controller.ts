@@ -47,6 +47,11 @@ export class TreasuryController {
     return this.svc.deleteBatch(id, req.user);
   }
 
+  @Post('backfill-orphan-conversions')
+  backfillOrphanConversions(@Body() body: { dry_run?: boolean }, @Req() req: any) {
+    return this.svc.backfillOrphanConversions({ dryRun: !!body?.dry_run }, req.user);
+  }
+
   @Post('exchange-convert')
   exchangeConvert(@Body() body: any, @Req() req: any) {
     return this.svc.recordExchangeConversion(body, req.user);

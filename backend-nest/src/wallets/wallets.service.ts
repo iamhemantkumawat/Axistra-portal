@@ -3,7 +3,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Between, Repository } from 'typeorm';
 import { WalletLedger, WalletCode } from '../entities/wallet-ledger.entity';
 import { Recharge } from '../entities/recharge.entity';
+import { TreasuryBatch } from '../entities/treasury-batch.entity';
 import { AuditService } from '../audit/audit.service';
+import { buildConversionBatch } from '../treasury/batch-builder';
 
 export const WALLETS: { code: WalletCode; label: string; type: 'crypto' | 'exchange' | 'bank'; default_coin: string }[] = [
   { code: 'OXAPAY',   label: 'OxaPay',   type: 'crypto',   default_coin: 'USDT' },
@@ -25,6 +27,7 @@ export class WalletsService {
   constructor(
     @InjectRepository(WalletLedger) private ledger: Repository<WalletLedger>,
     @InjectRepository(Recharge) private recharges: Repository<Recharge>,
+    @InjectRepository(TreasuryBatch) private batchRepo: Repository<TreasuryBatch>,
     private audit: AuditService,
   ) {}
 
@@ -435,12 +438,46 @@ export class WalletsService {
         .whereInIds(input.ledger_ids).execute();
     }
 
+    // Legacy convert() used to write only ledger rows and skip the
+    // `treasury_batches` table, which made the conversion invisible on the
+    // Crypto Treasury & Reconciliation page (it reads from batches, not the
+    // ledger).  We now ALWAYS create a matching batch row when the wallet
+    // is an exchange/treasury wallet — so every legacy or backdated
+    // conversion lights up the Treasury feed automatically.
+    let batchRow: TreasuryBatch | null = null;
+    const batchEligible = ['BINANCE', 'OKX', 'AED_TREASURY'].includes(String(input.wallet).toUpperCase());
+    if (batchEligible) {
+      try {
+        const partial = buildConversionBatch({
+          wallet: input.wallet,
+          from_coin: fromCoin,
+          to_coin: toCoin,
+          from_amount: fromAmt,
+          to_amount: toAmt,
+          batch_code: conv_id,
+          event_at: eventAt,
+          notes: input.notes,
+        });
+        batchRow = await this.batchRepo.save(this.batchRepo.create(partial));
+        // Stamp linked_batch_id on the two ledger rows we just wrote so the
+        // Wallet Ledger and Treasury views agree on which batch they belong
+        // to.
+        await this.ledger.createQueryBuilder().update(WalletLedger)
+          .set({ linked_batch_id: batchRow.id })
+          .where('external_ref = :ref', { ref: conv_id }).execute();
+      } catch (err) {
+        // A failed batch insert must not block the ledger write — operator
+        // can rerun the backfill endpoint to repair.
+        console.warn(`[wallets.convert] Failed to mirror batch for ${conv_id}:`, (err as any)?.message);
+      }
+    }
+
     await this.audit.log({
       actor_id: actor?.id, actor_email: actor?.email,
       action: 'wallet_convert', entity_type: 'wallet_ledger', entity_id: out.id,
-      details: `${input.wallet}: ${fromAmt} ${fromCoin} → ${toAmt.toFixed(2)} ${toCoin} @ ${rate.toFixed(8)} (${conv_id})`,
+      details: `${input.wallet}: ${fromAmt} ${fromCoin} → ${toAmt.toFixed(2)} ${toCoin} @ ${rate.toFixed(8)} (${conv_id}${batchRow ? ', batch=' + batchRow.batch_code : ''})`,
     });
-    return { conv_id, out, in: inn };
+    return { conv_id, batch: batchRow, out, in: inn };
   }
 
   async cashout(input: {

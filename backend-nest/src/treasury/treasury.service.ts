@@ -7,7 +7,8 @@ import { TreasuryBatch } from '../entities/treasury-batch.entity';
 import { CryptoTransaction } from '../entities/crypto-transaction.entity';
 import { AuditService } from '../audit/audit.service';
 import { WalletsService } from '../wallets/wallets.service';
-import { WalletCode } from '../entities/wallet-ledger.entity';
+import { WalletCode, WalletLedger } from '../entities/wallet-ledger.entity';
+import { buildConversionBatch } from './batch-builder';
 
 @Injectable()
 export class TreasuryService {
@@ -16,6 +17,7 @@ export class TreasuryService {
     @InjectRepository(Recharge) private rechargeRepo: Repository<Recharge>,
     @InjectRepository(TreasuryBatch) private batchRepo: Repository<TreasuryBatch>,
     @InjectRepository(CryptoTransaction) private cryptoRepo: Repository<CryptoTransaction>,
+    @InjectRepository(WalletLedger) private ledgerRepo: Repository<WalletLedger>,
     private audit: AuditService,
     private wallets: WalletsService,
   ) {}
@@ -675,6 +677,138 @@ export class TreasuryService {
    *      convert_to pair).
    * Returns { batch, assigned_recharges_count, ledger_pair }.
    */
+  /**
+   * One-time (idempotent) admin tool: scans the wallet_ledgers table for
+   * `convert_from + convert_to` pairs that have a shared `external_ref` but
+   * no matching `treasury_batches` row (i.e. legacy / hand-imported
+   * conversions written before `wallets.convert()` started mirroring a
+   * batch).  For each such pair we create the missing batch and stamp
+   * `linked_batch_id` on the two ledger rows so the conversion finally
+   * surfaces on the Crypto Treasury & Reconciliation page.
+   *
+   * Safe to re-run: pairs that already have a matching `treasury_batches`
+   * row are reported under `skipped`.
+   *
+   * NOTE: we DO NOT call `applyBatchLedger` on the freshly-created batches.
+   * The wallet_ledger rows are already there — running the fan-out would
+   * create duplicate `*-CONV-USDT` / `*-CONV-AED` rows.
+   */
+  async backfillOrphanConversions(opts: { dryRun?: boolean } = {}, actor?: any) {
+    // 1) Find every external_ref that looks like a conversion (has both a
+    //    convert_from and a convert_to row) and isn't tied to a batch.
+    const rows = await this.ledgerRepo
+      .createQueryBuilder('l')
+      .select('l.external_ref', 'ref')
+      .addSelect('MIN(l.wallet)', 'wallet')
+      .addSelect("MIN(CASE WHEN l.tx_type = 'convert_from' THEN l.coin END)", 'from_coin')
+      .addSelect("MIN(CASE WHEN l.tx_type = 'convert_to'   THEN l.coin END)", 'to_coin')
+      .addSelect("ABS(SUM(CASE WHEN l.tx_type = 'convert_from' THEN l.amount END))::text", 'from_amount')
+      .addSelect("SUM(CASE WHEN l.tx_type = 'convert_to' THEN l.amount END)::text", 'to_amount')
+      .addSelect('MIN(l.event_at)', 'event_at')
+      .addSelect("MIN(l.notes)", 'notes')
+      .addSelect("MIN(l.linked_batch_id)", 'linked_batch_id')
+      .where('l.external_ref IS NOT NULL')
+      .andWhere("l.tx_type IN ('convert_from','convert_to')")
+      .groupBy('l.external_ref')
+      .having("COUNT(DISTINCT l.tx_type) = 2")
+      .getRawMany();
+
+    const created: any[] = [];
+    const skipped: any[] = [];
+    const errored: any[] = [];
+
+    for (const r of rows) {
+      try {
+        const batchCode: string = r.ref;
+        // (a) If this external_ref is actually a STEP of an existing batch
+        //     (the legacy `applyBatchLedger` writes refs like
+        //     `<batch_code>-CONV-USDT` / `-CONV-AED` / `-SWEEP` / `-WIO`),
+        //     don't create a duplicate — just link the ledger rows to the
+        //     parent batch.
+        const STEP_SUFFIXES = ['-CONV-USDT', '-CONV-AED', '-SWEEP', '-WIO'];
+        const matchedSuffix = STEP_SUFFIXES.find((s) => batchCode.endsWith(s));
+        if (matchedSuffix) {
+          const parentCode = batchCode.slice(0, -matchedSuffix.length);
+          const parent = await this.batchRepo.findOne({ where: { batch_code: parentCode } });
+          if (parent) {
+            if (!opts.dryRun) {
+              await this.ledgerRepo.createQueryBuilder().update()
+                .set({ linked_batch_id: parent.id })
+                .where('external_ref = :ref', { ref: batchCode }).execute();
+            }
+            skipped.push({ ref: batchCode, reason: `step_of_existing_batch:${parentCode}` });
+            continue;
+          }
+        }
+
+        // (b) Skip if the batch already exists (idempotent re-run).
+        const existingBatch = await this.batchRepo.findOne({ where: { batch_code: batchCode } });
+        if (existingBatch) {
+          // Ensure ledger rows are stamped — older runs might not have.
+          if (!r.linked_batch_id) {
+            if (!opts.dryRun) {
+              await this.ledgerRepo.createQueryBuilder().update()
+                .set({ linked_batch_id: existingBatch.id })
+                .where('external_ref = :ref', { ref: batchCode }).execute();
+            }
+            skipped.push({ ref: batchCode, reason: 'batch_existed_relinked' });
+          } else {
+            skipped.push({ ref: batchCode, reason: 'batch_already_exists' });
+          }
+          continue;
+        }
+
+        const wallet = String(r.wallet || '').toUpperCase();
+        if (!['BINANCE', 'OKX', 'AED_TREASURY'].includes(wallet)) {
+          skipped.push({ ref: batchCode, reason: `wallet_not_treasury_tracked:${wallet}` });
+          continue;
+        }
+        const fromAmt = parseFloat(r.from_amount || '0');
+        const toAmt = parseFloat(r.to_amount || '0');
+        if (!(fromAmt > 0) || !(toAmt > 0) || !r.from_coin || !r.to_coin) {
+          skipped.push({ ref: batchCode, reason: 'incomplete_pair' });
+          continue;
+        }
+
+        const partial = buildConversionBatch({
+          wallet,
+          from_coin: r.from_coin,
+          to_coin: r.to_coin,
+          from_amount: fromAmt,
+          to_amount: toAmt,
+          batch_code: batchCode,
+          event_at: r.event_at ? new Date(r.event_at) : new Date(),
+          notes: r.notes || `Backfilled from wallet_ledger pair ${batchCode}`,
+        });
+
+        if (opts.dryRun) {
+          created.push({ ref: batchCode, wallet, from_coin: r.from_coin, to_coin: r.to_coin, from_amount: fromAmt, to_amount: toAmt, status: partial.status, dry_run: true });
+          continue;
+        }
+
+        const saved = await this.batchRepo.save(this.batchRepo.create(partial));
+        await this.ledgerRepo.createQueryBuilder().update()
+          .set({ linked_batch_id: saved.id })
+          .where('external_ref = :ref', { ref: batchCode }).execute();
+        created.push({ ref: batchCode, id: saved.id, wallet, from_coin: r.from_coin, to_coin: r.to_coin, from_amount: fromAmt, to_amount: toAmt, status: saved.status });
+      } catch (err) {
+        errored.push({ ref: r.ref, error: (err as any)?.message });
+      }
+    }
+
+    if (!opts.dryRun && (created.length > 0 || errored.length > 0)) {
+      await this.audit.log({
+        actor_id: actor?.id, actor_email: actor?.email,
+        action: 'backfill_orphan_conversions',
+        entity_type: 'treasury_batch',
+        entity_id: 'bulk',
+        details: `created=${created.length}, skipped=${skipped.length}, errored=${errored.length}`,
+      });
+    }
+
+    return { dry_run: !!opts.dryRun, created, skipped, errored, total_pairs: rows.length };
+  }
+
   async recordExchangeConversion(input: {
     wallet: 'BINANCE' | 'OKX' | 'AED_TREASURY';
     from_coin: string;
