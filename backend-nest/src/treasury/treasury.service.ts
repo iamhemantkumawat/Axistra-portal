@@ -103,7 +103,17 @@ export class TreasuryService {
   }
 
   async listBatches() {
-    const batches = await this.batchRepo.find({ order: { created_at: 'DESC' } });
+    // Order by the actual EVENT date (conversion / exchange / bank deposit),
+    // not the row's insert timestamp.  Backfilled or back-dated batches must
+    // sort by when the trade actually happened on the exchange, otherwise a
+    // freshly imported May-22 conversion would float above June activity.
+    const batches = await this.batchRepo
+      .createQueryBuilder('b')
+      .orderBy(
+        'COALESCE(b.bank_deposit_date, b.conversion_date, b.usdt_conversion_date, b.exchange_received_at, b.period_end, b.created_at)',
+        'DESC',
+      )
+      .getMany();
     const rows = await Promise.all(batches.map(async (b) => {
       const movements = await this.repo.find({ where: { treasury_batch_id: b.id } });
       const recharges = movements.length
