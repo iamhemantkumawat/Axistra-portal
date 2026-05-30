@@ -4,6 +4,7 @@ import { Between, Repository } from 'typeorm';
 import { WalletLedger, WalletCode } from '../entities/wallet-ledger.entity';
 import { Recharge } from '../entities/recharge.entity';
 import { TreasuryBatch } from '../entities/treasury-batch.entity';
+import { Expense } from '../entities/expense.entity';
 import { AuditService } from '../audit/audit.service';
 import { buildConversionBatch } from '../treasury/batch-builder';
 
@@ -28,6 +29,7 @@ export class WalletsService {
     @InjectRepository(WalletLedger) private ledger: Repository<WalletLedger>,
     @InjectRepository(Recharge) private recharges: Repository<Recharge>,
     @InjectRepository(TreasuryBatch) private batchRepo: Repository<TreasuryBatch>,
+    @InjectRepository(Expense) private expenseRepo: Repository<Expense>,
     private audit: AuditService,
   ) {}
 
@@ -517,13 +519,72 @@ export class WalletsService {
     // for the wire fee — adding another `-fee` row would double-count it
     // and leave the source wallet sitting at a phantom negative balance.
     // The fee is preserved for audit on the cashout row via `fee_amount`.
+    //
+    // Instead, we record the wire fee as a proper EXPENSE row (so it flows
+    // through P&L under "Bank Fees"), keyed idempotently by the cashout
+    // code so re-running the cashout cannot duplicate the fee.
+    let feeExpense: Expense | null = null;
+    if (fee > 0) {
+      feeExpense = await this.upsertCashoutFeeExpense({
+        ref: code,
+        bank_reference: input.bank_reference,
+        fee_aed: fee,
+        cashout_date: out.event_at,
+        gross_aed: aed,
+        net_aed: net,
+        from_wallet: input.from_wallet,
+        actor,
+      });
+    }
 
     await this.audit.log({
       actor_id: actor?.id, actor_email: actor?.email,
       action: 'wallet_cashout', entity_type: 'wallet_ledger', entity_id: out.id,
       details: `${input.from_wallet} → Wio: ${aed} AED (fee ${fee}), ref ${input.bank_reference}`,
     });
-    return { code, out, in: inn };
+    return { code, out, in: inn, fee_expense: feeExpense };
+  }
+
+  /**
+   * Idempotently upsert a "Bank Fees" expense row for an OKX/Binance → Wio
+   * cashout.  Re-running cashout deletion + re-creation will not duplicate
+   * the fee because we key by `bank_reference = cashout code`.
+   */
+  private async upsertCashoutFeeExpense(args: {
+    ref: string;
+    bank_reference: string;
+    fee_aed: number;
+    cashout_date: Date;
+    gross_aed: number;
+    net_aed: number;
+    from_wallet: string;
+    actor?: any;
+  }): Promise<Expense> {
+    const existing = await this.expenseRepo.findOne({ where: { bank_reference: args.ref } });
+    const stamp = `${String(args.cashout_date.getFullYear()).slice(-2)}${String(args.cashout_date.getMonth() + 1).padStart(2, '0')}`;
+    const count = await this.expenseRepo
+      .createQueryBuilder('e').where('e.expense_code LIKE :p', { p: `EXP-${stamp}-%` }).getCount();
+    const payload: Partial<Expense> = {
+      expense_date: args.cashout_date,
+      vendor_name: 'Wio Bank wire fee',
+      category: 'Bank Fees',
+      amount: args.fee_aed.toFixed(2),
+      currency: 'AED',
+      payment_method: 'Auto (cashout)',
+      aed_value: args.fee_aed.toFixed(2),
+      aed_rate: '1.0000',
+      bank_reference: args.ref,
+      source_wallet: 'WIO_BANK',
+      notes: `Wire fee auto-recorded from ${args.from_wallet} cashout ${args.ref}. Gross ${args.gross_aed.toFixed(2)} AED → net ${args.net_aed.toFixed(2)} AED (bank ref: ${args.bank_reference}).`,
+    };
+    if (existing) {
+      Object.assign(existing, payload);
+      return await this.expenseRepo.save(existing);
+    }
+    return await this.expenseRepo.save(this.expenseRepo.create({
+      ...payload,
+      expense_code: `EXP-${stamp}-${String(count + 1).padStart(5, '0')}`,
+    }));
   }
 
   async recordExpense(input: {

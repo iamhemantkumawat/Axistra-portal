@@ -160,10 +160,13 @@ export default function WalletLedger() {
   useEffect(() => { loadLedger(active); /* eslint-disable-next-line */ }, [active, coinFilter, typeFilter]);
 
   const totals = useMemo(() => {
-    const t = { walletsCount: overview.length, totalAed: 0, totalUsdt: 0, txCount: 0 };
+    const t = { walletsCount: overview.length, totalAedWio: 0, totalAedAll: 0, totalUsdt: 0, txCount: 0 };
     overview.forEach((w) => w.balances.forEach((b) => {
       t.txCount += b.tx_count;
-      if (b.coin === 'AED') t.totalAed += b.balance;
+      if (b.coin === 'AED') {
+        t.totalAedAll += b.balance;
+        if (w.code === 'WIO_BANK') t.totalAedWio += b.balance;
+      }
       if (b.coin === 'USDT') t.totalUsdt += b.balance;
     }));
     return t;
@@ -270,11 +273,18 @@ export default function WalletLedger() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-6">
         <KpiCard label="Wallets Tracked" value={totals.walletsCount} icon={Wallet} testId="kpi-wallets" />
         <KpiCard label="Total USDT" value={fmtCrypto(totals.totalUsdt, 'USDT')} icon={Coin} testId="kpi-total-usdt" />
-        <KpiCard label="Total AED (Wio)" value={`AED ${fmtNumber(totals.totalAed)}`} icon={Bank} accent testId="kpi-total-aed" />
+        <KpiCard
+          label="AED on Wio Bank"
+          value={`AED ${fmtNumber(totals.totalAedWio)}`}
+          sub={Math.abs(totals.totalAedAll - totals.totalAedWio) > 0.01
+            ? `+ AED ${fmtNumber(totals.totalAedAll - totals.totalAedWio)} on exchanges (pending cashout)`
+            : 'No AED held on exchanges'}
+          icon={Bank} accent testId="kpi-total-aed"
+        />
         <KpiCard label="Ledger Rows" value={totals.txCount} icon={Receipt} testId="kpi-tx-count" />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-6 gap-3 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
         {overview.map((w) => {
           const meta = WALLET_ICONS[w.code] || { icon: Wallet, coins: [] };
           const Icon = meta.icon;
@@ -290,7 +300,7 @@ export default function WalletLedger() {
               key={w.code}
               data-testid={`wallet-card-${w.code}`}
               onClick={() => setActive(w.code)}
-              className={`rounded-lg border p-4 text-left transition-all ${isActive ? 'border-axistra-green bg-[var(--axistra-green-light)]' : 'border-gray-200 hover:border-axistra-green/60 bg-white'}`}
+              className={`group flex h-full min-h-[230px] flex-col rounded-lg border p-4 text-left transition-all ${isActive ? 'border-axistra-green bg-[var(--axistra-green-light)] shadow-sm' : 'border-gray-200 hover:border-axistra-green/60 hover:shadow-sm bg-white'}`}
             >
               <div className="flex items-start justify-between">
                 <div className="flex h-9 w-9 items-center justify-center rounded-md bg-white text-axistra-green border border-axistra-green/20">
@@ -298,18 +308,18 @@ export default function WalletLedger() {
                 </div>
                 <Badge className={meta.type === 'bank' ? 'badge-success' : meta.type === 'exchange' ? 'badge-info' : 'badge-neutral'}>{meta.type}</Badge>
               </div>
-              <div className="mt-3 font-display text-base font-bold text-gray-900">{w.label}</div>
+              <div className="mt-3 font-display text-base font-bold text-gray-900 truncate">{w.label}</div>
               <div className="text-[11px] uppercase tracking-wider text-gray-500">{w.code}</div>
               {showBalances.length ? (
-                <div className="mt-3 space-y-0.5">
+                <div className="mt-3 space-y-0.5 flex-1">
                   {showBalances.map((b, idx) => (
-                    <div key={b.coin} className={`font-mono ${idx === 0 ? 'text-base font-bold text-axistra-green' : 'text-xs text-gray-600'}`}>
+                    <div key={b.coin} className={`font-mono ${idx === 0 ? 'text-base font-bold text-axistra-green' : 'text-xs ' + (b.balance < 0 ? 'text-red-600' : 'text-gray-600')}`}>
                       {fmtCrypto(b.balance, b.coin)}
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="mt-3 text-xs text-gray-400">No activity yet</div>
+                <div className="mt-3 flex-1 text-xs text-gray-400">No activity yet</div>
               )}
               {meta.hint && <div className="mt-2 text-[10px] text-gray-400 line-clamp-2">{meta.hint}</div>}
             </button>
