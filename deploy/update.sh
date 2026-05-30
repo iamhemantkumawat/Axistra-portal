@@ -27,6 +27,7 @@ COMPOSE_FILE="${COMPOSE_FILE:-deploy/docker-compose.yml}"
 ENV_FILE="${ENV_FILE:-.env}"
 BACKUP_BEFORE="${BACKUP_BEFORE:-yes}"
 NO_SELF_UPDATE="${NO_SELF_UPDATE:-no}"   # set to yes to skip step 0
+FORCE_REBUILD="${FORCE_REBUILD:-no}"     # set to yes to rebuild both services regardless of diff
 
 LOG_PREFIX="[axistra-update]"
 # Docker compose paths are relative to the compose file's dir by default, but
@@ -143,12 +144,14 @@ log "Fetching origin/${BRANCH}…"
 git fetch origin "$BRANCH"
 LOCAL_SHA="$(git rev-parse HEAD)"
 REMOTE_SHA="$(git rev-parse "origin/${BRANCH}")"
-if [[ "$LOCAL_SHA" == "$REMOTE_SHA" ]]; then
-  ok "Already at $LOCAL_SHA — nothing to do."
+if [[ "$LOCAL_SHA" == "$REMOTE_SHA" && "$FORCE_REBUILD" != "yes" ]]; then
+  ok "Already at $LOCAL_SHA — nothing to do. (Run with FORCE_REBUILD=yes to rebuild anyway.)"
   exit 0
 fi
-log "Resetting workdir to origin/${BRANCH}…"
-git reset --hard "origin/${BRANCH}"
+if [[ "$LOCAL_SHA" != "$REMOTE_SHA" ]]; then
+  log "Resetting workdir to origin/${BRANCH}…"
+  git reset --hard "origin/${BRANCH}"
+fi
 ok  "Now at $(git rev-parse --short HEAD) — $(git log -1 --pretty=%s)"
 
 # ----- Step 3: doctor on fresh tree ------------------------------------------
@@ -165,6 +168,11 @@ echo "$CHANGED" | grep -qE '^frontend/'      && REBUILD_FRONTEND=yes
 echo "$CHANGED" | grep -qE '^backend-nest/src/(entities|migrations)/' && SCHEMA_TOUCHED=yes
 echo "$CHANGED" | grep -qE '^(deploy/docker-compose\.yml|deploy/)' && COMPOSE_TOUCHED=yes
 [[ "$COMPOSE_TOUCHED" == "yes" ]] && { REBUILD_BACKEND=yes; REBUILD_FRONTEND=yes; }
+if [[ "$FORCE_REBUILD" == "yes" ]]; then
+  warn "FORCE_REBUILD=yes — rebuilding backend + frontend regardless of diff."
+  REBUILD_BACKEND=yes
+  REBUILD_FRONTEND=yes
+fi
 log "Changes: backend=$REBUILD_BACKEND  frontend=$REBUILD_FRONTEND  schema=$SCHEMA_TOUCHED"
 
 # ----- Step 5: rebuild + roll -------------------------------------------------
