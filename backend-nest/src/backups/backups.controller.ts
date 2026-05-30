@@ -49,6 +49,16 @@ export class BackupsController {
     return this.svc.deleteBackup(name, req.user);
   }
 
+  @Post('bulk-delete')
+  bulkDelete(@Body() body: { names: string[] }, @Req() req: any) {
+    return this.svc.bulkDelete(body?.names || [], req.user);
+  }
+
+  @Post('drive/bulk-delete')
+  bulkDeleteDrive(@Body() body: { file_ids: string[] }, @Req() req: any) {
+    return this.svc.bulkDeleteDrive(body?.file_ids || [], req.user);
+  }
+
   @Post(':name/restore')
   restore(@Param('name') name: string, @Body() body: any, @Req() req: any) {
     return this.svc.restore(name, body?.confirm, req.user);

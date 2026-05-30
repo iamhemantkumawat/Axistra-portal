@@ -19,6 +19,8 @@ export default function BackupRestoreCard() {
   const [driveFiles, setDriveFiles] = useState([]);
   const [loading, setLoading] = useState(false);
   const [busyAction, setBusyAction] = useState(null);
+  const [selectedLocal, setSelectedLocal] = useState(new Set());
+  const [selectedDrive, setSelectedDrive] = useState(new Set());
   const [restoreTarget, setRestoreTarget] = useState(null); // { name, source: 'local'|'drive', driveId? }
   const [confirmText, setConfirmText] = useState('');
   const [restoring, setRestoring] = useState(false);
@@ -75,6 +77,61 @@ export default function BackupRestoreCard() {
       loadAll();
     } catch (err) {
       toast.error(err?.response?.data?.message || 'Backup failed');
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const toggleLocal = (name) => {
+    setSelectedLocal((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name); else next.add(name);
+      return next;
+    });
+  };
+  const toggleAllLocal = () => {
+    setSelectedLocal((prev) => prev.size === local.length ? new Set() : new Set(local.map((b) => b.name)));
+  };
+  const toggleDrive = (id) => {
+    setSelectedDrive((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const toggleAllDrive = () => {
+    setSelectedDrive((prev) => prev.size === driveFiles.length ? new Set() : new Set(driveFiles.map((f) => f.id)));
+  };
+
+  const handleBulkDeleteLocal = async () => {
+    const names = Array.from(selectedLocal);
+    if (!names.length) return;
+    if (!window.confirm(`Delete ${names.length} local backup file${names.length === 1 ? '' : 's'}? This cannot be undone.`)) return;
+    setBusyAction('bulk-local');
+    try {
+      const { data } = await api.post('/backups/bulk-delete', { names });
+      toast.success(`${data.deleted}/${data.total} deleted`);
+      setSelectedLocal(new Set());
+      loadAll();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Bulk delete failed');
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleBulkDeleteDrive = async () => {
+    const ids = Array.from(selectedDrive);
+    if (!ids.length) return;
+    if (!window.confirm(`Delete ${ids.length} file${ids.length === 1 ? '' : 's'} from Google Drive? Local copies stay.`)) return;
+    setBusyAction('bulk-drive');
+    try {
+      const { data } = await api.post('/backups/drive/bulk-delete', { file_ids: ids });
+      toast.success(`${data.deleted}/${data.total} removed from Drive`);
+      setSelectedDrive(new Set());
+      loadAll();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Bulk delete failed');
     } finally {
       setBusyAction(null);
     }
@@ -275,21 +332,51 @@ export default function BackupRestoreCard() {
       <DriveStatus drive={drive} />
 
       <div className="mt-6">
-        <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
           <h4 className="font-semibold text-sm text-gray-700">Local backups</h4>
-          <span className="text-xs text-gray-400">{local.length} file{local.length === 1 ? '' : 's'}</span>
+          <div className="flex items-center gap-3 text-xs">
+            {selectedLocal.size > 0 && (
+              <button
+                onClick={handleBulkDeleteLocal}
+                disabled={busyAction === 'bulk-local'}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 disabled:opacity-50"
+                data-testid="backup-bulk-delete-local"
+              >
+                <Trash size={14} /> {busyAction === 'bulk-local' ? 'Deleting…' : `Delete ${selectedLocal.size} selected`}
+              </button>
+            )}
+            <span className="text-gray-400">{local.length} file{local.length === 1 ? '' : 's'}</span>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="table-axistra">
             <thead>
-              <tr><th>Name</th><th>Type</th><th>Size</th><th>Created</th><th></th></tr>
+              <tr>
+                <th className="w-8">
+                  <input
+                    type="checkbox"
+                    checked={local.length > 0 && selectedLocal.size === local.length}
+                    onChange={toggleAllLocal}
+                    data-testid="backup-select-all-local"
+                  />
+                </th>
+                <th>Name</th><th>Type</th><th>Size</th><th>Created</th><th></th>
+              </tr>
             </thead>
             <tbody>
               {local.length === 0 && (
-                <tr><td colSpan={5} className="text-center text-gray-400 py-6">No local snapshots yet. Click “Backup Now”.</td></tr>
+                <tr><td colSpan={6} className="text-center text-gray-400 py-6">No local snapshots yet. Click “Backup Now”.</td></tr>
               )}
               {local.map((b) => (
                 <tr key={b.name} data-testid={`backup-row-${b.name}`}>
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={selectedLocal.has(b.name)}
+                      onChange={() => toggleLocal(b.name)}
+                      data-testid={`backup-checkbox-${b.name}`}
+                    />
+                  </td>
                   <td className="font-mono text-xs">{b.name}</td>
                   <td>
                     <span className={`badge ${b.kind === 'scheduled' ? 'badge-neutral' : b.kind === 'safety' ? 'badge-warning' : 'badge-success'}`}>{b.kind}</span>
@@ -338,23 +425,53 @@ export default function BackupRestoreCard() {
 
       {drive.configured && (
         <div className="mt-8">
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
             <h4 className="font-semibold text-sm text-gray-700 inline-flex items-center gap-2">
               <GoogleLogo size={16} /> Google Drive backups
             </h4>
-            <span className="text-xs text-gray-400">{driveFiles.length} file{driveFiles.length === 1 ? '' : 's'}</span>
+            <div className="flex items-center gap-3 text-xs">
+              {selectedDrive.size > 0 && (
+                <button
+                  onClick={handleBulkDeleteDrive}
+                  disabled={busyAction === 'bulk-drive'}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 disabled:opacity-50"
+                  data-testid="backup-bulk-delete-drive"
+                >
+                  <Trash size={14} /> {busyAction === 'bulk-drive' ? 'Deleting…' : `Delete ${selectedDrive.size} selected`}
+                </button>
+              )}
+              <span className="text-gray-400">{driveFiles.length} file{driveFiles.length === 1 ? '' : 's'}</span>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="table-axistra">
               <thead>
-                <tr><th>Name</th><th>Size</th><th>Created</th><th></th></tr>
+                <tr>
+                  <th className="w-8">
+                    <input
+                      type="checkbox"
+                      checked={driveFiles.length > 0 && selectedDrive.size === driveFiles.length}
+                      onChange={toggleAllDrive}
+                      data-testid="backup-select-all-drive"
+                    />
+                  </th>
+                  <th>Name</th><th>Size</th><th>Created</th><th></th>
+                </tr>
               </thead>
               <tbody>
                 {driveFiles.length === 0 && (
-                  <tr><td colSpan={4} className="text-center text-gray-400 py-6">No files in the configured Drive folder yet.</td></tr>
+                  <tr><td colSpan={5} className="text-center text-gray-400 py-6">No files in the configured Drive folder yet.</td></tr>
                 )}
                 {driveFiles.map((f) => (
                   <tr key={f.id} data-testid={`drive-row-${f.id}`}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={selectedDrive.has(f.id)}
+                        onChange={() => toggleDrive(f.id)}
+                        data-testid={`drive-checkbox-${f.id}`}
+                      />
+                    </td>
                     <td className="font-mono text-xs">{f.name}</td>
                     <td className="font-mono text-xs text-gray-600">{f.size ? `${(Number(f.size) / 1024 / 1024).toFixed(2)} MB` : '—'}</td>
                     <td className="text-xs text-gray-500">{f.created_time ? new Date(f.created_time).toLocaleString() : '—'}</td>

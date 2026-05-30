@@ -49,16 +49,17 @@ export class GoogleDriveService {
         this.logger.warn(this.lastError);
         return;
       }
-    } else if (process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE) {
+    } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE) {
+      const keyPath = process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE!;
       try {
-        creds = JSON.parse(fs.readFileSync(process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE, 'utf8'));
+        creds = JSON.parse(fs.readFileSync(keyPath, 'utf8'));
       } catch (err) {
-        this.lastError = `Failed to read GOOGLE_SERVICE_ACCOUNT_KEY_FILE: ${(err as any)?.message}`;
+        this.lastError = `Failed to read service-account key at ${keyPath}: ${(err as any)?.message}`;
         this.logger.warn(this.lastError);
         return;
       }
     } else {
-      this.lastError = 'No GOOGLE_SERVICE_ACCOUNT_KEY_JSON or GOOGLE_SERVICE_ACCOUNT_KEY_FILE set';
+      this.lastError = 'No GOOGLE_SERVICE_ACCOUNT_KEY_JSON, GOOGLE_APPLICATION_CREDENTIALS, or GOOGLE_SERVICE_ACCOUNT_KEY_FILE set';
       return;
     }
 

@@ -52,6 +52,7 @@ services:
     volumes:
       - ./uploads:/app/uploads
       - ./backups:/app/backups
+      - ./secrets:/app/secrets:ro
     networks: [axistra]
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:9001/api/health"]

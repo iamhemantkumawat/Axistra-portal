@@ -123,6 +123,32 @@ export class BackupsService {
     return { deleted: true };
   }
 
+  async bulkDelete(names: string[], actor?: any) {
+    const results: { name: string; deleted: boolean; error?: string }[] = [];
+    for (const n of names) {
+      try {
+        await this.deleteBackup(n, actor);
+        results.push({ name: n, deleted: true });
+      } catch (err) {
+        results.push({ name: n, deleted: false, error: (err as any)?.message });
+      }
+    }
+    return { total: names.length, deleted: results.filter((r) => r.deleted).length, results };
+  }
+
+  async bulkDeleteDrive(fileIds: string[], actor?: any) {
+    const results: { id: string; deleted: boolean; error?: string }[] = [];
+    for (const id of fileIds) {
+      try {
+        await this.deleteDrive(id, actor);
+        results.push({ id, deleted: true });
+      } catch (err) {
+        results.push({ id, deleted: false, error: (err as any)?.message });
+      }
+    }
+    return { total: fileIds.length, deleted: results.filter((r) => r.deleted).length, results };
+  }
+
   async uploadToDrive(name: string, actor?: any) {
     const fp = this.fullPath(name);
     const meta = await this.drive.uploadFile(fp);
