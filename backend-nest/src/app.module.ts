@@ -20,6 +20,7 @@ import { TreasuryBatch } from './entities/treasury-batch.entity';
 import { WalletLedger } from './entities/wallet-ledger.entity';
 import { ReceivingWallet } from './entities/receiving-wallet.entity';
 import { Vendor } from './entities/vendor.entity';
+import { AppSetting } from './entities/app-setting.entity';
 
 import { AuthModule } from './auth/auth.module';
 import { CustomersModule } from './customers/customers.module';
@@ -59,7 +60,7 @@ import { HealthController } from './health.controller';
         AdminUser, Customer, Recharge, Invoice, CryptoTransaction,
         TreasuryMovement, Expense, ComplianceLog, AuditLog,
         MagnusSyncLog, KycDocument, Setting, Lead, PaymentWebhook, TreasuryBatch,
-        WalletLedger, ReceivingWallet, Vendor,
+        WalletLedger, ReceivingWallet, Vendor, AppSetting,
       ],
       synchronize: process.env.DB_SYNCHRONIZE === 'true',
       migrations: [__dirname + '/migrations/*{.js,.ts}'],

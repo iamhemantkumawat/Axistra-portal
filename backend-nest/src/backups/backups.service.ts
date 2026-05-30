@@ -164,6 +164,15 @@ export class BackupsService {
     return this.drive.status();
   }
 
+  driveOAuthStart() {
+    return this.drive.startOAuth();
+  }
+
+  async driveOAuthDisconnect() {
+    await this.drive.disconnect();
+    return { disconnected: true };
+  }
+
   async listDrive() {
     return this.drive.listFiles();
   }

@@ -137,6 +137,48 @@ export default function BackupRestoreCard() {
     }
   };
 
+  const handleConnectDrive = async () => {
+    setBusyAction('connect-drive');
+    try {
+      const { data } = await api.get('/backups/drive/oauth-start');
+      const popup = window.open(data.url, 'gdrive-oauth', 'width=520,height=640');
+      if (!popup) {
+        toast.error('Popup blocked. Allow popups for this site, then try again.');
+        return;
+      }
+      const onMsg = (ev) => {
+        if (ev?.data?.type === 'gdrive_oauth_done') {
+          window.removeEventListener('message', onMsg);
+          if (ev.data.ok) {
+            toast.success('Google Drive connected');
+            loadAll();
+          } else {
+            toast.error('Drive connection failed — check the popup for details');
+          }
+        }
+      };
+      window.addEventListener('message', onMsg);
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Could not start Google sign-in');
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleDisconnectDrive = async () => {
+    if (!window.confirm('Disconnect Google Drive? Your existing Drive backups stay where they are; new backups will only be saved locally until you reconnect.')) return;
+    setBusyAction('disconnect-drive');
+    try {
+      await api.delete('/backups/drive/disconnect');
+      toast.success('Google Drive disconnected');
+      loadAll();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Disconnect failed');
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
   const handleDownload = async (name) => {
     const token = localStorage.getItem('axistra_token');
     const url = `${API_BASE}/backups/${encodeURIComponent(name)}/download`;
@@ -562,32 +604,49 @@ export default function BackupRestoreCard() {
   );
 }
 
-function DriveStatus({ drive }) {
+function DriveStatus({ drive, onConnect, onDisconnect, busy }) {
   if (drive?.configured) {
+    const mode = drive.mode === 'oauth' ? 'OAuth (personal Drive)' : 'Service Account';
     return (
       <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs text-emerald-900 flex items-start gap-2">
         <GoogleLogo size={16} className="mt-0.5" />
-        <div>
-          <div className="font-semibold">Google Drive uploads are active</div>
+        <div className="flex-1">
+          <div className="font-semibold">Google Drive uploads are active · {mode}</div>
           <div className="font-mono text-[11px] mt-1 break-all">
-            Service account: {drive.service_account_email || '—'} · Folder: {drive.folder_id}
+            {drive.mode === 'oauth' ? 'Account' : 'Service account'}: {drive.connected_email || '—'} · Folder: {drive.folder_id}
           </div>
-          <div className="mt-1">Scheduled snapshots are auto-mirrored to Drive. Use “Backup + Drive” to mirror a manual snapshot immediately.</div>
+          <div className="mt-1">Scheduled snapshots are auto-mirrored to Drive. Use "Backup + Drive" to mirror a manual snapshot immediately.</div>
         </div>
+        {drive.mode === 'oauth' && (
+          <button onClick={onDisconnect} disabled={busy} className="ml-2 text-xs px-2 py-1 rounded border border-emerald-300 hover:bg-emerald-100" data-testid="drive-disconnect">
+            Disconnect
+          </button>
+        )}
       </div>
     );
   }
   return (
     <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">
-      <div className="font-semibold flex items-center gap-2"><GoogleLogo size={16} /> Google Drive is not configured</div>
-      <div className="mt-1 leading-relaxed">
-        Local backups still work. To enable Drive mirroring, set two env vars on the server and restart the backend:
-        <ul className="list-disc ml-5 mt-1">
-          <li><code className="font-mono">GOOGLE_DRIVE_FOLDER_ID</code> — the destination folder ID</li>
-          <li><code className="font-mono">GOOGLE_SERVICE_ACCOUNT_KEY_JSON</code> — the full service-account JSON key (single line)</li>
-        </ul>
-        Then share that Drive folder with the service-account email and grant <i>Editor</i> access.
-        {drive?.last_error && <div className="mt-1 text-[11px] font-mono">Last error: {drive.last_error}</div>}
+      <div className="font-semibold flex items-center gap-2"><GoogleLogo size={16} /> Google Drive is not connected</div>
+      <div className="mt-2 leading-relaxed">
+        Local backups still work. To mirror to Google Drive:
+        {drive?.can_oauth ? (
+          <div className="mt-2">
+            <button onClick={onConnect} disabled={busy} className="btn-primary inline-flex items-center gap-2" data-testid="drive-connect">
+              <GoogleLogo size={14} /> {busy ? 'Opening Google…' : 'Connect Google Drive'}
+            </button>
+            <div className="mt-1 text-[11px]">Uses your own 15 GB personal Drive quota — no Workspace plan needed.</div>
+          </div>
+        ) : (
+          <ul className="list-disc ml-5 mt-1 space-y-0.5">
+            <li>On the server, set <code className="font-mono">GOOGLE_DRIVE_FOLDER_ID</code> (folder ID from the Drive URL)</li>
+            <li>Set <code className="font-mono">GOOGLE_OAUTH_CLIENT_ID</code> and <code className="font-mono">GOOGLE_OAUTH_CLIENT_SECRET</code> from a Google Cloud OAuth Client (type: Web)</li>
+            <li>Set <code className="font-mono">PORTAL_PUBLIC_URL</code> to the public URL of this portal (e.g. <code>https://axistratech.com</code>)</li>
+            <li>Add <code className="font-mono">{`{PORTAL_PUBLIC_URL}/api/backups/drive/oauth-callback`}</code> to the OAuth Client's Authorized redirect URIs</li>
+            <li>Restart the backend, refresh this page, then come back and click "Connect Google Drive"</li>
+          </ul>
+        )}
+        {drive?.last_error && <div className="mt-2 text-[11px] font-mono opacity-75">Last error: {drive.last_error}</div>}
       </div>
     </div>
   );

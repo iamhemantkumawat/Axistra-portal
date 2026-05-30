@@ -1,5 +1,5 @@
 import {
-  Body, Controller, Delete, Get, Logger, Param, Post, Req, Res, UploadedFile, UseGuards, UseInterceptors,
+  Body, Controller, Delete, Get, Logger, Param, Post, Query, Req, Res, UploadedFile, UseGuards, UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
@@ -82,6 +82,16 @@ export class BackupsController {
   @Get('drive/status')
   driveStatus() {
     return this.svc.driveStatus();
+  }
+
+  @Get('drive/oauth-start')
+  driveOAuthStart() {
+    return { url: this.svc.driveOAuthStart() };
+  }
+
+  @Delete('drive/disconnect')
+  driveDisconnect() {
+    return this.svc.driveOAuthDisconnect();
   }
 
   @Get('drive/list')
