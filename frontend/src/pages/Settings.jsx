@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import api from '../lib/api';
 import { PageHeader, Modal, Field } from '../components/Atoms';
+import BackupRestoreCard from '../components/BackupRestoreCard';
 import { useCurrency } from '../lib/currency';
 import { Plus, Pencil, Trash, Copy } from '@phosphor-icons/react';
 import { toast } from 'sonner';
@@ -39,6 +40,7 @@ export default function Settings() {
         <ComplianceCard />
         <ReceivingWalletsCard />
         <VendorsCard />
+        <BackupRestoreCard />
         <AuditChainCard />
       </div>
     </div>

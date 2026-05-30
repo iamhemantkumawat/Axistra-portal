@@ -42,6 +42,7 @@ import { ChainModule } from './chain/chain.module';
 import { SnapshotModule } from './snapshot/snapshot.module';
 import { OnchainModule } from './onchain/onchain.module';
 import { SettingsModule } from './settings/settings.module';
+import { BackupsModule } from './backups/backups.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -86,6 +87,7 @@ import { HealthController } from './health.controller';
     SnapshotModule,
     OnchainModule,
     SettingsModule,
+    BackupsModule,
   ],
   controllers: [HealthController],
 })

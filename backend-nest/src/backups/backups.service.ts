@@ -4,24 +4,30 @@ import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { AuditService } from '../audit/audit.service';
+import { GoogleDriveService } from './google-drive.service';
 
 const BACKUP_DIR = process.env.BACKUP_DIR || '/app/backups';
 const RETAIN_DAYS = Number(process.env.BACKUP_RETAIN_DAYS || '30');
+const DRIVE_AUTO_UPLOAD = (process.env.BACKUP_DRIVE_AUTO_UPLOAD || 'scheduled').toLowerCase();
+// values: 'off' | 'scheduled' | 'all'
 
 @Injectable()
 export class BackupsService {
   private readonly logger = new Logger('BackupsService');
 
-  constructor(private readonly audit: AuditService) {
+  constructor(
+    private readonly audit: AuditService,
+    private readonly drive: GoogleDriveService,
+  ) {
     try { fs.mkdirSync(BACKUP_DIR, { recursive: true }); } catch {}
   }
 
   /**
    * Runs `pg_dump | gzip` to produce a self-contained .sql.gz snapshot of the
-   * portal database. Returns the resulting file metadata.  Uses env DATABASE_*
-   * credentials so we never hardcode anything.
+   * portal database.  Uses env DATABASE_* credentials so we never hardcode
+   * anything.  Optionally mirrors the snapshot to Google Drive when configured.
    */
-  async createBackup(opts: { kind?: 'manual' | 'scheduled'; actor?: any } = {}): Promise<any> {
+  async createBackup(opts: { kind?: 'manual' | 'scheduled'; actor?: any; uploadToDrive?: boolean } = {}): Promise<any> {
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19);
     const kind = opts.kind || 'manual';
     const fileName = `axistra-${kind}-${stamp}.sql.gz`;
@@ -58,8 +64,28 @@ export class BackupsService {
       details: `${(stat.size / 1024).toFixed(1)} KB`,
     });
     this.logger.log(`Backup written: ${fileName} (${stat.size} bytes)`);
+
+    let driveMeta: any = null;
+    const shouldAutoUpload =
+      this.drive.isConfigured() &&
+      (opts.uploadToDrive ||
+        DRIVE_AUTO_UPLOAD === 'all' ||
+        (DRIVE_AUTO_UPLOAD === 'scheduled' && kind === 'scheduled'));
+    if (shouldAutoUpload) {
+      try {
+        driveMeta = await this.drive.uploadFile(filePath);
+        await this.audit.log({
+          actor_id: opts.actor?.id, actor_email: opts.actor?.email,
+          action: 'backup_drive_upload', entity_type: 'backup', entity_id: fileName,
+          details: `Drive file ${driveMeta.id}`,
+        });
+      } catch (err) {
+        this.logger.warn(`Drive upload failed for ${fileName}: ${(err as any)?.message}`);
+      }
+    }
+
     this.pruneOldBackups();
-    return this.toMeta(fileName, stat);
+    return { ...this.toMeta(fileName, stat), drive: driveMeta };
   }
 
   list() {
@@ -92,6 +118,76 @@ export class BackupsService {
       details: `Deleted ${name}`,
     });
     return { deleted: true };
+  }
+
+  async uploadToDrive(name: string, actor?: any) {
+    const fp = this.fullPath(name);
+    const meta = await this.drive.uploadFile(fp);
+    await this.audit.log({
+      actor_id: actor?.id, actor_email: actor?.email,
+      action: 'backup_drive_upload', entity_type: 'backup', entity_id: name,
+      details: `Drive file ${meta.id}`,
+    });
+    return meta;
+  }
+
+  driveStatus() {
+    return this.drive.status();
+  }
+
+  async listDrive() {
+    return this.drive.listFiles();
+  }
+
+  async deleteDrive(fileId: string, actor?: any) {
+    await this.drive.deleteFile(fileId);
+    await this.audit.log({
+      actor_id: actor?.id, actor_email: actor?.email,
+      action: 'backup_drive_delete', entity_type: 'backup', entity_id: fileId,
+      details: `Removed Drive file ${fileId}`,
+    });
+    return { deleted: true };
+  }
+
+  async pullFromDrive(fileId: string, originalName: string, actor?: any) {
+    // Sanitize name; only allow our backup extension.
+    const safe = originalName.replace(/[^A-Za-z0-9._-]/g, '_');
+    if (!(safe.endsWith('.sql.gz') || safe.endsWith('.dump.gz'))) {
+      throw new BadRequestException('Drive file is not a recognised Axistra backup (.sql.gz / .dump.gz)');
+    }
+    const target = path.join(BACKUP_DIR, safe);
+    const buf = await this.drive.downloadToBuffer(fileId);
+    fs.writeFileSync(target, buf);
+    const stat = fs.statSync(target);
+    await this.audit.log({
+      actor_id: actor?.id, actor_email: actor?.email,
+      action: 'backup_drive_pull', entity_type: 'backup', entity_id: safe,
+      details: `Pulled ${safe} from Drive`,
+    });
+    return this.toMeta(safe, stat);
+  }
+
+  /**
+   * Accept an admin-uploaded .sql.gz / .dump.gz file and store it under
+   * BACKUP_DIR so it shows up in the regular list and can be restored.
+   */
+  async ingestUpload(file: { originalname: string; buffer: Buffer; size: number }, actor?: any) {
+    if (!file?.originalname || !file?.buffer) {
+      throw new BadRequestException('No file uploaded');
+    }
+    const safe = file.originalname.replace(/[^A-Za-z0-9._-]/g, '_');
+    if (!(safe.endsWith('.sql.gz') || safe.endsWith('.dump.gz'))) {
+      throw new BadRequestException('Only .sql.gz or .dump.gz uploads are allowed');
+    }
+    const target = path.join(BACKUP_DIR, safe);
+    fs.writeFileSync(target, file.buffer);
+    const stat = fs.statSync(target);
+    await this.audit.log({
+      actor_id: actor?.id, actor_email: actor?.email,
+      action: 'backup_upload', entity_type: 'backup', entity_id: safe,
+      details: `Uploaded ${(stat.size / 1024).toFixed(1)} KB`,
+    });
+    return this.toMeta(safe, stat);
   }
 
   /**
