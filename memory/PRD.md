@@ -76,7 +76,22 @@ Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corpora
   - New endpoints: `GET|POST|PATCH|DELETE /api/settings/receiving-wallets`, `GET|POST|PATCH|DELETE /api/settings/vendors`
   - 14/14 backend tests + full frontend regression PASS (iteration_7.json).
 
+- **UPDATE (May 30, 2026 v19): Direct crypto → fiat conversion (BTC → AED / USD / EUR / GBP)**
+  - **User request**: support direct crypto-to-fiat trades on the exchange (e.g. BTC → AED OTC desk) without forcing the USDT intermediate hop.
+  - **Backend `recordExchangeConversion()`** now branches on a `FIAT = ['AED','USD','EUR','GBP']` set:
+    - `to_coin = USDT` → existing path (sets `usdt_amount`, `usdt_conversion_rate`, status `converted_to_usdt`).
+    - `to_coin ∈ FIAT` → DIRECT path (sets `crypto_converted = fromAmt`, `fiat_received = toAmt`, `fiat_currency = toCoin`, `conversion_rate`, `conversion_date`, status `converted_to_aed`). USDT fields stay null.
+    - `to_coin ∈ {BTC, ETH, ...}` → crypto-to-crypto path (no fiat/USDT fields, status `received_in_exchange`).
+  - **`applyBatchLedger()` STEP 3** generalized: source coin = `'USDT'` if a USDT step preceded, else `batch.coin` (the original crypto). Same `${batch_code}-CONV-AED` external_ref is reused regardless of fiat target.
+  - **Frontend `WalletLedger.jsx`**: BINANCE + OKX coin lists extended to `[USDT, BTC, ETH, AED, USD, EUR, GBP]` so the dropdown surfaces every supported target.
+  - **Frontend `Treasury.jsx` feed**: the "AED Conversion" row now renders a dynamic badge `<from>→<fiat> Conversion` (e.g. `BTC→AED Conversion`, `ETH→USD Conversion`) and shows a `· direct` suffix when no USDT step preceded. Status badge label now reads "Converted to USD/EUR/GBP" instead of "Converted to AED" for non-AED fiat batches.
+  - **Testing**: iteration_18 — pytest 9/9 PASS at `/app/backend/tests/test_exchange_convert_direct_fiat_iter18.py`. Frontend Playwright verified dropdown coins (BTC/ETH/USDT/AED/USD/EUR/GBP) + Treasury direct row label + step delete. 100/100.
+
 - **UPDATE (May 29, 2026 v18): Wallet Ledger Convert is now the single entry point for exchange conversions**
+  - `POST /api/treasury/exchange-convert` atomically creates the wallet_ledger pair + Treasury batch + auto-assigns unbatched receipts. "Convert Selected to USDT" button removed from Treasury Binance/OKX. Toast announces batch_code + assigned count.
+  - **Testing**: iteration_17 — pytest 11/11 PASS.
+
+
   - **User decision** (live VPS workflow): use Wallet Ledger → Convert for ALL future BTC/ETH/USDT/AED swaps. Treasury "Convert Selected to USDT" is removed.
   - **New atomic endpoint `POST /api/treasury/exchange-convert`**: atomically (a) creates the wallet_ledger pair, (b) creates a Treasury Batch (`BIN-YYMM-NNNNN` / `OKX-…` / `AED-…`), (c) finds unbatched on-chain receipts on that exchange with the matching coin (`crypto_coin = from_coin`, `payment_gateway ILIKE wallet`, no existing `treasury_movements.treasury_batch_id`) and greedily auto-assigns them (earliest payment_date first) up to `from_amount` — preserving the Customer → Invoice → TX → Batch audit chain.
   - **Returns** `{batch, assigned_recharges_count, assigned_amount, remaining_unbatched_amount}` so the UI can show "X receipt(s) auto-assigned".

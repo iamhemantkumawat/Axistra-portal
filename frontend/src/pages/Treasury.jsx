@@ -123,9 +123,14 @@ function cleanPayload(payload) {
   return Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== '' && value !== null && value !== undefined));
 }
 
-function BatchStatus({ status }) {
+function BatchStatus({ status, fiatCurrency }) {
   const meta = statusMeta(status);
-  return <Badge className={meta.cls}>{meta.label}</Badge>;
+  // For direct crypto → non-AED fiat batches, override the label so it reads
+  // "Converted to USD" / "Converted to EUR" instead of the legacy "AED".
+  const label = (status === 'converted_to_aed' && fiatCurrency && fiatCurrency !== 'AED')
+    ? `Converted to ${fiatCurrency}`
+    : meta.label;
+  return <Badge className={meta.cls}>{label}</Badge>;
 }
 
 function StepPill({ icon: Icon, label, sub }) {
@@ -1232,7 +1237,7 @@ export default function Treasury() {
                       <div className="text-axistra-green">+{aedAmt.toLocaleString(undefined, { maximumFractionDigits: 2 })} {fiatCcy}</div>
                     </td>
                     <td className="text-xs text-gray-500">{b.conversion_reference || '—'}</td>
-                    <td><BatchStatus status="converted_to_aed" /></td>
+                    <td><BatchStatus status="converted_to_aed" fiatCurrency={fiatCcy} /></td>
                     <td className="text-right">
                       <button
                         type="button"
