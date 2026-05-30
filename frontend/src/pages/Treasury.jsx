@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import api from '../lib/api';
 import { PageHeader, Badge, KpiCard, Modal, Field, Hash } from '../components/Atoms';
-import { InFlightTab, AuditChainTab, ProfitByConversionTab, BankStatementImportModal } from '../components/TreasuryAdvanced';
+import { ProfitByConversionTab, BankStatementImportModal } from '../components/TreasuryAdvanced';
 import { RECHARGE_STATUS_META, fmtDate, fmtMoney, fmtNumber } from '../lib/format';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -20,8 +20,6 @@ import {
 } from '@phosphor-icons/react';
 
 const TABS = [
-  { key: 'in-flight', label: 'In Flight' },
-  { key: 'chain', label: 'Audit Chain' },
   { key: 'receipts', label: 'Payment Receipts' },
   { key: 'btcpay', label: 'BTCPay' },
   { key: 'oxapay', label: 'OxaPay' },
@@ -156,7 +154,7 @@ export default function Treasury() {
   const [expenses, setExpenses] = useState([]);
   const [activeTab, _setActiveTab] = useState(() => {
     const h = (typeof window !== 'undefined' && window.location.hash || '').replace('#', '');
-    return ['in-flight','chain','receipts','btcpay','oxapay','okx','binance','aed','profit'].includes(h) ? h : 'in-flight';
+    return ['receipts','btcpay','oxapay','okx','binance','aed','profit'].includes(h) ? h : 'receipts';
   });
   const setActiveTab = (key) => {
     _setActiveTab(key);
