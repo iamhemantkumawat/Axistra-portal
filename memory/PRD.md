@@ -76,8 +76,18 @@ Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corpora
   - New endpoints: `GET|POST|PATCH|DELETE /api/settings/receiving-wallets`, `GET|POST|PATCH|DELETE /api/settings/vendors`
   - 14/14 backend tests + full frontend regression PASS (iteration_7.json).
 
+- **UPDATE (May 30, 2026 v20): Backup & Restore module — admin-only, full Postgres dump + Google Drive mirror**
+  - **Settings → Backup & Restore** card (`/app/frontend/src/components/BackupRestoreCard.jsx`). Hidden for non-admin roles client-side; backend enforces with `JwtAuthGuard + AdminGuard` on every `/api/backups/*` route.
+  - **Local snapshots**: `POST /api/backups` runs `pg_dump | gzip` to `BACKUP_DIR` (default `/app/backups`) producing `axistra-manual-<ts>.sql.gz`. `GET /api/backups` lists, `GET /api/backups/:name/download` streams the file (with read-error handler), `DELETE /api/backups/:name` removes it.
+  - **Upload-to-restore**: `POST /api/backups/upload` (multer, default 500 MB cap via `BACKUP_UPLOAD_MAX_MB` env) accepts an admin-uploaded `.sql.gz`/`.dump.gz` and parks it in `BACKUP_DIR` so it can be restored.
+  - **Restore**: `POST /api/backups/:name/restore` requires body `{confirm:"I_UNDERSTAND_THIS_REPLACES_ALL_DATA"}`. Always creates a `axistra-safety-<ts>.sql.gz` snapshot first, then drops + recreates the `public` schema and pipes the gunzipped dump into `psql`. Returns `{restored:true, safety_snapshot:<name>}`.
+  - **Scheduled**: `@Cron(EVERY_DAY_AT_2AM)` runs a `kind:'scheduled'` snapshot every 02:00 UTC. Auto-prune (`BACKUP_RETAIN_DAYS`, default 30 days) only touches files matching `axistra-(manual|scheduled|safety)-` — admin-uploaded archives are preserved.
+  - **Google Drive mirror** (`GoogleDriveService`): uses **Service Account auth** (`googleapis@173`). Two env vars enable it — `GOOGLE_DRIVE_FOLDER_ID` and `GOOGLE_SERVICE_ACCOUNT_KEY_JSON` (single-line JSON) or `GOOGLE_SERVICE_ACCOUNT_KEY_FILE`. Folder must be shared with the service-account email as Editor. When configured: scheduled snapshots auto-mirror to Drive (`BACKUP_DRIVE_AUTO_UPLOAD=scheduled|all|off`); manual snapshots can be mirrored via the "Backup + Drive" button. Endpoints: `GET /api/backups/drive/status`, `GET /api/backups/drive/list`, `POST /api/backups/:name/upload-to-drive`, `POST /api/backups/drive/:id/pull` (download from Drive back to server), `DELETE /api/backups/drive/:id`. When not configured all Drive endpoints (except `status`) return 400 with a clear message; local backups still work.
+  - **New guards**: `/app/backend-nest/src/auth/jwt-auth.guard.ts` (alias for `AuthGuard('jwt')`) and `/app/backend-nest/src/auth/admin.guard.ts` (rejects non-admin roles with 403).
+  - **Audit log entries**: every create/delete/restore/Drive upload/Drive delete is recorded via `AuditService` with actor email + IP.
+  - **Testing**: iteration_19 — pytest 17/17 PASS (`/app/backend/tests/test_backups_iter19.py`). Coverage: admin-only guard (401 no token, 403 accountant), create/list/download/delete cycle, path-traversal rejection (literal `..`), upload of `.sql.gz` (accept) + `.txt` (reject), restore wrong/missing confirm (400) + correct confirm (200), post-restore DB still functional, Drive guards when not configured.
+
 - **UPDATE (May 30, 2026 v19): Direct crypto → fiat conversion (BTC → AED / USD / EUR / GBP)**
-  - **User request**: support direct crypto-to-fiat trades on the exchange (e.g. BTC → AED OTC desk) without forcing the USDT intermediate hop.
   - **Backend `recordExchangeConversion()`** now branches on a `FIAT = ['AED','USD','EUR','GBP']` set:
     - `to_coin = USDT` → existing path (sets `usdt_amount`, `usdt_conversion_rate`, status `converted_to_usdt`).
     - `to_coin ∈ FIAT` → DIRECT path (sets `crypto_converted = fromAmt`, `fiat_received = toAmt`, `fiat_currency = toCoin`, `conversion_rate`, `conversion_date`, status `converted_to_aed`). USDT fields stay null.

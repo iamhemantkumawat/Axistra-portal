@@ -11,6 +11,9 @@ const RETAIN_DAYS = Number(process.env.BACKUP_RETAIN_DAYS || '30');
 const DRIVE_AUTO_UPLOAD = (process.env.BACKUP_DRIVE_AUTO_UPLOAD || 'scheduled').toLowerCase();
 // values: 'off' | 'scheduled' | 'all'
 
+/** Files matching this pattern are produced by the service and may be auto-pruned. */
+const MANAGED_FILE_RE = /^axistra-(manual|scheduled|safety)-/;
+
 @Injectable()
 export class BackupsService {
   private readonly logger = new Logger('BackupsService');
@@ -27,7 +30,7 @@ export class BackupsService {
    * portal database.  Uses env DATABASE_* credentials so we never hardcode
    * anything.  Optionally mirrors the snapshot to Google Drive when configured.
    */
-  async createBackup(opts: { kind?: 'manual' | 'scheduled'; actor?: any; uploadToDrive?: boolean } = {}): Promise<any> {
+  async createBackup(opts: { kind?: 'manual' | 'scheduled' | 'safety'; actor?: any; uploadToDrive?: boolean } = {}): Promise<any> {
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19);
     const kind = opts.kind || 'manual';
     const fileName = `axistra-${kind}-${stamp}.sql.gz`;
@@ -206,7 +209,7 @@ export class BackupsService {
     const dbPass = process.env.DATABASE_PASSWORD || '';
 
     // Take a safety snapshot first so the operator can always rewind one step.
-    const safety = await this.createBackup({ kind: 'manual', actor });
+    const safety = await this.createBackup({ kind: 'safety', actor });
 
     await new Promise<void>((resolve, reject) => {
       const env = { ...process.env, PGPASSWORD: dbPass };
@@ -253,6 +256,9 @@ export class BackupsService {
       const cutoff = Date.now() - RETAIN_DAYS * 24 * 60 * 60 * 1000;
       for (const name of fs.readdirSync(BACKUP_DIR)) {
         if (!(name.endsWith('.sql.gz') || name.endsWith('.dump.gz'))) continue;
+        // Only auto-prune files we created ourselves. Admin-uploaded archives
+        // and legacy files stay untouched.
+        if (!MANAGED_FILE_RE.test(name)) continue;
         const fp = path.join(BACKUP_DIR, name);
         const stat = fs.statSync(fp);
         if (stat.mtimeMs < cutoff) {
@@ -266,12 +272,15 @@ export class BackupsService {
   }
 
   private toMeta(name: string, stat: fs.Stats) {
-    const isScheduled = name.includes('scheduled');
+    let kind: 'scheduled' | 'manual' | 'safety' | 'legacy' = 'legacy';
+    if (name.includes('safety')) kind = 'safety';
+    else if (name.includes('scheduled')) kind = 'scheduled';
+    else if (name.includes('manual')) kind = 'manual';
     return {
       name,
       size_bytes: stat.size,
       size_human: this.humanSize(stat.size),
-      kind: isScheduled ? 'scheduled' : (name.includes('manual') ? 'manual' : 'legacy'),
+      kind,
       created_at: stat.mtime.toISOString(),
     };
   }

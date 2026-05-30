@@ -292,7 +292,7 @@ export default function BackupRestoreCard() {
                 <tr key={b.name} data-testid={`backup-row-${b.name}`}>
                   <td className="font-mono text-xs">{b.name}</td>
                   <td>
-                    <span className={`badge ${b.kind === 'scheduled' ? 'badge-neutral' : 'badge-success'}`}>{b.kind}</span>
+                    <span className={`badge ${b.kind === 'scheduled' ? 'badge-neutral' : b.kind === 'safety' ? 'badge-warning' : 'badge-success'}`}>{b.kind}</span>
                   </td>
                   <td className="font-mono text-xs text-gray-600">{b.size_human}</td>
                   <td className="text-xs text-gray-500">{new Date(b.created_at).toLocaleString()}</td>

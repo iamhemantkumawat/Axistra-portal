@@ -1,5 +1,5 @@
 import {
-  Body, Controller, Delete, Get, Param, Post, Req, Res, UploadedFile, UseGuards, UseInterceptors,
+  Body, Controller, Delete, Get, Logger, Param, Post, Req, Res, UploadedFile, UseGuards, UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
@@ -8,9 +8,12 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AdminGuard } from '../auth/admin.guard';
 import { BackupsService } from './backups.service';
 
+const UPLOAD_MAX_MB = Number(process.env.BACKUP_UPLOAD_MAX_MB || '500');
+
 @Controller('backups')
 @UseGuards(JwtAuthGuard, AdminGuard)
 export class BackupsController {
+  private readonly logger = new Logger('BackupsController');
   constructor(private readonly svc: BackupsService) {}
 
   @Get()
@@ -32,7 +35,13 @@ export class BackupsController {
     const fp = this.svc.fullPath(name);
     res.setHeader('Content-Type', 'application/gzip');
     res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
-    fs.createReadStream(fp).pipe(res);
+    const stream = fs.createReadStream(fp);
+    stream.on('error', (err) => {
+      this.logger.warn(`Download stream error for ${name}: ${err.message}`);
+      if (!res.headersSent) res.status(500).end();
+      else res.end();
+    });
+    stream.pipe(res);
   }
 
   @Delete(':name')
@@ -53,7 +62,7 @@ export class BackupsController {
   /* ---------- Restore via uploaded file ---------- */
 
   @Post('upload')
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 2 * 1024 * 1024 * 1024 } })) // 2 GB cap
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: UPLOAD_MAX_MB * 1024 * 1024 } }))
   ingest(@UploadedFile() file: any, @Req() req: any) {
     return this.svc.ingestUpload(file, req.user);
   }
