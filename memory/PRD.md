@@ -19,7 +19,7 @@ Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corpora
 ## Modules
 
 ### Implemented
-- Auth (JWT login, admin user list/create, 2FA placeholder)
+- Auth (JWT login, admin user list/create, **TOTP 2FA with enforcement, recovery codes, and self-service disable/regenerate** — see § Two-Factor Authentication)
 - Customers (CRUD, code `AXC-NNNNN`, risk levels, KYC status, signup IP)
 - Recharges (CRUD, code `RCH-YYYY-NNNNN`, status flow with mismatch detection)
 - Invoices (auto-generated `AX-YYYY-NNNNN`, Puppeteer PDF, View + Download)
@@ -404,9 +404,19 @@ See `/app/deploy-fork/` (or `/opt/axistra/deploy` on the VPS): `backup.sh`, `ngi
 
 ## Backlog
 - Fix Reports and Invoice PDF design (user-requested)
-- Advanced exports (VAT threshold PDF, Corporate tax PDF, Bank reconciliation PDF, Accountant-ready export)
 - Wire OXAPAY_HISTORY_DELAY_MS background poller into recharge reconciliation
 - Show webhook signature errors prominently in `/webhook-logs`
 - Add latency analytics ("Reconciliation Health") to dashboard
 - Live FX feed already wired (ECB) — extend to lock the rate per recharge at payment time
-- 2FA enforcement for Admin accounts
+
+## CHANGELOG
+
+### 2026-05-30 — Iter 20 (P1 + P2 batch)
+- **2FA enforcement (P1)**: TOTP via `otplib`. New columns on `users_admin`: `two_fa_secret`, `two_fa_recovery_codes` (bcrypt hashes, single-use). Endpoints:
+  `POST /api/auth/2fa/setup`, `/2fa/enable`, `/2fa/disable`, `/2fa/recovery-codes/regenerate`, `/2fa/login-verify`. Login returns `{require_2fa, challenge_token}` when 2FA is enabled.
+  Admins land on `/setup-2fa` until enrolled when `ENFORCE_ADMIN_2FA=true`. Frontend pages: `TwoFactorSetup.jsx`, `TwoFactorCard.jsx` (in Settings).
+- **Environment badge (P2)**: `EnvBadge` in `AppLayout` reads `VITE_APP_ENV` / `REACT_APP_APP_ENV`. PRODUCTION = red pulse, STAGING = amber, PREVIEW = sky.
+- **Pay-Now flow (P2)**: Settings → Vendors row now has a `CreditCard` Pay button → navigates to `/expenses?pay_vendor=<id>` which auto-opens the Add Expense modal pre-filled with vendor + default payment method + default wallet. Query param is stripped after consumption.
+- **Accountant-ready export (P2)**: `GET /api/reports/bundle/accountant-pack?year=YYYY` returns a full-year ZIP — cover PDF, PDF + XLSX for 10 reports (yearly-pl, monthly-sales, quarterly-sales, vat-threshold, corporate-tax, customer-recharge, crypto-to-aed, bank-reconciliation, expenses, suspicious), CSV manifest + README. Wired to "Accountant Pack" button in `/reports`.
+- Tests: `/app/backend/tests/test_2fa_and_accountant_pack_iter20.py` — 12/12 pass.
+

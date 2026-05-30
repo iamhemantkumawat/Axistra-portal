@@ -40,24 +40,28 @@ export class AuthController {
 
   // ---------- 2FA Management (JWT-authed, self-service) ----------
 
+  @HttpCode(200)
   @UseGuards(AuthGuard('jwt'))
   @Post('2fa/setup')
   async setup2fa(@Req() req: any) {
     return this.twoFa.setup(req.user.id);
   }
 
+  @HttpCode(200)
   @UseGuards(AuthGuard('jwt'))
   @Post('2fa/enable')
   async enable2fa(@Req() req: any, @Body() body: { code: string }) {
     return this.twoFa.verifyAndEnable(req.user.id, body.code);
   }
 
+  @HttpCode(200)
   @UseGuards(AuthGuard('jwt'))
   @Post('2fa/disable')
   async disable2fa(@Req() req: any, @Body() body: { code?: string; recovery_code?: string }) {
     return this.twoFa.disable(req.user.id, body.code, body.recovery_code);
   }
 
+  @HttpCode(200)
   @UseGuards(AuthGuard('jwt'))
   @Post('2fa/recovery-codes/regenerate')
   async regenRecovery(@Req() req: any, @Body() body: { code: string }) {
