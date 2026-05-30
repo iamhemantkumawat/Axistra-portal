@@ -51,6 +51,7 @@ services:
       - "127.0.0.1:9001:9001"
     volumes:
       - ./uploads:/app/uploads
+      - ./backups:/app/backups
     networks: [axistra]
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:9001/api/health"]

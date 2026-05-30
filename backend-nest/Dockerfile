@@ -15,8 +15,8 @@ RUN yarn build
 FROM node:20-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
-# Install Chromium for Puppeteer (PDF generation)
-RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont \
+# Install Chromium for Puppeteer (PDF generation) + Postgres client for backups
+RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont postgresql-client \
   && rm -rf /var/cache/apk/*
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
