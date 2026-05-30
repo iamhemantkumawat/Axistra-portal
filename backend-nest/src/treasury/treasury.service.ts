@@ -710,8 +710,12 @@ export class TreasuryService {
     // STEP 1 — Create the batch entity.
     const prefix = wallet === 'BINANCE' ? 'binance' : wallet === 'OKX' ? 'okx' : 'aed';
     const batchCode = await this.nextBatchCode(prefix);
+    const FIAT = ['AED', 'USD', 'EUR', 'GBP'];
     const isUsdtTarget = toCoin === 'USDT';
-    const batch = this.batchRepo.create({
+    const isFiatTarget = FIAT.includes(toCoin);
+    const rate = fromAmt > 0 ? (toAmt / fromAmt).toFixed(8) : null;
+
+    const batchData: any = {
       batch_code: batchCode,
       name: `${wallet} ${fromCoin} → ${toCoin} ${eventDate.toISOString().slice(0, 10)}`,
       source_gateway: wallet,
@@ -723,13 +727,32 @@ export class TreasuryService {
       total_crypto_amount: fromAmt.toFixed(8),
       exchange_received_at: eventDate,
       settlement_reference: `${batchCode} auto-conversion`,
-      usdt_amount: isUsdtTarget ? toAmt.toFixed(8) : null,
-      usdt_conversion_rate: isUsdtTarget && fromAmt > 0 ? (toAmt / fromAmt).toFixed(8) : null,
-      usdt_conversion_date: isUsdtTarget ? eventDate : null,
-      usdt_conversion_reference: `${batchCode} ${fromCoin}→${toCoin}`,
-      status: isUsdtTarget ? 'converted_to_usdt' : 'received_in_exchange',
       notes: input.notes || `${fromAmt} ${fromCoin} → ${toAmt} ${toCoin} on ${wallet}`,
-    } as Partial<TreasuryBatch>);
+    };
+
+    if (isUsdtTarget) {
+      // crypto → USDT path (or USDT → USDT if both — already blocked above)
+      batchData.usdt_amount = toAmt.toFixed(8);
+      batchData.usdt_conversion_rate = rate;
+      batchData.usdt_conversion_date = eventDate;
+      batchData.usdt_conversion_reference = `${batchCode} ${fromCoin}→${toCoin}`;
+      batchData.status = 'converted_to_usdt';
+    } else if (isFiatTarget) {
+      // DIRECT crypto → fiat path (e.g. BTC → AED on OTC, USDT → AED)
+      // We use the AED-conversion fields on the batch. applyBatchLedger
+      // STEP 3 will fan-out -fromCoin / +fiat on the exchange.
+      batchData.crypto_converted = fromAmt.toFixed(8);
+      batchData.fiat_received = toAmt.toFixed(8);
+      batchData.fiat_currency = toCoin;
+      batchData.conversion_rate = rate;
+      batchData.conversion_date = eventDate;
+      batchData.status = 'converted_to_aed';
+    } else {
+      // crypto → crypto (e.g. BTC → ETH)
+      batchData.status = 'received_in_exchange';
+    }
+
+    const batch = this.batchRepo.create(batchData as Partial<TreasuryBatch>);
     const savedBatch = await this.batchRepo.save(batch);
 
     // STEP 2 — Auto-assign unbatched receipts on this exchange + coin so the
@@ -867,22 +890,28 @@ export class TreasuryService {
       }
     }
 
-    // STEP 3 — Conversion to AED (-USDT from exchange, +AED at exchange).
+    // STEP 3 — Conversion to AED (-source coin from exchange, +AED at exchange).
+    // Supports BOTH paths:
+    //   (a) Classic: USDT → AED (when a USDT step preceded). from_coin='USDT'.
+    //   (b) Direct:  CRYPTO → AED (no USDT step). from_coin = batch.coin
+    //       (e.g. BTC → AED on OTC desk).
     const aedAmount = parseFloat(batch.fiat_received || '0');
     const usdtConverted = parseFloat(batch.crypto_converted || '0');
+    const hadUsdtStep = parseFloat(batch.usdt_amount || '0') > 0;
     if (aedAmount > 0 && usdtConverted > 0) {
       const convRef = `${batch.batch_code}-CONV-AED`;
       const existing = await this.wallets.findByExternalRef(convRef);
       if (!existing.length) {
+        const sourceCoin = hadUsdtStep ? 'USDT' : String(batch.coin || 'USDT').toUpperCase();
         await this.wallets.recordConvertPair({
           wallet: exchangeWallet,
-          from_coin: 'USDT',
+          from_coin: sourceCoin,
           from_amount: usdtConverted,
           to_coin: (batch.fiat_currency || 'AED').toUpperCase(),
           to_amount: aedAmount,
           external_ref: convRef,
           event_at: stampNowTime(batch.conversion_date || batch.usdt_conversion_date || null),
-          notes: `${batch.batch_code}: USDT → AED conversion`,
+          notes: `${batch.batch_code}: ${sourceCoin} → ${(batch.fiat_currency || 'AED').toUpperCase()} conversion`,
         });
       }
     }

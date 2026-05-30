@@ -11,8 +11,8 @@ import {
 const WALLET_ICONS = {
   OXAPAY:  { icon: Coin,       hint: 'OxaPay merchant balance — auto-converted to USDT',  type: 'crypto',   coins: ['USDT'] },
   BTCPAY:  { icon: Coin,       hint: 'BTCPay store wallet — BTC only',                    type: 'crypto',   coins: ['BTC'] },
-  BINANCE: { icon: Buildings,  hint: 'Binance exchange wallet — multi-coin + AED',        type: 'exchange', coins: ['USDT', 'BTC', 'ETH', 'AED'] },
-  OKX:     { icon: Buildings,  hint: 'OKX exchange wallet — multi-coin + AED',            type: 'exchange', coins: ['USDT', 'BTC', 'ETH', 'AED'] },
+  BINANCE: { icon: Buildings,  hint: 'Binance exchange wallet — multi-coin + fiat',        type: 'exchange', coins: ['USDT', 'BTC', 'ETH', 'AED', 'USD', 'EUR'] },
+  OKX:     { icon: Buildings,  hint: 'OKX exchange wallet — multi-coin + fiat',            type: 'exchange', coins: ['USDT', 'BTC', 'ETH', 'AED', 'USD', 'EUR'] },
   WIO_BANK:{ icon: Bank,       hint: 'Wio AED settlement bank',                           type: 'bank',     coins: ['AED'] },
 };
 

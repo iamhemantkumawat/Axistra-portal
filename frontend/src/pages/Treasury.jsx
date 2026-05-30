@@ -1205,26 +1205,30 @@ export default function Treasury() {
                     }
                     if (item.kind === 'batch-aed-conversion') {
                       const b = item.row;
+                      const fiatCcy = (b.fiat_currency || 'AED').toUpperCase();
+                      // Source coin depends on whether a USDT step preceded.
+                      const hadUsdtStep = parseFloat(b.usdt_amount || '0') > 0;
+                      const sourceCoin = hadUsdtStep ? 'USDT' : (b.coin || 'BTC').toUpperCase();
                       const fromUsdt = parseFloat(b.crypto_converted || b.usdt_amount || '0');
                       const aedAmt = parseFloat(b.fiat_received || '0');
-                      const fiatCcy = (b.fiat_currency || 'AED').toUpperCase();
                       const rate = fromUsdt > 0 ? (aedAmt / fromUsdt) : 0;
+                      const isDirect = !hadUsdtStep;
                       return (
                 <tr key={`batch-${b.id}-aed`} onClick={() => openBatch(b, 'aed')} className="cursor-pointer hover:bg-[var(--axistra-bg)]">
                     <td></td>
                     <td>
                       <button type="button" onClick={(e) => { e.stopPropagation(); openBatch(b, 'aed'); }} className="font-mono text-axistra-green hover:underline">{b.batch_code}</button>
-                      <div className="text-xs text-gray-500">USDT → {fiatCcy}</div>
-                      <div className="mt-1"><Badge className="badge-success">AED Conversion</Badge></div>
+                      <div className="text-xs text-gray-500">{sourceCoin} → {fiatCcy}{isDirect && <span className="ml-1 text-axistra-green">· direct</span>}</div>
+                      <div className="mt-1"><Badge className="badge-success">{isDirect ? `${sourceCoin}→${fiatCcy} Conversion` : 'AED Conversion'}</Badge></div>
                     </td>
                     <td><Badge className="badge-neutral">{activeExchangeName}</Badge></td>
                     <td>
                       <div className="font-semibold">{activeExchangeName}</div>
                       <div className="text-xs text-gray-500">In-exchange swap</div>
                     </td>
-                    <td className="font-mono text-xs text-gray-500">{rate > 0 ? `@ ${rate.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${fiatCcy}/USDT` : '—'}</td>
+                    <td className="font-mono text-xs text-gray-500">{rate > 0 ? `@ ${rate.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${fiatCcy}/${sourceCoin}` : '—'}</td>
                     <td className="font-mono">
-                      <span className="text-red-700">-{fromUsdt} USDT</span>
+                      <span className="text-red-700">-{fromUsdt} {sourceCoin}</span>
                       <div className="text-axistra-green">+{aedAmt.toLocaleString(undefined, { maximumFractionDigits: 2 })} {fiatCcy}</div>
                     </td>
                     <td className="text-xs text-gray-500">{b.conversion_reference || '—'}</td>
@@ -1234,15 +1238,15 @@ export default function Treasury() {
                         type="button"
                         onClick={async (ev) => {
                           ev.stopPropagation();
-                          if (!window.confirm(`Delete the USDT → ${fiatCcy} conversion for ${b.batch_code}?\n\nThis removes only the AED conversion ledger rows (-${fromUsdt} USDT and +${aedAmt} ${fiatCcy} on ${activeExchangeName}) and clears the batch's AED fields. The Sweep + USDT Conversion stay intact.`)) return;
+                          if (!window.confirm(`Delete the ${sourceCoin} → ${fiatCcy} conversion for ${b.batch_code}?\n\nThis removes only the conversion ledger rows (-${fromUsdt} ${sourceCoin} and +${aedAmt} ${fiatCcy} on ${activeExchangeName}) and clears the batch's fiat fields.`)) return;
                           try {
                             await api.delete(`/treasury/batches/${b.id}/step/aed`);
-                            toast.success('AED conversion cleared');
+                            toast.success(`${sourceCoin} → ${fiatCcy} conversion cleared`);
                             await load();
-                          } catch (err) { toast.error(err?.response?.data?.message || 'Failed to clear AED conversion'); }
+                          } catch (err) { toast.error(err?.response?.data?.message || 'Failed to clear conversion'); }
                         }}
                         className="rounded-md p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
-                        title="Delete this AED conversion only (keeps sweep + USDT conversion)"
+                        title={`Delete this ${sourceCoin} → ${fiatCcy} conversion only`}
                         data-testid={`treasury-batch-aed-delete-${b.id}`}
                       >
                         <Trash size={14} />

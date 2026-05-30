@@ -1,0 +1,32 @@
+{
+  "summary": "Iter_18 direct crypto→fiat conversion verified end-to-end. Backend pytest 9/9 passed: BTC→AED, BTC→USD, ETH→EUR, ETH→USD direct (all with status='converted_to_aed', correct fiat_currency, conversion_rate, no USDT step); BTC→USDT regression intact (status='converted_to_usdt', usdt_amount set, no fiat_currency); BTC→ETH crypto-to-crypto (status='received_in_exchange', no usdt/fiat); wallet ledger fan-out produces convert_from -coin + convert_to +fiat with '-CONV-AED' external_ref (no '-CONV-USDT' row for direct path); DELETE /api/treasury/batches/:id/step/aed removes both rows and clears batch.fiat_received/crypto_converted/conversion_rate. Frontend verified: WalletLedger.jsx Convert modal Coin dropdowns for BINANCE/OKX now include BTC, ETH, USDT, AED, USD, EUR. Treasury Binance feed renders direct batches with label '<from>→<fiat> · direct' and badge '<from>→<fiat> Conversion' (observed: BTC→AED, BTC→USD, ETH→USD, ETH→EUR), while BTC→USDT row stays as before. Wallet KPI strip on Binance correctly shows USDT 590 / AED 7,000 / BTC -0.036 / ETH -2.5 / EUR 3,200 / USD 5,850.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Wallet Ledger (any page with empty KPI chart)", "issues": ["Console warning: 'The width(-1) and height(-1) of chart should be greater than 0' from a recharts container — pre-existing, not introduced by iter_18. Low priority."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_exchange_convert_direct_fiat_iter18.py",
+    "/app/test_reports/pytest/iter18_direct_fiat.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "treasury.service.ts: FIAT list ['AED','USD','EUR','GBP'] is hardcoded inline in recordExchangeConversion. Consider extracting to a module-level constant shared with the frontend (or a shared enums package) to keep fiat targets in sync — currently the frontend WalletLedger.jsx independently lists ['AED','USD','EUR'] in WALLET_ICONS coins (GBP is missing on the frontend, would silently 400-out if a user tried).",
+    "external_ref suffix '-CONV-AED' is now overloaded to mean 'any fiat conversion' — naming is legacy. Either rename to '-CONV-FIAT' going forward (with a migration to back-fill existing rows) or document this in a code comment near applyBatchLedger STEP 3 to prevent future confusion. Currently a code comment exists but the suffix string itself is misleading.",
+    "Treasury.jsx batch-aed-conversion row uses status='converted_to_aed' hardcoded in <BatchStatus> regardless of fiat_currency. Cosmetic — the label still reads correctly via the dynamic 'X→Y Conversion' badge, but the underlying status badge text may say 'CONVERTED TO AED' for a USD/EUR batch. Confirmed in screenshot: all direct fiat rows show 'CONVERTED TO AED' badge — consider renaming to 'CONVERTED TO FIAT' or making it dynamic.",
+    "WalletLedger.jsx WALLET_ICONS: GBP is in the backend FIAT list but not in BINANCE/OKX coins array — add 'GBP' for symmetry (or remove GBP from backend FIAT list if not needed)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_exchange_convert_direct_fiat_iter18.py"
+  ],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100% (dropdown coins + Treasury direct row label + delete step all verified)"},
+  "test_credentials": "admin@axistratech.com / admin123 (accept_terms:true) — token under key 'token'",
+  "seed_data_creation": "Created multiple BIN-2605-NNNNN batches via the test file: BTC→AED, BTC→USD, ETH→EUR, ETH→USD (direct fiat), BTC→USDT (regression), BTC→ETH (crypto-to-crypto), and one extra BTC→AED for DELETE step/aed test. All visible in BINANCE Treasury feed and Wallet Ledger.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Direct crypto→fiat conversion is the new default Wallet Ledger Convert flow. Backend FIAT list = ['AED','USD','EUR','GBP'] (GBP currently unreachable from frontend dropdown — gap noted). External_ref suffix for any fiat target is '-CONV-AED' (legacy, intentional). Status enum 'converted_to_aed' is reused for any fiat target. Test file at /app/backend/tests/test_exchange_convert_direct_fiat_iter18.py is the regression suite for this feature; iter_17 file /app/backend/tests/test_exchange_convert_iter17.py covers the USDT-only happy path.",
+  "rca_of_the_issue": "N/A — feature works as designed. Minor observations under critical_code_review_comments are nice-to-have polish items, not bugs."
+}
