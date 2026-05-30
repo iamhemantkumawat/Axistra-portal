@@ -510,13 +510,13 @@ export class WalletsService {
     out.linked_ledger_id = inn.id;
     await this.ledger.save(out);
 
-    if (fee > 0) {
-      await this.ledger.save(this.ledger.create({
-        wallet: input.from_wallet, coin: 'AED', amount: (-fee).toFixed(2),
-        tx_type: 'fee', external_ref: code, notes: 'Bank cashout fee',
-        actor_email: actor?.email, event_at: new Date(),
-      }));
-    }
+    // NOTE: We deliberately do NOT create a separate `tx_type:'fee'` ledger
+    // row on the source wallet here.  The cashout row above already debits
+    // the FULL gross amount (`-aed`), and the Wio deposit credits the NET
+    // (`aed - fee`).  The 75 AED difference between them already accounts
+    // for the wire fee — adding another `-fee` row would double-count it
+    // and leave the source wallet sitting at a phantom negative balance.
+    // The fee is preserved for audit on the cashout row via `fee_amount`.
 
     await this.audit.log({
       actor_id: actor?.id, actor_email: actor?.email,
