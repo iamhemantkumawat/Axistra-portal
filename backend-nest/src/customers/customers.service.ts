@@ -101,10 +101,27 @@ export class CustomersService {
     return items;
   }
 
+  /**
+   * Accept either a UUID or a customer_code (`AXC-NNNNN`) and look up
+   * the matching row. Returns null if not found. Prevents Postgres from
+   * blowing up with "invalid input syntax for type uuid" when the user
+   * navigates to /customers/AXC-00001 in the UI.
+   */
+  private isUuid(value: string) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+  }
+  private async findCustomer(idOrCode: string): Promise<Customer | null> {
+    if (!idOrCode) return null;
+    if (this.isUuid(idOrCode)) {
+      return this.repo.findOne({ where: { id: idOrCode } });
+    }
+    return this.repo.findOne({ where: { customer_code: idOrCode } });
+  }
+
   async get(id: string) {
-    const c = await this.repo.findOne({ where: { id } });
+    const c = await this.findCustomer(id);
     if (!c) throw new NotFoundException('Customer not found');
-    const kyc = await this.kycRepo.find({ where: { customer_id: id }, order: { created_at: 'DESC' } });
+    const kyc = await this.kycRepo.find({ where: { customer_id: c.id }, order: { created_at: 'DESC' } });
     return { ...c, kyc_documents: kyc };
   }
 
@@ -127,8 +144,8 @@ export class CustomersService {
   }
 
   async update(id: string, data: Partial<Customer>, actor?: any) {
-    const c = await this.repo.findOne({ where: { id } });
-    if (!c) throw new NotFoundException();
+    const c = await this.findCustomer(id);
+    if (!c) throw new NotFoundException('Customer not found');
     Object.assign(c, data);
     c.full_name = c.full_name || [c.first_name, c.last_name].filter(Boolean).join(' ') || c.company_name || c.magnus_username || c.email || 'Unknown customer';
     c.status = this.normalizeStatus(c, data.status || c.status);
@@ -136,17 +153,18 @@ export class CustomersService {
     await this.refreshRecentInvoiceSnapshots(saved);
     await this.audit.log({
       actor_id: actor?.id, actor_email: actor?.email,
-      action: 'update_customer', entity_type: 'customer', entity_id: id,
+      action: 'update_customer', entity_type: 'customer', entity_id: c.id,
       details: JSON.stringify(data).slice(0, 500),
     });
     return saved;
   }
 
   async delete(id: string, actor?: any) {
-    const customer = await this.repo.findOne({ where: { id } });
+    const customer = await this.findCustomer(id);
     if (!customer) throw new NotFoundException('Customer not found');
+    const realId = customer.id;
     // Cascade: delete all recharges (and their crypto/treasury/ledger chain) for this customer
-    const recharges = await this.rechargeRepo.find({ where: { customer_id: id } });
+    const recharges = await this.rechargeRepo.find({ where: { customer_id: realId } });
     for (const r of recharges) {
       try {
         await this.rechargesSvc.delete(r.id, actor);
@@ -155,13 +173,13 @@ export class CustomersService {
       }
     }
     // Delete any stand-alone invoices that survived (no recharge link)
-    await this.invoiceRepo.delete({ customer_id: id });
+    await this.invoiceRepo.delete({ customer_id: realId });
     // KYC documents are linked by FK; remove explicitly to avoid orphans
-    await this.kycRepo.delete({ customer_id: id });
-    await this.repo.delete(id);
+    await this.kycRepo.delete({ customer_id: realId });
+    await this.repo.delete(realId);
     await this.audit.log({
       actor_id: actor?.id, actor_email: actor?.email,
-      action: 'delete_customer', entity_type: 'customer', entity_id: id,
+      action: 'delete_customer', entity_type: 'customer', entity_id: realId,
       details: `Deleted customer ${customer.customer_code} (cascaded ${recharges.length} recharges)`,
     });
     return { success: true, customer_code: customer.customer_code, cascaded_recharges: recharges.length };

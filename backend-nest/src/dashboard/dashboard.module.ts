@@ -9,6 +9,9 @@ import { Invoice } from '../entities/invoice.entity';
 import { PayrollRun } from '../entities/payroll-run.entity';
 import { PayrollItem } from '../entities/payroll-item.entity';
 import { BankAccount } from '../entities/bank-account.entity';
+import { WalletLedger } from '../entities/wallet-ledger.entity';
+import { TaxFiling } from '../entities/tax-filing.entity';
+import { AppSetting } from '../entities/app-setting.entity';
 import { DashboardService } from './dashboard.service';
 import { DashboardController } from './dashboard.controller';
 import { FxModule } from '../fx/fx.module';
@@ -18,6 +21,7 @@ import { FxModule } from '../fx/fx.module';
     TypeOrmModule.forFeature([
       Recharge, Expense, Customer, TreasuryMovement, ComplianceLog,
       Invoice, PayrollRun, PayrollItem, BankAccount,
+      WalletLedger, TaxFiling, AppSetting,
     ]),
     FxModule,
   ],

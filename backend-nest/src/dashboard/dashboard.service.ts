@@ -10,7 +10,11 @@ import { Invoice } from '../entities/invoice.entity';
 import { PayrollRun } from '../entities/payroll-run.entity';
 import { PayrollItem } from '../entities/payroll-item.entity';
 import { BankAccount } from '../entities/bank-account.entity';
+import { WalletLedger } from '../entities/wallet-ledger.entity';
+import { TaxFiling } from '../entities/tax-filing.entity';
+import { AppSetting } from '../entities/app-setting.entity';
 import { FxService } from '../fx/fx.service';
+import { renderNetWorthPdf, NetWorthInput, NetWorthLineItem } from './net-worth-template';
 
 const VAT_THRESHOLD_AED = 375000;
 
@@ -33,6 +37,9 @@ export class DashboardService {
     @InjectRepository(PayrollRun) private payrollRunRepo: Repository<PayrollRun>,
     @InjectRepository(PayrollItem) private payrollItemRepo: Repository<PayrollItem>,
     @InjectRepository(BankAccount) private bankRepo: Repository<BankAccount>,
+    @InjectRepository(WalletLedger) private ledgerRepo: Repository<WalletLedger>,
+    @InjectRepository(TaxFiling) private taxRepo: Repository<TaxFiling>,
+    @InjectRepository(AppSetting) private settingsRepo: Repository<AppSetting>,
     private fx: FxService,
   ) {}
 
@@ -303,5 +310,195 @@ export class DashboardService {
       byCust.set(id, slot);
     }
     return Array.from(byCust.values()).sort((a, b) => b.aed - a.aed).slice(0, 5);
+  }
+
+  // ============================================================
+  // Net Worth — CEO snapshot
+  // ============================================================
+
+  /**
+   * Compute the company's net-worth snapshot in AED:
+   *   Assets:
+   *     • Bank balances (sum of WIO_BANK ledger amounts, plus opening
+   *       balance of any other active bank account).
+   *     • Crypto treasury holdings (USDT/BTC/etc still on exchange =
+   *       converted treasury value minus what's already been swept to Wio).
+   *     • Receivables (open invoices, FX-converted).
+   *   Liabilities:
+   *     • Outstanding payroll (approved but not paid).
+   *     • Outstanding tax (tax_due − tax_paid for unpaid filings).
+   *   Returns the structured snapshot. The PDF route renders this directly.
+   */
+  async netWorth() {
+    // --- Assets ---
+    const assets: NetWorthLineItem[] = [];
+
+    // 1) Bank balances. Sum WIO_BANK ledger (signed). Other banks default to their opening_balance.
+    const banks = await this.bankRepo.find({ where: { is_active: true } });
+    const wioRows = await this.ledgerRepo.find({ where: { wallet: 'WIO_BANK' } });
+    const wioBalanceAed = wioRows.reduce((s, r) => {
+      const aed = parseFloat(r.aed_value_at_event || '0');
+      const amount = parseFloat(r.amount || '0');
+      // wallet code WIO_BANK rows store AED amounts; aed_value_at_event mirrors |amount|.
+      return s + (amount >= 0 ? Math.abs(aed || amount) : -Math.abs(aed || amount));
+    }, 0);
+    if (banks.length || wioBalanceAed) {
+      assets.push({
+        label: 'Wio Business Bank (AED)',
+        value_aed: Math.max(0, wioBalanceAed),
+        detail: `${wioRows.length} ledger event(s)`,
+      });
+      for (const b of banks) {
+        if (/wio/i.test(`${b.name} ${b.bank_name}`)) continue; // already captured
+        const aedRate = await this.fx.convertToAed(b.opening_balance, b.currency);
+        if (aedRate > 0) {
+          assets.push({
+            label: `${b.name}${b.bank_name ? ' — ' + b.bank_name : ''} (${b.currency})`,
+            value_aed: aedRate,
+            detail: 'Opening balance',
+          });
+        }
+      }
+    }
+
+    // 2) Crypto treasury — sum of treasury batches NOT yet swept to Wio.
+    const treasury = await this.treasuryRepo.find();
+    const cryptoStillHeldAed = treasury.reduce((s, t) => {
+      const converted = parseFloat(t.aed_received || '0');
+      const swept = t.transferred_to_wio ? parseFloat(t.wio_aed_amount || t.aed_received || '0') : 0;
+      return s + Math.max(0, converted - swept);
+    }, 0);
+    const cryptoUsdtPending = treasury
+      .filter((t) => !t.aed_received || parseFloat(t.aed_received) === 0)
+      .reduce((s, t) => s + parseFloat(t.total_usdt_received || '0'), 0);
+    if (cryptoStillHeldAed > 0) {
+      assets.push({
+        label: 'Crypto Treasury — AED converted, not yet deposited',
+        value_aed: cryptoStillHeldAed,
+        detail: 'Sitting on exchange awaiting Wio transfer',
+      });
+    }
+    if (cryptoUsdtPending > 0) {
+      const usdtAed = await this.fx.convertToAed(cryptoUsdtPending, 'USDT');
+      assets.push({
+        label: `Crypto Treasury — USDT awaiting conversion`,
+        value_aed: usdtAed,
+        detail: `${cryptoUsdtPending.toFixed(2)} USDT @ live FX`,
+      });
+    }
+
+    // 3) Receivables — open invoices.
+    const openInvoices = await this.invoiceRepo.find({ where: { status: 'unpaid' } });
+    const receivablesAed = (
+      await Promise.all(openInvoices.map((i) => this.fx.convertToAed(i.amount, i.currency)))
+    ).reduce((a, b) => a + b, 0);
+    if (receivablesAed > 0) {
+      assets.push({
+        label: 'Accounts Receivable',
+        value_aed: receivablesAed,
+        detail: `${openInvoices.length} open invoice(s)`,
+      });
+    }
+
+    // --- Liabilities ---
+    const liabilities: NetWorthLineItem[] = [];
+
+    // 1) Outstanding payroll — approved but not paid.
+    const unpaidRuns = await this.payrollRunRepo.find({ where: [{ status: 'approved' }, { status: 'draft' }] });
+    const payrollDueAed = unpaidRuns.reduce((s, r) => s + parseFloat(r.total_net_aed || '0'), 0);
+    if (payrollDueAed > 0) {
+      liabilities.push({
+        label: 'Payroll Outstanding',
+        value_aed: payrollDueAed,
+        detail: `${unpaidRuns.length} run(s) pending payment`,
+      });
+    }
+
+    // 2) Outstanding tax — sum of (tax_due − tax_paid) for filings not in 'paid'/'exempt' status.
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const taxRows = await this.taxRepo.find();
+    let taxOutstanding = 0;
+    let overdueCount = 0;
+    for (const t of taxRows) {
+      const status = ['filed', 'paid', 'exempt'].includes(t.status)
+        ? t.status
+        : (t.due_date && new Date(t.due_date) < today ? 'overdue' : t.status);
+      if (status === 'paid' || status === 'exempt') continue;
+      const outstanding = Math.max(0, parseFloat(t.tax_due_aed || '0') - parseFloat(t.tax_paid_aed || '0'));
+      if (outstanding > 0) {
+        taxOutstanding += outstanding;
+        if (status === 'overdue') overdueCount += 1;
+      }
+    }
+    if (taxOutstanding > 0) {
+      liabilities.push({
+        label: 'Tax Liabilities (VAT + Corporate Tax)',
+        value_aed: taxOutstanding,
+        detail: overdueCount > 0 ? `${overdueCount} filing(s) overdue` : 'Awaiting due date',
+      });
+    }
+
+    // YTD performance (recompute lightweight)
+    const yearStart = startOfYear();
+    const now = new Date();
+    const [yearlyR, yearlyE] = await Promise.all([
+      this.rechargeRepo.find({ where: { created_at: Between(yearStart, now) } }),
+      this.expenseRepo.find({ where: { expense_date: Between(yearStart, now) } }),
+    ]);
+    const yearlyRevenueAed = await this.sumRechargesAed(yearlyR);
+    const yearlyExpenseAed = this.sumExpensesAed(yearlyE);
+
+    // Reconciliation health
+    const allRecharges = await this.rechargeRepo.find();
+    const pending_recharges = allRecharges.filter((r) => !r.reconciled && r.status !== 'refunded').length;
+    const mismatches = allRecharges.filter((r) => r.status === 'mismatch').length;
+    const total_aed_converted = treasury.reduce((s, t) => s + parseFloat(t.aed_received || '0'), 0);
+    const total_wio_deposits = treasury.filter((t) => t.transferred_to_wio).reduce((s, t) => s + parseFloat(t.wio_aed_amount || t.aed_received || '0'), 0);
+
+    const totalAssets = assets.reduce((s, l) => s + l.value_aed, 0);
+    const totalLiabilities = liabilities.reduce((s, l) => s + l.value_aed, 0);
+
+    return {
+      as_of: now.toISOString(),
+      reference_number: `AXR-NW-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`,
+      assets,
+      liabilities,
+      total_assets_aed: totalAssets,
+      total_liabilities_aed: totalLiabilities,
+      net_worth_aed: totalAssets - totalLiabilities,
+      ytd_revenue_aed: yearlyRevenueAed,
+      ytd_expenses_aed: yearlyExpenseAed,
+      reconciliation: {
+        pending_recharges,
+        mismatches,
+        open_invoices: openInvoices.length,
+        drift_to_settle_aed: Math.max(0, total_aed_converted - total_wio_deposits),
+      },
+    };
+  }
+
+  async netWorthPdf(): Promise<{ filename: string; buffer: Buffer }> {
+    const snap = await this.netWorth();
+    const branding = (await this.settingsRepo.findOne({ where: { key: 'company_branding' } }))?.value || {};
+    const input: NetWorthInput = {
+      as_of: new Date(snap.as_of),
+      reference_number: snap.reference_number,
+      assets: snap.assets,
+      liabilities: snap.liabilities,
+      reconciliation: snap.reconciliation,
+      ytd_revenue_aed: snap.ytd_revenue_aed,
+      ytd_expenses_aed: snap.ytd_expenses_aed,
+      director_name: branding.director_name,
+      director_signature_b64: branding.director_signature,
+      company_seal_b64: branding.company_seal,
+      company_address: branding.company_address,
+      company_trn: branding.company_trn,
+      company_license: branding.company_license,
+      company_email: branding.company_email,
+    };
+    const buffer = await renderNetWorthPdf(input);
+    const now = new Date();
+    const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+    return { filename: `Axistra-Net-Worth-${stamp}.pdf`, buffer };
   }
 }
