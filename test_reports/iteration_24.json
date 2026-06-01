@@ -1,0 +1,39 @@
+{
+  "summary": "Iteration 24 — verified TypeOrmExceptionFilter + Treasury tab extraction. All 9 non-UUID :id endpoints return 404 (not 500). Real UUID lookups still work (200). Non-existent valid UUID returns 404. Customer code lookup (AXC-00001) regression preserved. Invalid auth still returns 401. All 8 Treasury tabs (Payment Receipts, Audit Chain, BTCPay, OxaPay, OKX, Binance, AED & Wio, Profit by Conversion) render with ZERO pageerrors / ZERO console errors. Audit Chain tab regression from iter23 is fixed. Dashboard/Customers/Recharges/Payroll/Invoices/Expenses all load cleanly. 14/15 backend tests pass; the 1 failure is a pre-existing DTO gap (POST /api/customers accepts an empty body and creates an 'Unknown customer' — NOT a regression of this iteration's filter work).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/customers", "issue": "Accepts completely empty body and creates a row with full_name='Unknown customer', auto-assigned code (e.g. AXC-00002). The global ValidationPipe is registered but the CreateCustomerDto has no `@IsNotEmpty()` / required-field decorators, so nothing is rejected. Pre-existing — not caused by the new TypeOrm filter."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter24_uuid_filter.py",
+    "/app/test_reports/pytest/iter24_results.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: tighten CreateCustomerDto with @IsNotEmpty()/@IsString() on full_name (and other minimally-required fields) so POST /api/customers with {} returns 400 instead of silently creating an 'Unknown customer'. This was unrelated to the filter work but is a pre-existing minor data-quality bug."
+  ],
+  "critical_code_review_comments": [
+    "TypeOrmExceptionFilter line 46 (`if (driverCode === '22P02')`) is dead code: it's reachable only when driverCode is '22P02' AND the uuid-message regex did NOT match in line 40 — but line 40 already returns 404 whenever driverCode==='22P02'. The numeric/integer cast branch can never run as written. If you want 400 on numeric/integer/boolean cast failures, the first guard should be narrowed (e.g. `if (driverCode === '22P02' && /uuid/i.test(combined))`) so numeric casts fall through to the 400 branch.",
+    "Filter applies @Catch(QueryFailedError, HttpException) — every HttpException across the entire app now flows through this filter and is re-serialised. The implementation looks fine but it is now a single point of failure for ALL error responses; consider adding lightweight unit tests around HttpException pass-through (e.g. 401/403/422 from auth and validation) to prevent silent shape regressions.",
+    "Treasury.jsx is down from 1887 → 1661 lines after extracting ReceiptsTab/BtcPayTab/OxaPayTab. Three remaining inline tabs (OKX/Binance/AED & Wio/Profit by Conversion) could still be extracted following the same pattern if further reduction is desired."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter24_uuid_filter.py"
+  ],
+  "success_rate": {
+    "backend": "93% (14/15 pytest — the 1 failure is a pre-existing DTO validation gap unrelated to the filter)",
+    "frontend": "100% — all 8 Treasury tabs clickable with zero pageerrors/console errors; 6 other primary routes render cleanly"
+  },
+  "test_credentials": "admin@axistratech.com / admin123 (login response field is `token`). Login form requires checking the Terms checkbox.",
+  "seed_data_creation": "test_validation_pipe_returns_400_on_missing_fields inadvertently created customer AXC-00002 (because POST /api/customers does not enforce required fields). Cleaned up via DELETE /api/customers/AXC-00002 (HTTP 200) after the run.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend filter coverage and Treasury tab rendering are fully verified for iteration 24 — do not re-run unless either typeorm-exception.filter.ts or any /components/treasury/*Tab.jsx changes. The 1 pytest failure is a pre-existing customer-DTO gap (no @IsNotEmpty on required fields); do NOT regress on it but it is not a blocker. When re-testing Treasury tabs in Playwright, always use page.get_by_role('button', name=label, exact=True) — the sidebar nav has an 'Audit Chain' link that collides with the in-page tab text.",
+  "rca of the issue": "N/A — no critical issues this iteration. The minor POST /api/customers empty-body acceptance is a pre-existing DTO validation gap (CreateCustomerDto lacks @IsNotEmpty); root cause is the DTO definition, not the new global filter. Repro: curl -X POST $BASE/api/customers -H 'Authorization: Bearer $T' -H 'Content-Type: application/json' -d '{}' returns 201 with full_name='Unknown customer'. Mitigation: add @IsNotEmpty()/@IsString() to required fields in CreateCustomerDto so the existing ValidationPipe (which is correctly wired and produces structured 400s elsewhere) rejects the request."
+}
