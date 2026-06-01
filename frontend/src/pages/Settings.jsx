@@ -46,7 +46,6 @@ export default function Settings() {
         <ReceivingWalletsCard />
         <VendorsCard />
         <BackupRestoreCard />
-        <AuditChainCard />
       </div>
     </div>
   );
@@ -95,20 +94,7 @@ const ComplianceCard = () => {
   );
 };
 
-const AuditChainCard = () => (
-  <div className="card-axistra p-6 lg:col-span-2">
-    <h3 className="font-display text-lg font-semibold mb-4">Audit Chain</h3>
-    <p className="text-sm text-gray-600 mb-4">Every payment is verified through this fixed six-step chain. Each step is gated and logged.</p>
-    <div className="grid grid-cols-2 md:grid-cols-6 gap-3 text-center text-xs">
-      {['Customer', 'Invoice', 'Crypto TX', 'Magnus Credit', 'OKX Conversion', 'Wio Bank Deposit'].map((s, i) => (
-        <div key={s} className="p-3 rounded-md border border-gray-200 bg-gradient-to-b from-white to-[var(--axistra-green-light)]">
-          <div className="text-axistra-green font-bold mb-1">{i + 1}</div>
-          <div className="font-semibold text-gray-800">{s}</div>
-        </div>
-      ))}
-    </div>
-  </div>
-);
+const AuditChainCard = () => null; // Removed from Settings — kept stub to avoid orphan imports
 
 /* ---------------- Receiving Wallets ---------------- */
 

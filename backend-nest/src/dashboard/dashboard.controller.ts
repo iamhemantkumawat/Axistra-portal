@@ -15,4 +15,7 @@ export class DashboardController {
 
   @Get('recent')
   recent() { return this.svc.recent(); }
+
+  @Get('top-customers')
+  topCustomers() { return this.svc.topCustomers(); }
 }
