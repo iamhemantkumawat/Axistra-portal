@@ -22,6 +22,11 @@ export class CustomersController {
     return this.svc.create(body, req.user);
   }
 
+  @Post('merge-duplicates')
+  mergeDuplicates(@Req() req: any) {
+    return this.svc.mergeDuplicateUsernames(req.user);
+  }
+
   @Get(':id')
   get(@Param('id') id: string) {
     return this.svc.get(id);

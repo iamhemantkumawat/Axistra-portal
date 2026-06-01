@@ -862,13 +862,17 @@ export class RechargesService implements OnModuleInit {
 
     const qb = this.customerRepo.createQueryBuilder('c');
     if (data.magnus_username) {
-      qb.orWhere('c.magnus_username = :magnus', { magnus: data.magnus_username });
+      // Match case-insensitively so Telegram webhooks for `maradona10` and
+      // `Maradona10` resolve to the SAME customer record.
+      qb.orWhere('LOWER(c.magnus_username) = LOWER(:magnus)', { magnus: data.magnus_username });
     }
     if (data.email) {
       qb.orWhere('LOWER(c.email) = LOWER(:email)', { email: data.email });
     }
     if (data.telegram) {
-      qb.orWhere('c.telegram = :telegram', { telegram: data.telegram });
+      // Strip a leading "@" + lowercase compare — Telegram handles are case-insensitive.
+      const tg = String(data.telegram).trim().replace(/^@/, '');
+      qb.orWhere("LOWER(REGEXP_REPLACE(COALESCE(c.telegram, ''), '^@', '')) = LOWER(:telegram)", { telegram: tg });
     }
     const found = data.magnus_username || data.email || data.telegram ? await qb.getOne() : null;
     if (found) return found;

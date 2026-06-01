@@ -4,7 +4,7 @@ import { API_BASE } from '../lib/api';
 import { PageHeader, Badge, Modal, Field } from '../components/Atoms';
 import { RISK_META, KYC_META, CUSTOMER_STATUS_META, fmtDate, fmtDateTime } from '../lib/format';
 import { COUNTRIES } from '../lib/countries';
-import { Plus, MagnifyingGlass, PencilSimple, Trash, CloudArrowUp, DownloadSimple } from '@phosphor-icons/react';
+import { Plus, MagnifyingGlass, PencilSimple, Trash, CloudArrowUp, DownloadSimple, GitMerge } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 
 const empty = {
@@ -74,6 +74,24 @@ export default function Customers() {
   };
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [risk, status]);
+
+  const mergeDuplicates = async () => {
+    if (!window.confirm('Find customers whose Magnus username differs only by case (e.g. "maradona10" vs "Maradona10") and merge them?\n\nAll recharges, invoices, KYC docs and ledger entries will be repointed to the oldest customer. Duplicates are then deleted.')) return;
+    try {
+      const { data } = await api.post('/customers/merge-duplicates');
+      if (data.merged_groups === 0) {
+        toast.success('No case-duplicate customers found');
+      } else {
+        const lines = data.summary
+          .map((s) => `${s.magnus_username}: kept ${s.canonical_id.slice(0, 8)}, merged ${s.merged_ids.length} duplicate(s)`)
+          .join('\n');
+        toast.success(`Merged ${data.merged_groups} group(s):\n${lines}`, { duration: 8000 });
+        load();
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Merge failed');
+    }
+  };
 
   const resetFile = () => {
     setFile(null);
@@ -197,9 +215,19 @@ export default function Customers() {
         title="Customers"
         subtitle="Manage normal and high-risk customers with KYC posture, Magnus profile data, and audit history."
         actions={
-          <button onClick={openCreate} className="btn-primary inline-flex items-center gap-2" data-testid="add-customer-btn">
-            <Plus size={16} /> Add Customer
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={mergeDuplicates}
+              className="btn-secondary inline-flex items-center gap-2"
+              title="Merge customers whose Magnus username differs only by case"
+              data-testid="merge-duplicates-btn"
+            >
+              <GitMerge size={16} /> Merge case-duplicates
+            </button>
+            <button onClick={openCreate} className="btn-primary inline-flex items-center gap-2" data-testid="add-customer-btn">
+              <Plus size={16} /> Add Customer
+            </button>
+          </div>
         }
       />
 

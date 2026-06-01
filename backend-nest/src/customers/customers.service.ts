@@ -166,4 +166,83 @@ export class CustomersService {
     });
     return { success: true, customer_code: customer.customer_code, cascaded_recharges: recharges.length };
   }
+
+  /**
+   * Find groups of customers whose `magnus_username` differs only by case
+   * (e.g. `maradona10` vs `Maradona10`) and merge each group into a single
+   * canonical record. The canonical row is the oldest one; all references on
+   * other tables (recharges, invoices, kyc_documents, crypto_transactions,
+   * compliance_logs, treasury_movements) are repointed to it, then the
+   * duplicate rows are removed.
+   *
+   * Returns a per-group summary. Idempotent — re-running on a clean DB is a no-op.
+   */
+  async mergeDuplicateUsernames(actor?: any) {
+    const dataSource = this.repo.manager.connection;
+    // Find candidate groups via raw SQL — we need LOWER() grouping which is
+    // awkward through the QueryBuilder.
+    const groups: Array<{ key: string; ids: string[] }> = await dataSource.query(`
+      SELECT LOWER(magnus_username) AS key, ARRAY_AGG(id ORDER BY created_at) AS ids
+      FROM customers
+      WHERE magnus_username IS NOT NULL AND magnus_username <> ''
+      GROUP BY LOWER(magnus_username)
+      HAVING COUNT(*) > 1
+    `);
+
+    const tablesWithCustomerId = [
+      'recharges',
+      'invoices',
+      'kyc_documents',
+      'crypto_transactions',
+      'compliance_logs',
+      'treasury_movements',
+    ];
+
+    const summary: Array<{
+      magnus_username: string;
+      canonical_id: string;
+      merged_ids: string[];
+      reassigned_rows: Record<string, number>;
+    }> = [];
+
+    for (const g of groups) {
+      const [canonical, ...dups] = g.ids;
+      const reassigned: Record<string, number> = {};
+      for (const table of tablesWithCustomerId) {
+        const r = await dataSource.query(
+          `UPDATE ${table} SET customer_id = $1 WHERE customer_id = ANY($2)`,
+          [canonical, dups],
+        );
+        // pg driver returns [rows, count] or { rowCount } depending on version
+        reassigned[table] = (Array.isArray(r) && r[1]) || (r && (r as any).rowCount) || 0;
+      }
+      // Re-fetch canonical to refresh denormalized data
+      const canon = await this.repo.findOne({ where: { id: canonical } });
+      if (canon) {
+        canon.full_name = canon.full_name || canon.magnus_username || 'Unknown customer';
+        canon.status = this.normalizeStatus(canon, canon.status);
+        await this.repo.save(canon);
+        await this.refreshRecentInvoiceSnapshots(canon);
+      }
+      // Now safe to delete duplicate customer rows
+      await this.repo.delete(dups);
+
+      summary.push({
+        magnus_username: g.key,
+        canonical_id: canonical,
+        merged_ids: dups,
+        reassigned_rows: reassigned,
+      });
+
+      await this.audit.log({
+        actor_id: actor?.id, actor_email: actor?.email,
+        action: 'merge_customer_duplicates',
+        entity_type: 'customer',
+        entity_id: canonical,
+        details: `Merged ${dups.length} case-duplicate(s) of "${g.key}" into ${canonical}`,
+      });
+    }
+
+    return { merged_groups: summary.length, summary };
+  }
 }
