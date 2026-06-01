@@ -36,15 +36,17 @@ export class TypeOrmExceptionFilter implements ExceptionFilter {
       const drvMsg = (exception as any).driverError?.message || '';
       const combined = `${msg} ${drvMsg}`;
 
-      // Postgres SQLSTATE 22P02 = invalid_text_representation
-      if (driverCode === '22P02' || /invalid input syntax for type uuid/i.test(combined)) {
+      // Postgres SQLSTATE 22P02 = invalid_text_representation.
+      // Narrow this branch to the uuid case so numeric/integer/boolean cast
+      // failures fall through to the 400 handler below.
+      if (driverCode === '22P02' && /invalid input syntax for type uuid/i.test(combined)) {
         return res.status(HttpStatus.NOT_FOUND).json({
           message: 'Not found',
           statusCode: HttpStatus.NOT_FOUND,
         });
       }
       if (driverCode === '22P02') {
-        // numeric/integer/boolean cast failure → bad request
+        // numeric / integer / boolean cast failure → bad request
         return res.status(HttpStatus.BAD_REQUEST).json({
           message: 'Invalid request value',
           statusCode: HttpStatus.BAD_REQUEST,
