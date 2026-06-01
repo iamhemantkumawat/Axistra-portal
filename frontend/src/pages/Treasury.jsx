@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import api from '../lib/api';
 import { PageHeader, Badge, KpiCard, Modal, Field, Hash } from '../components/Atoms';
-import { ProfitByConversionTab, BankStatementImportModal } from '../components/TreasuryAdvanced';
+import { ProfitByConversionTab, BankStatementImportModal, InFlightTab, AuditChainTab } from '../components/TreasuryAdvanced';
 import { BatchStatus, StepPill } from '../components/treasury/Atoms';
 import {
   BATCH_STATUS_META, dateInput, statusMeta, fmtCrypto, fmtLedgerAmount,
