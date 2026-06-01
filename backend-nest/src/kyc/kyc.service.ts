@@ -72,6 +72,25 @@ export class KycService {
     return saved;
   }
 
+  async remove(docId: string, actor?: any) {
+    const doc = await this.repo.findOne({ where: { id: docId } });
+    if (!doc) throw new NotFoundException();
+    if (doc.file_url) {
+      try {
+        const fname = doc.file_url.split('/').pop();
+        const uploadRoot = path.resolve(process.cwd(), process.env.KYC_UPLOAD_DIR || '/app/uploads/kyc');
+        fs.unlinkSync(path.join(uploadRoot, doc.customer_id, fname));
+      } catch (_) { /* ignore */ }
+    }
+    await this.repo.delete(docId);
+    await this.audit.log({
+      actor_id: actor?.id, actor_email: actor?.email,
+      action: 'kyc_delete', entity_type: 'kyc_document', entity_id: docId,
+      details: doc.file_name,
+    });
+    return { deleted: true };
+  }
+
   async download(customerId: string, fileName: string) {
     const uploadRoot = path.resolve(process.cwd(), process.env.KYC_UPLOAD_DIR || '/app/uploads/kyc');
     const filePath = path.join(uploadRoot, customerId, fileName);

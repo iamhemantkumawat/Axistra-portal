@@ -1,0 +1,36 @@
+{
+  "summary": "Iter 21 — Tested 4 new vault modules (Corporate Docs, Tax & VAT, Contracts, Conversion Register) plus KYC multi-file upload/delete. All 26 pytest cases passed (100%). Frontend pages render correctly at /corporate-docs, /tax, /contracts, /conversion-register; all 4 sidebar nav entries present; CustomerDetail multi-file input verified (multiple=true) with working delete buttons.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_vault_modules_iter21.py",
+    "/app/test_reports/pytest/iter21_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "CustomerDetail page at /customers/:id only resolves UUIDs; navigating to /customers/AXC-00001 (the customer_code) returns 500 because the backend endpoint expects the UUID id. Either accept customer_code as a fallback lookup or return 404 instead of 500. Pre-existing, not blocking iter21 scope.",
+    "Legacy single-file KYC input (data-testid=cust-form-kyc-file, multiple=false) still rendered inside the Customer edit modal accessible from the customers list. Consider removing it to avoid confusion with the new multi-file flow on CustomerDetail.",
+    "Tax overdue auto-flagging executes on every list() call (mutates rows). Acceptable but consider a scheduled job/computed property to avoid write amplification.",
+    "Contracts auto-expiry similar pattern — same comment as above."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_vault_modules_iter21.py"
+  ],
+  "success_rate": {
+    "backend": "100%",
+    "frontend": "100%"
+  },
+  "test_credentials": "admin@axistratech.com / admin123 (token field is 'token')",
+  "seed_data_creation": "Tests create and clean up their own TEST_ prefixed rows. KYC multi-upload test creates 2 docs for the existing AXC-00001 customer and deletes them.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend pytest suite at /app/backend/tests/test_vault_modules_iter21.py covers full CRUD + file flows for corporate-docs, tax, contracts, conversion-register, and KYC multi-upload/delete. Uses admin@axistratech.com login. CustomerDetail page requires UUID in URL (not customer_code).",
+  "rca of the issue": "N/A — no defects found in the iter21 scope."
+}

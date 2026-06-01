@@ -28,6 +28,10 @@ import WebhookLogs from './pages/WebhookLogs';
 import AdminUsers from './pages/AdminUsers';
 import Settings from './pages/Settings';
 import Payroll from './pages/Payroll';
+import CorporateDocs from './pages/CorporateDocs';
+import TaxVatCenter from './pages/TaxVatCenter';
+import Contracts from './pages/Contracts';
+import ConversionRegister from './pages/ConversionRegister';
 import TwoFactorSetup from './pages/TwoFactorSetup';
 import { PrivacyPolicy, TermsAndConditions } from './pages/LegalPage';
 
@@ -62,6 +66,10 @@ function App() {
               <Route path="/audit-chain" element={<AuditChainSearch />} />
               <Route path="/expenses" element={<Expenses />} />
               <Route path="/payroll" element={<Payroll />} />
+              <Route path="/corporate-docs" element={<CorporateDocs />} />
+              <Route path="/tax" element={<TaxVatCenter />} />
+              <Route path="/contracts" element={<Contracts />} />
+              <Route path="/conversion-register" element={<ConversionRegister />} />
               <Route path="/profit-loss" element={<ProfitLoss />} />
               <Route path="/reports" element={<Reports />} />
               <Route path="/compliance" element={<Compliance />} />

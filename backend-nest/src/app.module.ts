@@ -26,6 +26,9 @@ import { BankAccount } from './entities/bank-account.entity';
 import { PayrollRun } from './entities/payroll-run.entity';
 import { PayrollItem } from './entities/payroll-item.entity';
 import { EmploymentChange } from './entities/employment-change.entity';
+import { CorporateDocument } from './entities/corporate-document.entity';
+import { TaxFiling } from './entities/tax-filing.entity';
+import { Contract } from './entities/contract.entity';
 
 import { AuthModule } from './auth/auth.module';
 import { CustomersModule } from './customers/customers.module';
@@ -50,6 +53,10 @@ import { OnchainModule } from './onchain/onchain.module';
 import { SettingsModule } from './settings/settings.module';
 import { BackupsModule } from './backups/backups.module';
 import { PayrollModule } from './payroll/payroll.module';
+import { CorporateDocsModule } from './corporate-docs/corporate-docs.module';
+import { TaxModule } from './tax/tax.module';
+import { ContractsModule } from './contracts/contracts.module';
+import { ConversionRegisterModule } from './conversion-register/conversion-register.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -68,6 +75,7 @@ import { HealthController } from './health.controller';
         MagnusSyncLog, KycDocument, Setting, Lead, PaymentWebhook, TreasuryBatch,
         WalletLedger, ReceivingWallet, Vendor, AppSetting,
         Employee, BankAccount, PayrollRun, PayrollItem, EmploymentChange,
+        CorporateDocument, TaxFiling, Contract,
       ],
       synchronize: process.env.DB_SYNCHRONIZE === 'true',
       migrations: [__dirname + '/migrations/*{.js,.ts}'],
@@ -97,6 +105,10 @@ import { HealthController } from './health.controller';
     SettingsModule,
     BackupsModule,
     PayrollModule,
+    CorporateDocsModule,
+    TaxModule,
+    ContractsModule,
+    ConversionRegisterModule,
   ],
   controllers: [HealthController],
 })

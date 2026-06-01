@@ -4,7 +4,7 @@ import { useAuth } from '../lib/auth';
 import {
   ChartPieSlice, Users, CurrencyCircleDollar, FileText, Wallet, Receipt,
   ChartLineUp, FileCsv, Shield, Plug, Gear, UserCircleGear, ClockCounterClockwise,
-  SignOut, List, Bell, IdentificationCard, ChatCircleDots, Briefcase,
+  SignOut, List, Bell, IdentificationCard, ChatCircleDots, Briefcase, Vault, Buildings, Handshake, ArrowsClockwise,
 } from '@phosphor-icons/react';
 import CurrencyToggle from './CurrencyToggle';
 
@@ -20,6 +20,10 @@ const NAV = [
   { to: '/payroll', label: 'Payroll', icon: Briefcase, tid: 'sidebar-nav-payroll' },
   { to: '/profit-loss', label: 'Profit & Loss', icon: ChartLineUp, tid: 'sidebar-nav-profit-loss' },
   { to: '/reports', label: 'Reports', icon: FileCsv, tid: 'sidebar-nav-reports' },
+  { to: '/tax', label: 'Tax & VAT', icon: Receipt, tid: 'sidebar-nav-tax' },
+  { to: '/corporate-docs', label: 'Corporate Vault', icon: Buildings, tid: 'sidebar-nav-corporate-docs' },
+  { to: '/contracts', label: 'Contracts', icon: Handshake, tid: 'sidebar-nav-contracts' },
+  { to: '/conversion-register', label: 'Conversion Register', icon: ArrowsClockwise, tid: 'sidebar-nav-conversion-register' },
   { to: '/compliance', label: 'Compliance', icon: Shield, tid: 'sidebar-nav-compliance' },
   { to: '/magnus', label: 'Magnus Sync', icon: Plug, tid: 'sidebar-nav-magnus' },
   { to: '/magnus-users', label: 'Magnus Users', icon: IdentificationCard, tid: 'sidebar-nav-magnus-users' },

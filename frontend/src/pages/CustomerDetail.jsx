@@ -5,7 +5,7 @@ import { PageHeader, Badge, Field, Modal } from '../components/Atoms';
 import { RISK_META, KYC_META, CUSTOMER_STATUS_META, fmtDate, fmtDateTime } from '../lib/format';
 import { COUNTRIES } from '../lib/countries';
 import { toast } from 'sonner';
-import { CloudArrowUp, FilePdf, Image as ImageIcon, CheckCircle, XCircle, DownloadSimple } from '@phosphor-icons/react';
+import { CloudArrowUp, FilePdf, Image as ImageIcon, CheckCircle, XCircle, DownloadSimple, Trash } from '@phosphor-icons/react';
 
 const DOC_TYPES = [
   { value: 'passport', label: 'Passport / National ID' },
@@ -47,16 +47,25 @@ export default function CustomerDetail() {
   };
 
   const handleUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.size > 10 * 1024 * 1024) { toast.error('Max 10 MB'); return; }
-    const fd = new FormData();
-    fd.append('file', file);
-    fd.append('document_type', docType);
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    const oversized = files.find((f) => f.size > 10 * 1024 * 1024);
+    if (oversized) { toast.error(`"${oversized.name}" exceeds 10 MB`); return; }
     setUploading(true);
     try {
-      await api.post(`/kyc/${id}/upload`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-      toast.success('Document uploaded');
+      if (files.length === 1) {
+        const fd = new FormData();
+        fd.append('file', files[0]);
+        fd.append('document_type', docType);
+        await api.post(`/kyc/${id}/upload`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+        toast.success('Document uploaded');
+      } else {
+        const fd = new FormData();
+        files.forEach((f) => fd.append('files', f));
+        fd.append('document_type', docType);
+        const r = await api.post(`/kyc/${id}/upload-multi`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+        toast.success(`${r.data.uploaded} document(s) uploaded`);
+      }
       load();
       if (fileRef.current) fileRef.current.value = '';
     } catch (err) {
@@ -64,6 +73,15 @@ export default function CustomerDetail() {
     } finally {
       setUploading(false);
     }
+  };
+
+  const deleteDoc = async (doc) => {
+    if (!window.confirm(`Delete "${doc.file_name}"?`)) return;
+    try {
+      await api.delete(`/kyc/document/${doc.id}`);
+      toast.success('Deleted');
+      load();
+    } catch { toast.error('Delete failed'); }
   };
 
   const submitReview = async (status) => {
@@ -185,6 +203,7 @@ export default function CustomerDetail() {
               <input
                 ref={fileRef}
                 type="file"
+                multiple
                 accept=".pdf,.png,.jpg,.jpeg,.webp"
                 onChange={handleUpload}
                 className="hidden"
@@ -193,8 +212,9 @@ export default function CustomerDetail() {
               />
               <label htmlFor="kyc-upload" className="cursor-pointer inline-flex items-center gap-2 text-sm text-axistra-green hover:underline">
                 <CloudArrowUp size={20} weight="duotone" />
-                {uploading ? 'Uploading…' : 'Click to upload (PDF/PNG/JPG, max 10 MB)'}
+                {uploading ? 'Uploading…' : 'Click to upload (PDF/PNG/JPG, max 10 MB each)'}
               </label>
+              <div className="text-[10px] text-gray-500 mt-1">Hold Ctrl/Cmd to select multiple files (e.g. ID front + back)</div>
             </div>
 
             <div className="mt-4 space-y-2">
@@ -223,6 +243,7 @@ export default function CustomerDetail() {
                           <button onClick={() => setReviewDoc({ ...k, action: 'rejected' })} className="text-[11px] text-red-700 hover:underline inline-flex items-center gap-1" data-testid={`kyc-reject-${k.id}`}><XCircle size={12} /> Reject</button>
                         </>
                       )}
+                      <button onClick={() => deleteDoc(k)} className="text-[11px] text-red-600 hover:underline inline-flex items-center gap-1 ml-auto" data-testid={`kyc-delete-${k.id}`}><Trash size={12} /></button>
                     </div>
                   </div>
                 );
