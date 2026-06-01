@@ -34,6 +34,7 @@ const COMPANY = {
   authority: 'Dubai Silicon Oasis / IFZA',
   website: 'www.axistratech.com',
   email: 'info@axistratech.com',
+  phone: '+971 55 517 8244',
   service: 'SaaS Platform Usage Credits',
   description: 'Prepaid credits for usage of Axistra cloud software platform and related digital services.',
 };
@@ -611,6 +612,7 @@ export function renderInvoiceHtml(inv: InvoiceView): string {
           <h2>${escapeHtml(COMPANY.name)}</h2>
           ${iconLabel(ICONS.location, `${escapeHtml(COMPANY.addressLines[0])}, ${escapeHtml(COMPANY.addressLines[1])}, ${escapeHtml(COMPANY.addressLines[2])}`)}
           ${iconLabel(ICONS.email, escapeHtml(COMPANY.email))}
+          ${iconLabel(ICONS.phone, escapeHtml(COMPANY.phone))}
           ${iconLabel(ICONS.web, escapeHtml(COMPANY.website))}
           <p class="legal">License No: ${escapeHtml(COMPANY.license)}</p>
           <p class="legal">Registration No: ${escapeHtml(COMPANY.registrationNo)}</p>

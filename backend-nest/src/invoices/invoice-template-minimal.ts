@@ -27,7 +27,7 @@ const COMPANY = {
   registrationNo: '79504',
   addressLine1: 'IFZA Business Park, DDP, Dubai Silicon Oasis,',
   addressLine2: 'Dubai, United Arab Emirates',
-  phone: '+971 4 123 4567',
+  phone: '+971 55 517 8244',
   email: 'info@axistratech.com',
   website: 'www.axistratech.com',
   service: 'SaaS Platform Usage Credits',

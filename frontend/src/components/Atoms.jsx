@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 
 export const PageHeader = ({ title, subtitle, actions, eyebrow }) => (
   <div className="mb-6 flex flex-col md:flex-row md:items-end md:justify-between gap-4">
@@ -49,18 +50,22 @@ export const Modal = ({ open, onClose, title, children, testId, size = 'md' }) =
   }, [open]);
   if (!open) return null;
   const width = size === 'lg' ? 'max-w-4xl' : size === 'xl' ? 'max-w-6xl' : 'max-w-2xl';
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" data-testid={testId}>
+  // Render through a portal at the document body so the modal escapes any
+  // ancestor stacking context (cards with `transform`/`opacity`/etc. that
+  // would otherwise allow the page content to bleed over the modal).
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" data-testid={testId} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       {/* flex column with max-h so header stays put and body scrolls — keeps the
           submit/save button row always visible at the bottom of the viewport. */}
-      <div className={`bg-white rounded-lg shadow-xl w-full ${width} max-h-[90vh] flex flex-col`}>
+      <div className={`bg-white rounded-lg shadow-2xl w-full ${width} max-h-[90vh] flex flex-col relative z-[101]`}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
           <h3 className="font-display text-lg font-semibold text-gray-900">{title}</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700" data-testid="modal-close-btn">✕</button>
         </div>
         <div className="p-6 overflow-y-auto flex-1 min-h-0">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 };
 
