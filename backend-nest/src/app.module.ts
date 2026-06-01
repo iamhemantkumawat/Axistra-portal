@@ -21,6 +21,10 @@ import { WalletLedger } from './entities/wallet-ledger.entity';
 import { ReceivingWallet } from './entities/receiving-wallet.entity';
 import { Vendor } from './entities/vendor.entity';
 import { AppSetting } from './entities/app-setting.entity';
+import { Employee } from './entities/employee.entity';
+import { BankAccount } from './entities/bank-account.entity';
+import { PayrollRun } from './entities/payroll-run.entity';
+import { PayrollItem } from './entities/payroll-item.entity';
 
 import { AuthModule } from './auth/auth.module';
 import { CustomersModule } from './customers/customers.module';
@@ -44,6 +48,7 @@ import { SnapshotModule } from './snapshot/snapshot.module';
 import { OnchainModule } from './onchain/onchain.module';
 import { SettingsModule } from './settings/settings.module';
 import { BackupsModule } from './backups/backups.module';
+import { PayrollModule } from './payroll/payroll.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -61,6 +66,7 @@ import { HealthController } from './health.controller';
         TreasuryMovement, Expense, ComplianceLog, AuditLog,
         MagnusSyncLog, KycDocument, Setting, Lead, PaymentWebhook, TreasuryBatch,
         WalletLedger, ReceivingWallet, Vendor, AppSetting,
+        Employee, BankAccount, PayrollRun, PayrollItem,
       ],
       synchronize: process.env.DB_SYNCHRONIZE === 'true',
       migrations: [__dirname + '/migrations/*{.js,.ts}'],
@@ -89,6 +95,7 @@ import { HealthController } from './health.controller';
     OnchainModule,
     SettingsModule,
     BackupsModule,
+    PayrollModule,
   ],
   controllers: [HealthController],
 })

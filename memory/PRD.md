@@ -402,7 +402,33 @@ AUTHED (JWT)
 ## Deployment
 See `/app/deploy-fork/` (or `/opt/axistra/deploy` on the VPS): `backup.sh`, `nginx.conf`, `docker-compose.yml`, `cloudflare-setup.md`, `DEPLOYMENT.md`.
 
+## CHANGELOG
+
+### 2026-06-01 — Iter 21 (Payroll Module — Phase 1)
+- **Backend**: New entities `employees`, `bank_accounts`, `payroll_runs`, `payroll_items`. PayrollService handles employees CRUD, bank-accounts CRUD, monthly runs (auto-populated with all active employees at current salary), draft → approved → paid workflow.
+  - **Auto-Expense link**: marking a run "paid" creates one `expenses` row per employee (category=Salary, vendor=employee name) → flows into P&L automatically.
+  - **Auto PDF generation** (Puppeteer): Offer Letter, Board Resolution (on approve), Salary Slip (on mark-paid) — all signed using uploaded Director signature + company seal stored in `app_settings.company_branding`.
+  - **Payroll Register XLSX** at `GET /api/payroll/register.xlsx`.
+  - **Transfer proof upload**: per-item file upload via Multer → stored on disk + linked to the item.
+- **Frontend**: New `/payroll` page with 3 tabs (Runs · Employees · Bank Accounts). Sidebar entry added between Expenses and P&L. Settings page has a "Company Branding" card to upload Director signature + company seal PNGs.
+- **Seeded data**: Hemant Kumawat (Director & CEO, AED 20k), Sanjana Kumawat (Operations Manager, AED 15k), Wio Business AED as default payroll bank, May 2026 run already created and paid via curl during verification.
+- **Endpoints**: `/api/payroll/{employees, bank-accounts, runs, items}` CRUD + `/runs/:id/{approve, mark-paid, cancel}` + PDF/XLSX/proof routes + `/branding` + `/seed`.
+
 ## Backlog
+- **Phase 2+ Roadmap (owner-confirmed 2026-06-01, in priority order)**:
+  1. Corporate Documents Vault — Trade License, COF, MOA, AOA, Lease, TRN, Shareholder/Board Resolutions
+  2. Asset Register — BAYZ 102, Indian properties, Trust Wallet/OKX, vehicles, MacBooks/phones (net-worth proof for Binance)
+  3. Tax & VAT Center — Corporate Tax, VAT returns, tax calendar, filing attachments
+  4. Contracts Vault — Customer/supplier agreements, NDAs
+  5. Reimbursements — petty cash, employee-paid-on-company-card → links to Expenses
+  6. Leave & Attendance — when employee #3 joins
+- **CEO-requested feature set**:
+  - Crypto Conversion Register (Customer → USDT → AED sale @rate → Wio deposit trail)
+  - Source of Funds module (per revenue stream end-to-end)
+  - CEO Dashboard (Today/Month Revenue, Expenses, Payroll Due, Bank/Crypto balances, Outstanding Invoices, Profit)
+  - Customer KYC Vault UI (fields already in Customer entity)
+  - Company Net Worth Dashboard (Dubai+India property + crypto + bank → 1-click PDF for Binance/Wio)
+- **Long-term sidebar restructure** (Dashboard · Customers/Recharges/Invoices · Finance · Crypto · Compliance · Assets · Reports · Settings)
 - Fix Reports and Invoice PDF design (user-requested)
 - Wire OXAPAY_HISTORY_DELAY_MS background poller into recharge reconciliation
 - Show webhook signature errors prominently in `/webhook-logs`

@@ -27,6 +27,7 @@ import AuditLogs from './pages/AuditLogs';
 import WebhookLogs from './pages/WebhookLogs';
 import AdminUsers from './pages/AdminUsers';
 import Settings from './pages/Settings';
+import Payroll from './pages/Payroll';
 import TwoFactorSetup from './pages/TwoFactorSetup';
 import { PrivacyPolicy, TermsAndConditions } from './pages/LegalPage';
 
@@ -60,6 +61,7 @@ function App() {
               <Route path="/wallets" element={<WalletLedger />} />
               <Route path="/audit-chain" element={<AuditChainSearch />} />
               <Route path="/expenses" element={<Expenses />} />
+              <Route path="/payroll" element={<Payroll />} />
               <Route path="/profit-loss" element={<ProfitLoss />} />
               <Route path="/reports" element={<Reports />} />
               <Route path="/compliance" element={<Compliance />} />

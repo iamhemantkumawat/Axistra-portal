@@ -3,6 +3,7 @@ import api from '../lib/api';
 import { PageHeader, Modal, Field } from '../components/Atoms';
 import BackupRestoreCard from '../components/BackupRestoreCard';
 import TwoFactorCard from '../components/TwoFactorCard';
+import CompanyBrandingCard from '../components/CompanyBrandingCard';
 import { useCurrency } from '../lib/currency';
 import { Plus, Pencil, Trash, Copy, CreditCard } from '@phosphor-icons/react';
 import { toast } from 'sonner';
@@ -40,6 +41,7 @@ export default function Settings() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <CompanyCard />
         <ComplianceCard />
+        <CompanyBrandingCard />
         <TwoFactorCard />
         <ReceivingWalletsCard />
         <VendorsCard />

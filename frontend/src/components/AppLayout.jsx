@@ -4,7 +4,7 @@ import { useAuth } from '../lib/auth';
 import {
   ChartPieSlice, Users, CurrencyCircleDollar, FileText, Wallet, Receipt,
   ChartLineUp, FileCsv, Shield, Plug, Gear, UserCircleGear, ClockCounterClockwise,
-  SignOut, List, Bell, IdentificationCard, ChatCircleDots,
+  SignOut, List, Bell, IdentificationCard, ChatCircleDots, Briefcase,
 } from '@phosphor-icons/react';
 import CurrencyToggle from './CurrencyToggle';
 
@@ -17,6 +17,7 @@ const NAV = [
   { to: '/wallets', label: 'Wallet Ledger', icon: Wallet, tid: 'sidebar-nav-wallets' },
   { to: '/audit-chain', label: 'Audit Chain', icon: Shield, tid: 'sidebar-nav-audit-chain' },
   { to: '/expenses', label: 'Expenses', icon: Receipt, tid: 'sidebar-nav-expenses' },
+  { to: '/payroll', label: 'Payroll', icon: Briefcase, tid: 'sidebar-nav-payroll' },
   { to: '/profit-loss', label: 'Profit & Loss', icon: ChartLineUp, tid: 'sidebar-nav-profit-loss' },
   { to: '/reports', label: 'Reports', icon: FileCsv, tid: 'sidebar-nav-reports' },
   { to: '/compliance', label: 'Compliance', icon: Shield, tid: 'sidebar-nav-compliance' },
