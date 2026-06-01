@@ -6,13 +6,14 @@ import { PayrollRun } from '../entities/payroll-run.entity';
 import { PayrollItem } from '../entities/payroll-item.entity';
 import { Expense } from '../entities/expense.entity';
 import { AppSetting } from '../entities/app-setting.entity';
+import { WalletLedger } from '../entities/wallet-ledger.entity';
 import { AuditModule } from '../audit/audit.module';
 import { PayrollService } from './payroll.service';
 import { PayrollController } from './payroll.controller';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Employee, BankAccount, PayrollRun, PayrollItem, Expense, AppSetting]),
+    TypeOrmModule.forFeature([Employee, BankAccount, PayrollRun, PayrollItem, Expense, AppSetting, WalletLedger]),
     AuditModule,
   ],
   controllers: [PayrollController],

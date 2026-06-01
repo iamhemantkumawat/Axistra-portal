@@ -9,6 +9,7 @@ import { PayrollRun } from '../entities/payroll-run.entity';
 import { PayrollItem } from '../entities/payroll-item.entity';
 import { Expense } from '../entities/expense.entity';
 import { AppSetting } from '../entities/app-setting.entity';
+import { WalletLedger, WalletCode } from '../entities/wallet-ledger.entity';
 import { AuditService } from '../audit/audit.service';
 import {
   renderOfferLetterPdf,
@@ -19,6 +20,18 @@ import {
 
 const PAYROLL_DIR = process.env.PAYROLL_STORAGE_DIR || '/app/backups/payroll';
 
+/**
+ * Map a BankAccount row to a wallet_ledger WalletCode so salary payments
+ * also debit the user's wallet ledger. Today we ship a single Wio mapping;
+ * any non-Wio bank just skips the ledger entry (we still record the Expense).
+ */
+function bankToWalletCode(bank?: BankAccount | null): WalletCode | null {
+  if (!bank) return null;
+  const haystack = `${bank.name || ''} ${bank.bank_name || ''}`.toLowerCase();
+  if (haystack.includes('wio')) return 'WIO_BANK';
+  return null;
+}
+
 @Injectable()
 export class PayrollService {
   constructor(
@@ -28,6 +41,7 @@ export class PayrollService {
     @InjectRepository(PayrollItem) private itemRepo: Repository<PayrollItem>,
     @InjectRepository(Expense) private expRepo: Repository<Expense>,
     @InjectRepository(AppSetting) private settings: Repository<AppSetting>,
+    @InjectRepository(WalletLedger) private ledger: Repository<WalletLedger>,
     private audit: AuditService,
   ) {
     fs.mkdirSync(PAYROLL_DIR, { recursive: true });
@@ -370,6 +384,7 @@ export class PayrollService {
     if (!run.paid_at) run.paid_at = new Date();
 
     const bank = run.paid_from_bank_id ? await this.bankRepo.findOne({ where: { id: run.paid_from_bank_id } }) : null;
+    const walletCode = bankToWalletCode(bank);
     const items = await this.itemRepo.find({ where: { payroll_run_id: id } });
     const branding = await this.getBranding();
     const dir = path.join(PAYROLL_DIR, run.id);
@@ -389,6 +404,25 @@ export class PayrollService {
         notes: `Auto-created by Payroll Run ${run.period} (${run.id}). Item ${item.id}.`,
       }));
       item.expense_id = exp.id;
+
+      // Mirror the salary as a debit on the paying wallet/bank ledger so the
+      // Wallet Ledger balance updates in real time. Only do this when the
+      // bank account maps to a known wallet code (currently Wio only).
+      if (walletCode) {
+        await this.ledger.save(this.ledger.create({
+          wallet: walletCode,
+          coin: 'AED',
+          amount: `-${item.net_salary_aed}`,
+          tx_type: 'expense',
+          external_ref: `PAY-${run.period}-${item.employee_name.replace(/\s+/g, '_')}`,
+          counterparty: item.employee_name,
+          linked_expense_id: exp.id,
+          aed_value_at_event: item.net_salary_aed,
+          notes: `Salary ${this.periodLabel(run.period)} — ${item.employee_name} (run ${run.id})`,
+          actor_email: actor?.email,
+          event_at: run.paid_at,
+        }));
+      }
 
       // Render & store the signed salary slip.
       const slip = await renderSalarySlipPdf({
@@ -437,6 +471,48 @@ export class PayrollService {
       action: 'cancel_payroll_run', entity_type: 'payroll_run', entity_id: id,
     });
     return this.getRun(id);
+  }
+
+  /**
+   * Backfill wallet_ledger debits for already-PAID payroll runs that were
+   * marked paid before the ledger-integration existed. Idempotent: skips
+   * items that already have a ledger entry linked to their expense_id.
+   */
+  async syncPaidRunsToLedger(actor?: any) {
+    const paidRuns = await this.runRepo.find({ where: { status: 'paid' } });
+    let created = 0;
+    let skipped = 0;
+    for (const run of paidRuns) {
+      const bank = run.paid_from_bank_id ? await this.bankRepo.findOne({ where: { id: run.paid_from_bank_id } }) : null;
+      const walletCode = bankToWalletCode(bank);
+      if (!walletCode) { skipped += 1; continue; }
+      const items = await this.itemRepo.find({ where: { payroll_run_id: run.id } });
+      for (const item of items) {
+        if (!item.expense_id) { skipped += 1; continue; }
+        const exists = await this.ledger.findOne({ where: { linked_expense_id: item.expense_id } });
+        if (exists) { skipped += 1; continue; }
+        await this.ledger.save(this.ledger.create({
+          wallet: walletCode,
+          coin: 'AED',
+          amount: `-${item.net_salary_aed}`,
+          tx_type: 'expense',
+          external_ref: `PAY-${run.period}-${item.employee_name.replace(/\s+/g, '_')}`,
+          counterparty: item.employee_name,
+          linked_expense_id: item.expense_id,
+          aed_value_at_event: item.net_salary_aed,
+          notes: `Salary ${this.periodLabel(run.period)} — ${item.employee_name} (backfilled from run ${run.id})`,
+          actor_email: actor?.email,
+          event_at: run.paid_at || new Date(),
+        }));
+        created += 1;
+      }
+    }
+    await this.audit.log({
+      actor_id: actor?.id, actor_email: actor?.email,
+      action: 'sync_payroll_to_ledger', entity_type: 'payroll_run', entity_id: 'bulk',
+      details: `Backfill: created ${created} ledger row(s), skipped ${skipped}`,
+    });
+    return { created, skipped };
   }
 
   // -------------------- File outputs --------------------

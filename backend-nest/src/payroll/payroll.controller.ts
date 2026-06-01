@@ -48,6 +48,10 @@ export class PayrollController {
   @HttpCode(200)
   @Post('runs/:id/cancel') cancel(@Param('id') id: string, @Req() r: any) { return this.svc.cancelRun(id, r.user); }
 
+  @HttpCode(200)
+  @Post('sync-to-ledger')
+  syncToLedger(@Req() r: any) { return this.svc.syncPaidRunsToLedger(r.user); }
+
   @Get('runs/:id/board-resolution.pdf')
   async resolutionPdf(@Param('id') id: string, @Res() res: Response) {
     const { filename, buffer } = await this.svc.runResolutionPdf(id);
