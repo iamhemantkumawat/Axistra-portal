@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
+import React, { useState } from 'react';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import {
   ChartPieSlice, Users, CurrencyCircleDollar, FileText, Wallet, Receipt,
@@ -78,14 +78,6 @@ export default function AppLayout() {
   const { user, logout } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
   const nav = useNavigate();
-  const location = useLocation();
-
-  // Force admins who must enable 2FA to visit the setup page first.
-  useEffect(() => {
-    if (user?.must_setup_2fa && location.pathname !== '/setup-2fa') {
-      nav('/setup-2fa', { replace: true });
-    }
-  }, [user?.must_setup_2fa, location.pathname, nav]);
 
   return (
     <div className="min-h-screen bg-[var(--axistra-bg)]">

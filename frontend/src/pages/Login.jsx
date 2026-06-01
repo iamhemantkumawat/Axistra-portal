@@ -35,11 +35,7 @@ export default function LoginPage() {
         toast.message('Enter the 6-digit code from your authenticator app');
       } else {
         toast.success('Welcome back to Axistra Portal');
-        if (result.user?.must_setup_2fa) {
-          nav('/setup-2fa');
-        } else {
-          nav('/dashboard');
-        }
+        nav('/dashboard');
       }
     } catch (err) {
       toast.error(err.response?.data?.message || 'Invalid credentials');
