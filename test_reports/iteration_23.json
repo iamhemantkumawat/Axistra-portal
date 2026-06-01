@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 23 — payroll PDF revision flow VERIFIED end-to-end (5/5 pytest pass). Frontend Treasury page renders home tab + KPIs + tooltip-changed Payroll button correctly, BUT clicking the 'Audit Chain' tab on Treasury throws a runtime ReferenceError: 'AuditChainTab is not defined' which blanks the page. Component IS exported from TreasuryAdvanced.jsx but missing from the import on Treasury.jsx line 4. Other unrelated pages (Dashboard, Customers, Recharges, Payroll) render fine.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Treasury.jsx (Audit Chain tab)",
+        "issue": "Runtime error 'AuditChainTab is not defined' — component is exported from /app/frontend/src/components/TreasuryAdvanced.jsx but Treasury.jsx only imports `ProfitByConversionTab, BankStatementImportModal` from it (line 4). Clicking the Audit Chain tab crashes the React subtree and renders an empty body, making subsequent tabs (BTCPay/OxaPay/OKX/Binance/AED & Wio/Profit by Conversion) unreachable until the page is reloaded.",
+        "selector": "button:has-text(\"Audit Chain\") inside Treasury",
+        "priority": "CRITICAL"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter23_payroll_revision.py",
+    "/app/test_reports/pytest/iter23_results.xml"
+  ],
+  "action_items": [
+    "Fix /app/frontend/src/pages/Treasury.jsx line 4: add `AuditChainTab` to the import from '../components/TreasuryAdvanced' so the runtime no longer throws ReferenceError when the Audit Chain tab is selected. Suggested change: `import { ProfitByConversionTab, BankStatementImportModal, AuditChainTab } from '../components/TreasuryAdvanced';` After the fix, all 8 Treasury tabs should be clickable without crashing."
+  ],
+  "critical_code_review_comments": [
+    "Treasury.jsx still 1887 lines after refactor — extracting BatchStatus/StepPill + utils is a good first step, but per the original ask the file should be split further (tab subcomponents should each move into /components/treasury/*Tab.jsx).",
+    "AuditChainTab missing import (above) is a textbook regression that would have been caught by a single tab-click smoke test in CI. Consider adding a Playwright smoke that iterates over every Treasury tab.",
+    "Payroll.jsx line 512 tooltip wording change is good; consider also showing a small 'revised' badge in the row when the employee has a salary_change so users know which letter will open before they click."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter23_payroll_revision.py"
+  ],
+  "success_rate": {
+    "backend": "100% (5/5 pytest)",
+    "frontend": "~85% — Treasury home, KPIs, Payment Receipts tab, Payroll/Dashboard/Customers/Recharges all render; Audit Chain tab (and 6 tabs after it) blocked by missing import"
+  },
+  "test_credentials": "admin@axistratech.com / admin123 (login response field is `token`). Login form requires checking the Terms & Conditions checkbox before the Sign-In button enables.",
+  "seed_data_creation": "Created one test employee `TEST_PDFFlow Employee` with two salary_change records (18000 then 22000) via the backend pytest. Hemant Kumawat's salary in DB is 25000 from main agent's prior curl test (per agent_to_agent_context_note).",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend payroll flow (offer-letter -> salary-revision after change-salary, latest revision served on subsequent changes) is rock-solid; do NOT re-run unless backend payroll code changes. For Treasury frontend: after the AuditChainTab import is added, re-run a Playwright that clicks each of the 8 tab buttons (use `button:has-text(...)`, NOT `text=...` which collides with the sidebar nav link 'Audit Chain' and navigates the user away from /treasury). Use the `[data-testid=\"treasury-kpi-*\"]` selectors to assert KPI cards exist.",
+  "rca of the issue": "ROOT CAUSE: During the Treasury.jsx refactor that extracted Atoms/utils into /components/treasury/, the tab component `AuditChainTab` (which lives in /components/TreasuryAdvanced.jsx and is still rendered on lines 702 & 710 of Treasury.jsx) was not added to the named-import list on line 4. Result: at render time of the Audit Chain tab, JS throws `ReferenceError: AuditChainTab is not defined` (captured as PAGEERROR by Playwright; body innerText becomes empty). REPRO: login as admin -> /treasury -> click 'Audit Chain' tab -> page goes blank, console shows the ReferenceError. MITIGATION: one-line fix on Treasury.jsx import statement (see action_items). No data corruption; no backend involvement."
+}

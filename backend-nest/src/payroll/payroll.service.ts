@@ -551,10 +551,65 @@ export class PayrollService {
 
   // -------------------- File outputs --------------------
 
+  /**
+   * Returns the most relevant employment letter for this employee:
+   *
+   *   • If the employee has had no salary revisions → render the original
+   *     **Offer Letter** with the original hire date + original salary.
+   *   • If the employee has had one or more salary revisions → render the
+   *     **latest Salary Revision Letter** so the date and salary on the
+   *     downloaded PDF stay in sync with the current salary shown in the
+   *     UI. This is what the user wanted: clicking the offer icon should
+   *     never display "new salary, old date".
+   */
   async employeeOfferLetterPdf(employeeId: string): Promise<{ filename: string; buffer: Buffer }> {
     const e = await this.empRepo.findOne({ where: { id: employeeId } });
     if (!e) throw new NotFoundException();
     const branding = await this.getBranding();
+
+    // Look up the latest salary_change for this employee, if any.
+    const latestRevision = await this.changes.findOne({
+      where: { employee_id: employeeId, change_type: 'salary_change' },
+      order: { created_at: 'DESC' },
+    });
+
+    if (latestRevision) {
+      // Reuse the salary-revision template so the letter date, effective
+      // date and salary all match the most recent change. The optional
+      // employee back-sign stamp is included when present.
+      const acceptance: AcceptanceStamp | undefined =
+        latestRevision.sign_status === 'agreed' || latestRevision.sign_status === 'declined'
+          ? {
+            status: latestRevision.sign_status as 'agreed' | 'declined',
+            employee_signature: latestRevision.sign_payload || latestRevision.employee_name,
+            signature_method: (latestRevision.sign_method as 'typed' | 'drawn') || 'typed',
+            signed_at: latestRevision.signed_at,
+            sign_ip: latestRevision.sign_ip || undefined,
+            decline_note: latestRevision.sign_decline_note || undefined,
+          }
+          : undefined;
+
+      const buf = await renderSalaryRevisionPdf({
+        employee_name: latestRevision.employee_name,
+        employee_code: e.employee_code,
+        position: latestRevision.new_position || e.position,
+        old_salary: latestRevision.old_salary || '0',
+        new_salary: latestRevision.new_salary || String(e.monthly_salary),
+        currency: latestRevision.salary_currency || e.salary_currency || 'AED',
+        effective_date: latestRevision.effective_date,
+        letter_date: latestRevision.created_at,
+        reference_number: latestRevision.reference_number || undefined,
+        original_offer_date: e.start_date,
+        reason: latestRevision.reason || undefined,
+        acceptance,
+      }, branding);
+      return {
+        filename: `salary-revision-${e.full_name.replace(/\s+/g, '_')}-${latestRevision.reference_number || latestRevision.id.slice(0, 8)}.pdf`,
+        buffer: buf,
+      };
+    }
+
+    // No revisions on file → fall back to the original Offer Letter.
     const buf = await renderOfferLetterPdf({
       employee_name: e.full_name,
       position: e.position,

@@ -2,6 +2,14 @@ import React, { useEffect, useMemo, useState } from 'react';
 import api from '../lib/api';
 import { PageHeader, Badge, KpiCard, Modal, Field, Hash } from '../components/Atoms';
 import { ProfitByConversionTab, BankStatementImportModal } from '../components/TreasuryAdvanced';
+import { BatchStatus, StepPill } from '../components/treasury/Atoms';
+import {
+  BATCH_STATUS_META, dateInput, statusMeta, fmtCrypto, fmtLedgerAmount,
+  txFinalUsdt, rechargeFinalUsdt, rechargeCryptoLabel,
+  batchCryptoAmount, batchUsdtAmount, batchAedAmount,
+  numeric, receiptCryptoAmount, entryCoin, safeJson, isReadyReceipt,
+  startOfDay, inDateRange, rowCoin, cleanPayload, emptyBatchTemplate,
+} from '../components/treasury/utils';
 import { RECHARGE_STATUS_META, fmtDate, fmtMoney, fmtNumber } from '../lib/format';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -30,125 +38,7 @@ const TABS = [
   { key: 'profit', label: 'Profit by Conversion' },
 ];
 
-const BATCH_STATUS_META = {
-  open: { label: 'Open', cls: 'badge-neutral' },
-  ready_to_transfer: { label: 'Ready to Transfer', cls: 'badge-warning' },
-  sent_to_exchange: { label: 'Transferred', cls: 'badge-info' },
-  received_in_exchange: { label: 'Transferred / Received', cls: 'badge-info' },
-  converted_to_usdt: { label: 'Converted to USDT', cls: 'badge-info' },
-  converted_to_aed: { label: 'Converted to AED', cls: 'badge-info' },
-  reconciled: { label: 'Fully Reconciled', cls: 'badge-success' },
-};
-
-const emptyBatch = {
-  name: `Treasury Sweep ${new Date().toISOString().slice(0, 10)}`,
-  source_gateway: 'Mixed',
-  source_wallet: '',
-  destination_exchange: 'OKX',
-  destination_wallet: '',
-  coin: '',
-  network: '',
-  period_start: new Date().toISOString().slice(0, 10),
-  period_end: new Date().toISOString().slice(0, 10),
-  settlement_tx_hash: '',
-  transfer_fee_crypto: '',
-  received_crypto_amount: '',
-  notes: '',
-};
-
-const dateInput = (value) => (value ? new Date(value).toISOString().slice(0, 10) : '');
-const statusMeta = (status) => BATCH_STATUS_META[status] || { label: status || 'Open', cls: 'badge-neutral' };
-const fmtCrypto = (value) => {
-  const n = parseFloat(value || '0');
-  if (!Number.isFinite(n)) return '0';
-  return n.toLocaleString(undefined, { maximumFractionDigits: 8 });
-};
-const fmtLedgerAmount = (value, currency) => {
-  const normalized = String(currency || '').toUpperCase();
-  if (['AED', 'USD', 'EUR', 'INR'].includes(normalized)) return fmtMoney(value, normalized);
-  return `${fmtCrypto(value)} ${currency || ''}`.trim();
-};
-const txFinalUsdt = (tx) => parseFloat(tx.final_usdt_amount || ((tx.coin || '').toUpperCase() === 'USDT' ? tx.received_amount || tx.crypto_amount || '0' : '0')) || 0;
-const rechargeFinalUsdt = (recharge) => (recharge.crypto_transactions || []).reduce((sum, tx) => sum + txFinalUsdt(tx), 0);
-const rechargeCryptoLabel = (recharge) => {
-  const txs = recharge.crypto_transactions || [];
-  if (txs.length === 1) return `${fmtCrypto(txs[0].crypto_amount || txs[0].received_amount)} ${txs[0].coin || recharge.crypto_coin}`;
-  return `${fmtCrypto(recharge.crypto_amount)} ${recharge.crypto_coin}`;
-};
-const batchCryptoAmount = (batch) => parseFloat(batch.received_crypto_amount || batch.total_crypto_amount || '0') || 0;
-const batchUsdtAmount = (batch) => parseFloat(batch.usdt_amount || batch.crypto_converted || '0') || 0;
-const batchAedAmount = (batch) => parseFloat(batch.fiat_received || '0') || 0;
-const numeric = (value) => {
-  const n = parseFloat(value || '0');
-  return Number.isFinite(n) ? n : 0;
-};
-const receiptCryptoAmount = (receipt) => numeric(receipt.crypto_amount);
-const entryCoin = (entry) => String(entry.crypto_coin || entry.coin || entry.currency || '').toUpperCase();
-const safeJson = (value) => {
-  if (!value) return {};
-  try {
-    return JSON.parse(value);
-  } catch {
-    return {};
-  }
-};
-const isReadyReceipt = (r) => (
-  !r.treasury?.treasury_batch_id
-  && r.tx_hash
-  && r.magnus_credited_at
-  && !r.reconciled
-  && !['mismatch', 'refunded', 'failed'].includes(r.status)
-);
-const startOfDay = (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
-const inDateRange = (value, filter, customFrom, customTo) => {
-  if (!filter || filter === 'all') return true;
-  const stamp = value ? new Date(value) : null;
-  if (!stamp || Number.isNaN(stamp.getTime())) return false;
-  const today = startOfDay(new Date());
-  const rowDay = startOfDay(stamp);
-  if (filter === 'today') return rowDay.getTime() === today.getTime();
-  if (filter === 'yesterday') {
-    const yesterday = new Date(today);
-    yesterday.setDate(today.getDate() - 1);
-    return rowDay.getTime() === yesterday.getTime();
-  }
-  if (filter === 'custom') {
-    const from = customFrom ? startOfDay(new Date(customFrom)) : null;
-    const to = customTo ? startOfDay(new Date(customTo)) : null;
-    if (from && rowDay < from) return false;
-    if (to && rowDay > to) return false;
-  }
-  return true;
-};
-const rowCoin = (row) => String(row.crypto_coin || row.coin || row.currency || '').toUpperCase();
-
-function cleanPayload(payload) {
-  return Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== '' && value !== null && value !== undefined));
-}
-
-function BatchStatus({ status, fiatCurrency }) {
-  const meta = statusMeta(status);
-  // For direct crypto → non-AED fiat batches, override the label so it reads
-  // "Converted to USD" / "Converted to EUR" instead of the legacy "AED".
-  const label = (status === 'converted_to_aed' && fiatCurrency && fiatCurrency !== 'AED')
-    ? `Converted to ${fiatCurrency}`
-    : meta.label;
-  return <Badge className={meta.cls}>{label}</Badge>;
-}
-
-function StepPill({ icon: Icon, label, sub }) {
-  return (
-    <div className="flex items-center gap-3 rounded-md border border-gray-200 bg-white px-4 py-3">
-      <div className="flex h-9 w-9 items-center justify-center rounded-md bg-[var(--axistra-green-light)] text-axistra-green">
-        <Icon size={18} weight="duotone" />
-      </div>
-      <div>
-        <div className="text-sm font-semibold text-gray-900">{label}</div>
-        <div className="text-xs text-gray-500">{sub}</div>
-      </div>
-    </div>
-  );
-}
+const emptyBatch = emptyBatchTemplate();
 
 export default function Treasury() {
   const [data, setData] = useState(null);

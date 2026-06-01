@@ -509,7 +509,7 @@ function EmployeesTab({ items, onChanged }) {
                   <td>{fmtDate(e.start_date)}</td>
                   <td><Badge className={e.status === 'active' ? 'badge-success' : 'badge-neutral'}>{e.status}</Badge></td>
                   <td className="text-right whitespace-nowrap">
-                    <button onClick={() => openBlobInNewTab(`${API_BASE}/payroll/employees/${e.id}/offer-letter.pdf`)} className="text-axistra-green p-1" title="Offer letter PDF" data-testid={`offer-letter-${e.full_name.replace(/\s+/g,'_')}`}><FileText size={14}/></button>
+                    <button onClick={() => openBlobInNewTab(`${API_BASE}/payroll/employees/${e.id}/offer-letter.pdf`)} className="text-axistra-green p-1" title="Latest Letter — Offer or Salary Revision (auto-selects based on current salary)" data-testid={`offer-letter-${e.full_name.replace(/\s+/g,'_')}`}><FileText size={14}/></button>
                     <button onClick={() => openEdit(e)} className="text-gray-500 hover:text-axistra-green p-1" title="Edit" data-testid={`employee-edit-${e.full_name.replace(/\s+/g,'_')}`}><Pencil size={14}/></button>
                     <button onClick={() => del(e)} className="text-gray-500 hover:text-red-600 p-1" title="Delete" data-testid={`employee-delete-${e.full_name.replace(/\s+/g,'_')}`}><Trash size={14}/></button>
                   </td>
