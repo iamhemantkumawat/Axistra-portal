@@ -28,6 +28,7 @@ import WebhookLogs from './pages/WebhookLogs';
 import AdminUsers from './pages/AdminUsers';
 import Settings from './pages/Settings';
 import Payroll from './pages/Payroll';
+import EmployeeDetail from './pages/EmployeeDetail';
 import CorporateDocs from './pages/CorporateDocs';
 import TaxVatCenter from './pages/TaxVatCenter';
 import Contracts from './pages/Contracts';
@@ -66,6 +67,7 @@ function App() {
               <Route path="/audit-chain" element={<AuditChainSearch />} />
               <Route path="/expenses" element={<Expenses />} />
               <Route path="/payroll" element={<Payroll />} />
+              <Route path="/payroll/employees/:id" element={<EmployeeDetail />} />
               <Route path="/corporate-docs" element={<CorporateDocs />} />
               <Route path="/tax" element={<TaxVatCenter />} />
               <Route path="/contracts" element={<Contracts />} />

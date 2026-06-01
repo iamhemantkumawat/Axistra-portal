@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CustomersService } from './customers.service';
+import { CreateCustomerDto } from './dto/create-customer.dto';
 
 @UseGuards(AuthGuard('jwt'))
 @Controller('customers')
@@ -18,7 +19,8 @@ export class CustomersController {
   }
 
   @Post()
-  create(@Body() body: any, @Req() req: any) {
+  create(@Body() body: CreateCustomerDto, @Req() req: any) {
+    CreateCustomerDto.ensureHasIdentifier(body);
     return this.svc.create(body, req.user);
   }
 

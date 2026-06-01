@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import api, { API_BASE } from '../lib/api';
 import { PageHeader, Badge, Modal, Field, EmptyState } from '../components/Atoms';
 import EmploymentHistory from '../components/EmploymentHistory';
@@ -503,7 +504,10 @@ function EmployeesTab({ items, onChanged }) {
               {items.map((e) => (
                 <tr key={e.id} data-testid={`employee-row-${e.full_name.replace(/\s+/g,'_')}`}>
                   <td className="font-mono text-xs">{e.employee_code}</td>
-                  <td className="font-medium">{e.full_name}<div className="text-xs text-gray-400">{e.email || '—'}</div></td>
+                  <td className="font-medium">
+                    <Link to={`/payroll/employees/${e.id}`} className="text-axistra-green hover:underline" data-testid={`employee-link-${e.full_name.replace(/\s+/g,'_')}`}>{e.full_name}</Link>
+                    <div className="text-xs text-gray-400">{e.email || '—'}</div>
+                  </td>
                   <td>{e.position}</td>
                   <td className="text-right font-mono">{e.salary_currency} {fmtAed(e.monthly_salary)}</td>
                   <td>{fmtDate(e.start_date)}</td>

@@ -1,0 +1,24 @@
+{
+  "summary": "Iteration 25 — verified all 3 follow-ups: (1) POST /api/customers DTO hardening with CreateCustomerDto + ensureHasIdentifier — empty body → 400 with structured 'At least one of full_name, first_name, ... is required' message, valid body → 201, invalid email → 400 'email must be an email', single magnus_username identifier → 201, invalid status enum → 400. (2) GET /api/payroll/employees/:uuid/history returns 4 ordered events for Hemant (1 initial_offer + 3 salary_change), strips sign_token while exposing has_sign_token boolean, sorted desc by effective_date. (3) Treasury AedWioTab extraction verified — all 3 KPI cards (treasury-wio-aed, treasury-exchange-aed, treasury-exchange-usdt) render, 'Import Wio Statement' (aed-import-bank) opens 'Import Wio Bank Statement' modal correctly. Employee Detail page renders profile, 4 KPI cards (Current Monthly Salary, Salary Revisions, Position Changes, Tenure), and the HR Audit Trail Employment History timeline with 4 events including SIGNED salary revision, old→new diff, +150% badge, AWAITING SIGNATURE pill, and 4 emp-event-pdf-<idx> buttons. Payroll → Employees tab shows 3 employee-link-<name> data-testids — clicking Hemant navigates to /payroll/employees/<uuid>. All 7 OTHER Treasury tabs (Payment Receipts, Audit Chain, BTCPay, OxaPay, OKX, Binance, Profit by Conversion) still clickable with zero console errors. Smoke routes (Dashboard, Customers, Recharges, Invoices, Expenses) all load cleanly. 10/10 backend pytest pass, 0 console/page errors across Playwright run.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter25_customer_dto_and_history.py",
+    "/app/test_reports/pytest/iter25_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "CreateCustomerDto.ensureHasIdentifier is invoked from the controller (line 23) rather than as a ValidationPipe transform. Functionally correct, but it bypasses the global ValidationPipe and won't auto-collect alongside other class-validator errors. Consider migrating to a custom @ValidatorConstraint so the response shape is consistent with other 400s (single 'message' array vs. flat string).",
+    "EmployeeDetail.jsx fetches /api/payroll/employees/:id/history and renders 4 events for Hemant. Confirm a loading/empty/error state exists for new employees with zero history (initial_offer is auto-created so an empty array shouldn't occur, but client should still tolerate []). Visually verified UI for the happy path only.",
+    "AedWioTab extraction is clean — 5 props, no leaking state. The 'Import Wio Bank Statement' modal still lives in Treasury.jsx and is triggered via openImportBank prop callback — fine for now. If the modal grows, consider extracting it into AedWioTab so the dependency boundary stays tight.",
+    "Treasury.jsx is now 1530 lines (down from ~1661 in iter24). OKX/Binance unified tab is still inline and heavily state-coupled per main agent's note; would require a Treasury context wrapper to extract cleanly."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter25_customer_dto_and_history.py"],
+  "success_rate": {"backend": "100% (10/10 pytest)", "frontend": "100% — all required testids present, all Treasury tabs clickable, 0 console/page errors"},
+  "test_credentials": "admin@axistratech.com / admin123 (login response field 'token'). Login form requires checking Terms checkbox.",
+  "seed_data_creation": "2 test customers created during pytest (first_name=TESTITER25 + magnus_username=test_iter25_just_user); both were auto-cleaned by the session teardown fixture. Verified via GET /api/customers — only the 2 pre-existing customers remain.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 3 iter25 follow-ups are clean. Hemant employee_id = 3ec19cce-834d-42e3-81e0-f1840a42482c is the canonical test fixture for /payroll/employees/:id/history (returns 4 events: 1 initial_offer + 3 salary_change, no position_change yet). For Treasury tab tests always use page.get_by_role('button', name=label, exact=True) — sidebar 'Audit Chain' link collides with in-page tab text. Import Wio modal exposes data-testid='bank-import-modal'. The previously-flagged iter24 minor (POST /api/customers accepting empty body) is now FIXED.",
+  "rca of the issue": "N/A — no issues found this iteration. iter24's pre-existing DTO gap is resolved: CreateCustomerDto now (a) enforces field-level validation via class-validator decorators (IsEmail, IsString, MaxLength, IsIn) and (b) calls ensureHasIdentifier() in the controller to enforce the 'at least one identifier' multi-field rule that ValidationPipe can't express natively."
+}
