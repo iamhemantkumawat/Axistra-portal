@@ -20,7 +20,7 @@ Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corpora
 
 ### Implemented
 - Auth (JWT login, admin user list/create, **TOTP 2FA with enforcement, recovery codes, and self-service disable/regenerate** — see § Two-Factor Authentication)
-- Customers (CRUD, code `AXC-NNNNN`, risk levels, KYC status, signup IP)
+- Customers (CRUD, code `AXC-NNNNN`, risk levels, KYC status, signup IP). **KYC docs support multi-file upload (Feb 2026)** — pick passport front + back in one go via `POST /api/kyc/:customerId/upload-multi`.
 - Recharges (CRUD, code `RCH-YYYY-NNNNN`, status flow with mismatch detection)
 - Invoices (auto-generated `AX-YYYY-NNNNN`, Puppeteer PDF, View + Download)
 - Crypto Treasury (per-recharge movement, USDT → OKX → AED → Wio chain)
@@ -28,6 +28,10 @@ Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corpora
 - Expenses (CRUD, 10 categories, payment methods: Bank/Card/USDT/Binance Pay/Cash/Other)
 - Profit & Loss (yearly P&L, UAE Corp Tax 9% estimate, monthly chart)
 - Reports (10 reports, PDF/CSV/Excel exports)
+- **Corporate Documents Vault (Feb 2026, P1)** — `corporate_documents` table; 12 doc types (Trade License, MOA, AOA, Share Cert, TRN, Lease, Board/Shareholder Resolutions, COF, POA, Bank Letter, Other); expiry tracking with 90-day warning + expired badges. `/api/corporate-docs` CRUD + file download.
+- **Tax & VAT Center (Feb 2026, P2)** — `tax_filings` table; supports VAT, Corporate Tax, Excise, WHT; period labels (Q1 2026, FY 2025); auto-flag overdue when `due_date < today` and status not in (filed/paid/exempt); summary KPI (upcoming/overdue/outstanding); optional file attachment for filed returns. `/api/tax` + `/api/tax/summary`.
+- **Contracts Vault (Feb 2026, P2)** — `contracts` table; 6 contract types (customer agreement, NDA, supplier, employment, service, other); soft-link to customer; auto-flag expired when `end_date < today` and status=active; expiring-in-60-days KPI. `/api/contracts` CRUD + file download.
+- **Crypto Conversion Register / Source of Funds (Feb 2026, P3)** — read-only aggregator at `/api/conversion-register` that stitches Customer → Invoice → Crypto TX → Exchange Settlement → USDT Conversion → AED Sale → Wio Bank Deposit per recharge. Used as the master audit-chain report for compliance. No new tables — joins existing entities.
 - Compliance (risk, KYC requests, blocks, refunds, suspicious notes)
 - Magnus Sync (LIVE HMAC-SHA512 to cyberxcalls.com, logs every call)
 - Magnus Users (LIVE list of MagnusBilling users with balances)
