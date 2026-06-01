@@ -103,4 +103,35 @@ export class PayrollController {
   // ---------- One-shot seed ----------
   @HttpCode(200)
   @Post('seed') seed() { return this.svc.seedIfEmpty(); }
+
+  // ---------- Employment History (per employee) ----------
+  @Get('employees/:id/history') listHistory(@Param('id') id: string) { return this.svc.listChangesForEmployee(id); }
+
+  @HttpCode(200)
+  @Post('employees/:id/change-salary')
+  changeSalary(@Param('id') id: string, @Body() body: any, @Req() r: any) {
+    return this.svc.changeSalary(id, body, r.user);
+  }
+
+  @HttpCode(200)
+  @Post('employees/:id/change-position')
+  changePosition(@Param('id') id: string, @Body() body: any, @Req() r: any) {
+    return this.svc.changePosition(id, body, r.user);
+  }
+
+  @Get('changes/:id') getChange(@Param('id') id: string) { return this.svc.getChange(id); }
+
+  @Get('changes/:id/letter.pdf')
+  async changeLetter(@Param('id') id: string, @Res() res: Response) {
+    const { filename, buffer } = await this.svc.changeLetterPdf(id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    res.send(buffer);
+  }
+
+  @HttpCode(200)
+  @Post('changes/:id/rotate-sign-token')
+  rotateSign(@Param('id') id: string, @Req() r: any) {
+    return this.svc.rotateSignToken(id, r.user);
+  }
 }

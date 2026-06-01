@@ -25,6 +25,7 @@ import { Employee } from './entities/employee.entity';
 import { BankAccount } from './entities/bank-account.entity';
 import { PayrollRun } from './entities/payroll-run.entity';
 import { PayrollItem } from './entities/payroll-item.entity';
+import { EmploymentChange } from './entities/employment-change.entity';
 
 import { AuthModule } from './auth/auth.module';
 import { CustomersModule } from './customers/customers.module';
@@ -66,7 +67,7 @@ import { HealthController } from './health.controller';
         TreasuryMovement, Expense, ComplianceLog, AuditLog,
         MagnusSyncLog, KycDocument, Setting, Lead, PaymentWebhook, TreasuryBatch,
         WalletLedger, ReceivingWallet, Vendor, AppSetting,
-        Employee, BankAccount, PayrollRun, PayrollItem,
+        Employee, BankAccount, PayrollRun, PayrollItem, EmploymentChange,
       ],
       synchronize: process.env.DB_SYNCHRONIZE === 'true',
       migrations: [__dirname + '/migrations/*{.js,.ts}'],

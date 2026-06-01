@@ -10,13 +10,18 @@ import { PayrollItem } from '../entities/payroll-item.entity';
 import { Expense } from '../entities/expense.entity';
 import { AppSetting } from '../entities/app-setting.entity';
 import { WalletLedger, WalletCode } from '../entities/wallet-ledger.entity';
+import { EmploymentChange } from '../entities/employment-change.entity';
 import { AuditService } from '../audit/audit.service';
 import {
   renderOfferLetterPdf,
   renderBoardResolutionPdf,
   renderSalarySlipPdf,
+  renderSalaryRevisionPdf,
+  renderPositionChangePdf,
+  AcceptanceStamp,
   Branding,
 } from './payroll-templates';
+import * as crypto from 'crypto';
 
 const PAYROLL_DIR = process.env.PAYROLL_STORAGE_DIR || '/app/backups/payroll';
 
@@ -42,6 +47,7 @@ export class PayrollService {
     @InjectRepository(Expense) private expRepo: Repository<Expense>,
     @InjectRepository(AppSetting) private settings: Repository<AppSetting>,
     @InjectRepository(WalletLedger) private ledger: Repository<WalletLedger>,
+    @InjectRepository(EmploymentChange) private changes: Repository<EmploymentChange>,
     private audit: AuditService,
   ) {
     fs.mkdirSync(PAYROLL_DIR, { recursive: true });
@@ -108,6 +114,21 @@ export class PayrollService {
       salary_currency: data.salary_currency || 'AED',
       status: data.status || 'active',
     }));
+    // Record the initial offer as the first row of the employment history.
+    await this.changes.save(this.changes.create({
+      employee_id: saved.id,
+      employee_name: saved.full_name,
+      change_type: 'initial_offer',
+      effective_date: saved.start_date,
+      new_salary: String(saved.monthly_salary),
+      salary_currency: saved.salary_currency,
+      new_position: saved.position,
+      reason: 'Initial employment offer',
+      reference_number: `AXR-OFFER-${new Date(saved.start_date).getFullYear()}-${saved.employee_code.replace('AXE-', '')}`,
+      sign_token: this.newToken(),
+      sign_status: 'pending',
+      created_by: actor?.email || null,
+    }));
     await this.audit.log({
       actor_id: actor?.id, actor_email: actor?.email,
       action: 'create_employee', entity_type: 'employee', entity_id: saved.id,
@@ -119,7 +140,20 @@ export class PayrollService {
   async updateEmployee(id: string, data: Partial<Employee>, actor?: any) {
     const e = await this.empRepo.findOne({ where: { id } });
     if (!e) throw new NotFoundException();
-    Object.assign(e, data);
+    // Generic updates MAY NOT change salary or position — those must go through
+    // the dedicated change-salary / change-position endpoints which generate
+    // signed letters and an immutable employment_changes row.
+    if (data.monthly_salary !== undefined && String(data.monthly_salary) !== String(e.monthly_salary)) {
+      throw new BadRequestException('Use the "Change Salary" action to update monthly_salary — it generates a Salary Revision Letter.');
+    }
+    if (data.position !== undefined && data.position !== e.position) {
+      throw new BadRequestException('Use the "Change Position" action to update position — it generates a Position Change Letter.');
+    }
+    // Whitelist of safe fields that don't touch the contractual terms.
+    const safe = ['full_name', 'employer', 'salary_currency', 'start_date', 'end_date', 'status',
+                  'email', 'phone', 'nationality', 'passport_no', 'emirates_id',
+                  'bank_name', 'bank_iban', 'bank_swift', 'notes'];
+    for (const k of safe) if (k in data) (e as any)[k] = (data as any)[k];
     const saved = await this.empRepo.save(e);
     await this.audit.log({
       actor_id: actor?.id, actor_email: actor?.email,
@@ -660,6 +694,318 @@ export class PayrollService {
       buffer: fs.readFileSync(item.transfer_proof_path),
       mime,
     };
+  }
+
+  // -------------------- Employment changes & signing --------------------
+
+  private newToken(): string {
+    return crypto.randomBytes(24).toString('base64url');
+  }
+
+  private async nextChangeRef(prefix: string): Promise<string> {
+    const year = new Date().getFullYear();
+    const rows = await this.changes.createQueryBuilder('c')
+      .select('c.reference_number', 'reference_number')
+      .where('c.reference_number LIKE :p', { p: `AXR-${prefix}-${year}-%` })
+      .getRawMany<{ reference_number: string }>();
+    const used = new Set<number>();
+    for (const r of rows) {
+      const m = String(r.reference_number || '').match(/(\d+)$/);
+      if (m) used.add(parseInt(m[1], 10));
+    }
+    let n = 1;
+    while (used.has(n)) n += 1;
+    return `AXR-${prefix}-${year}-${String(n).padStart(3, '0')}`;
+  }
+
+  async listChangesForEmployee(employeeId: string) {
+    const rows = await this.changes.find({
+      where: { employee_id: employeeId },
+      order: { effective_date: 'DESC', created_at: 'DESC' },
+    });
+    // Strip sign_token from the response — tokens leak via the public link only.
+    return rows.map(({ sign_token, ...rest }) => ({
+      ...rest,
+      has_sign_token: !!sign_token,
+    }));
+  }
+
+  /**
+   * Record a salary change → update employee, write history row, generate a
+   * signed Salary Revision Letter PDF, return a fresh sign URL/token.
+   */
+  async changeSalary(
+    employeeId: string,
+    body: { new_salary: number | string; effective_date: any; reason?: string },
+    actor?: any,
+  ) {
+    const e = await this.empRepo.findOne({ where: { id: employeeId } });
+    if (!e) throw new NotFoundException('Employee not found');
+    if (!body.new_salary || isNaN(Number(body.new_salary))) {
+      throw new BadRequestException('new_salary required');
+    }
+    if (!body.effective_date) throw new BadRequestException('effective_date required');
+    const oldSalary = String(e.monthly_salary);
+    if (String(body.new_salary) === oldSalary) {
+      throw new BadRequestException('New salary is identical to current salary');
+    }
+
+    const ref = await this.nextChangeRef('SAL');
+    const change = await this.changes.save(this.changes.create({
+      employee_id: e.id,
+      employee_name: e.full_name,
+      change_type: 'salary_change',
+      effective_date: new Date(body.effective_date),
+      old_salary: oldSalary,
+      new_salary: String(body.new_salary),
+      salary_currency: e.salary_currency,
+      old_position: e.position,
+      new_position: e.position,
+      reason: body.reason || null,
+      reference_number: ref,
+      sign_token: this.newToken(),
+      sign_status: 'pending',
+      created_by: actor?.email || null,
+    }));
+
+    // Update the Employee row to the new salary so payroll runs from now on
+    // use the revised figure.
+    e.monthly_salary = String(body.new_salary);
+    await this.empRepo.save(e);
+
+    await this.regenerateChangeLetter(change.id);
+
+    await this.audit.log({
+      actor_id: actor?.id, actor_email: actor?.email,
+      action: 'change_salary', entity_type: 'employee', entity_id: e.id,
+      details: `${ref} · ${e.salary_currency} ${oldSalary} → ${body.new_salary}, effective ${body.effective_date}`,
+    });
+    return this.getChange(change.id);
+  }
+
+  /** Record a position change with letter + signing token. */
+  async changePosition(
+    employeeId: string,
+    body: { new_position: string; effective_date: any; reason?: string },
+    actor?: any,
+  ) {
+    const e = await this.empRepo.findOne({ where: { id: employeeId } });
+    if (!e) throw new NotFoundException('Employee not found');
+    if (!body.new_position) throw new BadRequestException('new_position required');
+    if (!body.effective_date) throw new BadRequestException('effective_date required');
+    if (body.new_position === e.position) {
+      throw new BadRequestException('New position is identical to current position');
+    }
+
+    const ref = await this.nextChangeRef('POS');
+    const change = await this.changes.save(this.changes.create({
+      employee_id: e.id,
+      employee_name: e.full_name,
+      change_type: 'position_change',
+      effective_date: new Date(body.effective_date),
+      old_position: e.position,
+      new_position: body.new_position,
+      old_salary: String(e.monthly_salary),
+      new_salary: String(e.monthly_salary),
+      salary_currency: e.salary_currency,
+      reason: body.reason || null,
+      reference_number: ref,
+      sign_token: this.newToken(),
+      sign_status: 'pending',
+      created_by: actor?.email || null,
+    }));
+
+    e.position = body.new_position;
+    await this.empRepo.save(e);
+    await this.regenerateChangeLetter(change.id);
+
+    await this.audit.log({
+      actor_id: actor?.id, actor_email: actor?.email,
+      action: 'change_position', entity_type: 'employee', entity_id: e.id,
+      details: `${ref} · ${change.old_position} → ${body.new_position}, effective ${body.effective_date}`,
+    });
+    return this.getChange(change.id);
+  }
+
+  /** Return one change + linked PDF info, optionally hiding the sign_token. */
+  async getChange(changeId: string) {
+    const c = await this.changes.findOne({ where: { id: changeId } });
+    if (!c) throw new NotFoundException('Change not found');
+    const e = await this.empRepo.findOne({ where: { id: c.employee_id } });
+    const { sign_token, ...rest } = c;
+    return {
+      ...rest,
+      has_sign_token: !!sign_token,
+      sign_url_path: sign_token ? `/sign/${sign_token}` : null,
+      employee: e ? { id: e.id, employee_code: e.employee_code, full_name: e.full_name, position: e.position } : null,
+    };
+  }
+
+  /** Letter PDF for a change row (idempotent — regenerates if missing). */
+  async changeLetterPdf(changeId: string): Promise<{ filename: string; buffer: Buffer }> {
+    const c = await this.changes.findOne({ where: { id: changeId } });
+    if (!c) throw new NotFoundException();
+    if (!c.letter_path || !fs.existsSync(c.letter_path)) {
+      await this.regenerateChangeLetter(changeId);
+    }
+    const fresh = await this.changes.findOne({ where: { id: changeId } });
+    return {
+      filename: path.basename(fresh!.letter_path!),
+      buffer: fs.readFileSync(fresh!.letter_path!),
+    };
+  }
+
+  /**
+   * Regenerate the letter PDF for a given change row. Used after creation
+   * AND after the employee back-signs (to embed the acceptance stamp).
+   */
+  private async regenerateChangeLetter(changeId: string) {
+    const c = await this.changes.findOne({ where: { id: changeId } });
+    if (!c) return;
+    const e = await this.empRepo.findOne({ where: { id: c.employee_id } });
+    const branding = await this.getBranding();
+    const dir = path.join(PAYROLL_DIR, 'employees', c.employee_id);
+    fs.mkdirSync(dir, { recursive: true });
+
+    const acceptance: AcceptanceStamp | undefined = c.sign_status === 'agreed' || c.sign_status === 'declined'
+      ? {
+        status: c.sign_status as 'agreed' | 'declined',
+        employee_signature: c.sign_payload || c.employee_name,
+        signature_method: (c.sign_method as 'typed' | 'drawn') || 'typed',
+        signed_at: c.signed_at,
+        sign_ip: c.sign_ip || undefined,
+        decline_note: c.sign_decline_note || undefined,
+      }
+      : undefined;
+
+    let buffer: Buffer;
+    let filename: string;
+    if (c.change_type === 'salary_change') {
+      buffer = await renderSalaryRevisionPdf({
+        employee_name: c.employee_name,
+        employee_code: e?.employee_code,
+        position: c.new_position || e?.position || '',
+        old_salary: c.old_salary || '0',
+        new_salary: c.new_salary || '0',
+        currency: c.salary_currency || 'AED',
+        effective_date: c.effective_date,
+        letter_date: c.created_at,
+        reference_number: c.reference_number || undefined,
+        original_offer_date: e?.start_date,
+        reason: c.reason || undefined,
+        acceptance,
+      }, branding);
+      filename = `salary-revision-${c.reference_number}.pdf`;
+    } else if (c.change_type === 'position_change') {
+      buffer = await renderPositionChangePdf({
+        employee_name: c.employee_name,
+        employee_code: e?.employee_code,
+        old_position: c.old_position || '',
+        new_position: c.new_position || '',
+        effective_date: c.effective_date,
+        letter_date: c.created_at,
+        reference_number: c.reference_number || undefined,
+        reason: c.reason || undefined,
+        acceptance,
+      }, branding);
+      filename = `position-change-${c.reference_number}.pdf`;
+    } else if (c.change_type === 'initial_offer') {
+      // The initial offer letter is generated on-the-fly by employeeOfferLetterPdf()
+      // so we don't need to write a duplicate to disk here.
+      return;
+    } else {
+      return;
+    }
+    const p = path.join(dir, filename);
+    fs.writeFileSync(p, buffer);
+    c.letter_path = p;
+    await this.changes.save(c);
+  }
+
+  // ---------- Public back-signing flow ----------
+
+  /** Public-facing: fetch the letter content + status by token. */
+  async getSignDocument(token: string) {
+    const c = await this.changes.findOne({ where: { sign_token: token } });
+    if (!c) throw new NotFoundException('Invalid signing link');
+    const e = await this.empRepo.findOne({ where: { id: c.employee_id } });
+    const branding = await this.getBranding();
+    return {
+      change_id: c.id,
+      reference_number: c.reference_number,
+      change_type: c.change_type,
+      effective_date: c.effective_date,
+      employee_name: c.employee_name,
+      employee_code: e?.employee_code,
+      position: c.new_position || e?.position,
+      old_salary: c.old_salary,
+      new_salary: c.new_salary,
+      salary_currency: c.salary_currency,
+      old_position: c.old_position,
+      new_position: c.new_position,
+      reason: c.reason,
+      sign_status: c.sign_status,
+      signed_at: c.signed_at,
+      employer: 'AXISTRA TECHNOLOGIES — FZCO',
+      director_name: branding.director_name || 'Hemant Kumawat',
+    };
+  }
+
+  /** Public-facing: submit the employee's decision + signature payload. */
+  async submitSignDecision(
+    token: string,
+    body: { decision: 'agreed' | 'declined'; signature?: string; signature_method?: 'typed' | 'drawn'; decline_note?: string },
+    ip?: string,
+    userAgent?: string,
+  ) {
+    const c = await this.changes.findOne({ where: { sign_token: token } });
+    if (!c) throw new NotFoundException('Invalid signing link');
+    if (c.sign_status === 'agreed' || c.sign_status === 'declined') {
+      throw new BadRequestException(`This letter has already been ${c.sign_status} on ${c.signed_at}`);
+    }
+    if (!['agreed', 'declined'].includes(body.decision)) {
+      throw new BadRequestException('decision must be "agreed" or "declined"');
+    }
+    if (body.decision === 'agreed' && !body.signature) {
+      throw new BadRequestException('signature required to agree');
+    }
+
+    c.sign_status = body.decision;
+    c.signed_at = new Date();
+    c.sign_ip = ip || null;
+    c.sign_user_agent = userAgent || null;
+    c.sign_payload = body.signature || c.employee_name;
+    c.sign_method = body.signature_method === 'drawn' ? 'drawn' : 'typed';
+    c.sign_decline_note = body.decline_note || null;
+    await this.changes.save(c);
+    await this.regenerateChangeLetter(c.id);
+
+    await this.audit.log({
+      action: `employee_${body.decision}_change`,
+      actor_email: c.employee_name,
+      entity_type: 'employment_change',
+      entity_id: c.id,
+      details: `${c.reference_number} signed ${body.decision} from ${ip || 'unknown'}`,
+      ip_address: ip,
+    });
+
+    return { ok: true, status: c.sign_status, signed_at: c.signed_at };
+  }
+
+  /** Admin-only: rotate the sign_token (in case the previous link leaked). */
+  async rotateSignToken(changeId: string, actor?: any) {
+    const c = await this.changes.findOne({ where: { id: changeId } });
+    if (!c) throw new NotFoundException();
+    if (c.sign_status === 'agreed' || c.sign_status === 'declined') {
+      throw new BadRequestException('Already signed — cannot rotate token');
+    }
+    c.sign_token = this.newToken();
+    await this.changes.save(c);
+    await this.audit.log({
+      actor_id: actor?.id, actor_email: actor?.email,
+      action: 'rotate_sign_token', entity_type: 'employment_change', entity_id: changeId,
+    });
+    return this.getChange(changeId);
   }
 
   // -------------------- Seed (one-shot) --------------------

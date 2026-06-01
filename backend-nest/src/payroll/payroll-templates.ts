@@ -309,3 +309,168 @@ export async function renderSalarySlipPdf(input: SalarySlipInput, branding?: Bra
   </body></html>`;
   return htmlToPdf(html);
 }
+
+// ---------- Salary Revision Letter ----------
+
+export interface SalaryRevisionInput {
+  employee_name: string;
+  employee_code?: string;
+  position: string;
+  old_salary: number | string;
+  new_salary: number | string;
+  currency: string;
+  effective_date: any;
+  letter_date?: any;
+  reference_number?: string;
+  original_offer_date?: any;
+  reason?: string;
+  acceptance?: AcceptanceStamp;
+}
+
+export interface AcceptanceStamp {
+  status: 'agreed' | 'declined';
+  employee_signature?: string; // typed name OR base64 PNG of drawn signature
+  signature_method?: 'typed' | 'drawn';
+  signed_at?: any;
+  sign_ip?: string;
+  decline_note?: string;
+}
+
+export async function renderSalaryRevisionPdf(input: SalaryRevisionInput, branding?: Branding): Promise<Buffer> {
+  const b = { ...DEFAULT_BRANDING, ...(branding || {}) };
+  const issued = fmtDate(input.letter_date || new Date());
+  const eff = fmtDate(input.effective_date);
+  const orig = input.original_offer_date ? fmtDate(input.original_offer_date) : null;
+  const ref = input.reference_number || `AXR-SAL-${new Date(input.letter_date || Date.now()).getFullYear()}-001`;
+  const delta = parseFloat(String(input.new_salary)) - parseFloat(String(input.old_salary));
+  const pct = parseFloat(String(input.old_salary)) > 0
+    ? (delta / parseFloat(String(input.old_salary))) * 100 : null;
+
+  const html = `<!doctype html>
+  <html><head><meta charset="utf-8"><style>
+    ${commonStyles()}
+    .deltabox { background:#F4FBF7; border:1px solid #C2E7D2; border-radius:6px; padding:14px 18px; margin: 18px 0; display:flex; gap:32px; flex-wrap:wrap; }
+    .deltabox .lbl { font-size:10px; color:#0E6B45; letter-spacing:0.12em; text-transform:uppercase; }
+    .deltabox .val { font-weight:700; font-size:16px; margin-top:2px; color:#0E6B45; font-family: 'Menlo', monospace; }
+    .deltabox .delta { color: ${delta >= 0 ? '#0E6B45' : '#a32020'}; }
+  </style></head>
+  <body>
+    ${headerBlock(b)}
+    <div style="text-align:right; font-size:10px; color:#555;">Ref: ${esc(ref)}</div>
+    <h1 class="doc-title">Salary Revision Letter</h1>
+    <p>${issued}</p>
+    <p><strong>${esc(input.employee_name)}</strong>${input.employee_code ? ` &nbsp;·&nbsp; <span style="color:#888">${esc(input.employee_code)}</span>` : ''}<br/>${esc(input.position)}</p>
+
+    <p>Dear ${esc(input.employee_name.split(' ')[0])},</p>
+    <p>
+      Further to ${orig ? `your offer letter dated ${orig}` : 'your existing employment with the Company'}, and pursuant to the Board Resolution dated ${issued},
+      we are pleased to confirm that the Board of Directors of <strong>AXISTRA TECHNOLOGIES — FZCO</strong> has approved a revision of your monthly salary as detailed below, with effect from <strong>${eff}</strong>.
+    </p>
+
+    <div class="deltabox">
+      <div><div class="lbl">Previous Salary</div><div class="val">${esc(input.currency)} ${fmtAed(input.old_salary)}</div></div>
+      <div><div class="lbl">Revised Salary</div><div class="val">${esc(input.currency)} ${fmtAed(input.new_salary)}</div></div>
+      <div><div class="lbl">Change</div><div class="val delta">${delta >= 0 ? '+' : ''}${esc(input.currency)} ${fmtAed(Math.abs(delta))}${pct !== null ? ` (${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%)` : ''}</div></div>
+      <div><div class="lbl">Effective</div><div class="val">${eff}</div></div>
+    </div>
+
+    ${input.reason ? `<p><strong>Reason:</strong> ${esc(input.reason)}</p>` : ''}
+    <p>All other terms and conditions of your employment shall remain unchanged. The revised salary supersedes any prior salary terms with effect from the date stated above.</p>
+    <p>Please countersign this letter (electronically via the link sent to you, or in writing) to confirm your acceptance of the revised terms.</p>
+
+    <p style="margin-top:24px;">For and on behalf of <strong>AXISTRA TECHNOLOGIES — FZCO</strong>,</p>
+    ${signatureBlock(b)}
+
+    ${renderAcceptanceBlock(input.employee_name, input.acceptance)}
+    ${footerBlock()}
+  </body></html>`;
+  return htmlToPdf(html);
+}
+
+// ---------- Position Change Letter ----------
+
+export interface PositionChangeInput {
+  employee_name: string;
+  employee_code?: string;
+  old_position: string;
+  new_position: string;
+  effective_date: any;
+  letter_date?: any;
+  reference_number?: string;
+  reason?: string;
+  acceptance?: AcceptanceStamp;
+}
+
+export async function renderPositionChangePdf(input: PositionChangeInput, branding?: Branding): Promise<Buffer> {
+  const b = { ...DEFAULT_BRANDING, ...(branding || {}) };
+  const issued = fmtDate(input.letter_date || new Date());
+  const eff = fmtDate(input.effective_date);
+  const ref = input.reference_number || `AXR-POS-${new Date(input.letter_date || Date.now()).getFullYear()}-001`;
+
+  const html = `<!doctype html>
+  <html><head><meta charset="utf-8"><style>
+    ${commonStyles()}
+    .deltabox { background:#FFF7E5; border:1px solid #F2D89D; border-radius:6px; padding:14px 18px; margin: 18px 0; display:flex; gap:32px; flex-wrap:wrap; }
+    .deltabox .lbl { font-size:10px; color:#A47200; letter-spacing:0.12em; text-transform:uppercase; }
+    .deltabox .val { font-weight:700; font-size:14px; margin-top:2px; color:#222; }
+  </style></head>
+  <body>
+    ${headerBlock(b)}
+    <div style="text-align:right; font-size:10px; color:#555;">Ref: ${esc(ref)}</div>
+    <h1 class="doc-title">Position Change Letter</h1>
+    <p>${issued}</p>
+    <p><strong>${esc(input.employee_name)}</strong>${input.employee_code ? ` &nbsp;·&nbsp; <span style="color:#888">${esc(input.employee_code)}</span>` : ''}</p>
+
+    <p>Dear ${esc(input.employee_name.split(' ')[0])},</p>
+    <p>
+      We are pleased to confirm that the Board of Directors of <strong>AXISTRA TECHNOLOGIES — FZCO</strong> has approved a change in your position within the Company, effective from <strong>${eff}</strong>.
+    </p>
+
+    <div class="deltabox">
+      <div><div class="lbl">Previous Position</div><div class="val">${esc(input.old_position)}</div></div>
+      <div><div class="lbl">New Position</div><div class="val">${esc(input.new_position)}</div></div>
+      <div><div class="lbl">Effective</div><div class="val">${eff}</div></div>
+    </div>
+
+    ${input.reason ? `<p><strong>Reason:</strong> ${esc(input.reason)}</p>` : ''}
+    <p>All other terms and conditions of your employment shall remain unchanged unless varied by a separate written agreement.</p>
+    <p>Please countersign this letter (electronically via the link sent to you, or in writing) to confirm your acceptance of the revised position.</p>
+
+    <p style="margin-top:24px;">For and on behalf of <strong>AXISTRA TECHNOLOGIES — FZCO</strong>,</p>
+    ${signatureBlock(b)}
+
+    ${renderAcceptanceBlock(input.employee_name, input.acceptance)}
+    ${footerBlock()}
+  </body></html>`;
+  return htmlToPdf(html);
+}
+
+function renderAcceptanceBlock(employeeName: string, acceptance?: AcceptanceStamp) {
+  if (!acceptance) {
+    return `
+      <div style="margin-top:60px; border-top:1px dashed #aaa; padding-top:16px;">
+        <p style="font-size:11px;"><strong>Employee acceptance:</strong> Pending — please sign via the link sent to you, or below in writing.</p>
+        <div style="margin-top:40px; width: 60%; border-top:1px solid #333;"></div>
+        <p style="font-size:11px; margin-top:6px;">${esc(employeeName)} &nbsp;·&nbsp; Date: ____________________</p>
+      </div>`;
+  }
+  if (acceptance.status === 'declined') {
+    return `
+      <div style="margin-top:50px; border-top:1px dashed #a32020; padding-top:14px;">
+        <p style="font-size:11px; color:#a32020;"><strong>Status: DECLINED</strong> · ${esc(fmtDate(acceptance.signed_at || new Date()))} · IP ${esc(acceptance.sign_ip || '—')}</p>
+        ${acceptance.decline_note ? `<p style="font-size:11px;">${esc(acceptance.decline_note)}</p>` : ''}
+        <p style="font-size:11px; margin-top:6px;">${esc(employeeName)}</p>
+      </div>`;
+  }
+  const sigBlock = acceptance.signature_method === 'drawn' && acceptance.employee_signature
+    ? `<img src="data:image/png;base64,${acceptance.employee_signature}" alt="Employee signature" style="max-height:60px; max-width:240px; display:block;" />`
+    : `<div style="font-family: 'Brush Script MT','Pinyon Script', cursive; font-size: 26px; color:#0E6B45;">${esc(acceptance.employee_signature || employeeName)}</div>`;
+  return `
+    <div style="margin-top:50px; border-top:1px dashed #0E6B45; padding-top:14px;">
+      <p style="font-size:11px; color:#0E6B45;"><strong>Status: AGREED</strong> · Signed electronically ${esc(fmtDate(acceptance.signed_at || new Date()))} ${acceptance.sign_ip ? `· IP ${esc(acceptance.sign_ip)}` : ''}</p>
+      ${sigBlock}
+      <div style="border-top:1px solid #333; width:60%; margin-top:4px;"></div>
+      <p style="font-size:11px; margin-top:6px;">${esc(employeeName)} &nbsp;·&nbsp; ${esc(fmtDate(acceptance.signed_at || new Date()))}</p>
+    </div>`;
+}
+

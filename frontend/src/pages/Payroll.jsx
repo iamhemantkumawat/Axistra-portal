@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import api, { API_BASE } from '../lib/api';
 import { PageHeader, Badge, Modal, Field, EmptyState } from '../components/Atoms';
+import EmploymentHistory from '../components/EmploymentHistory';
 import { toast } from 'sonner';
 import {
   Plus, Users, Bank, FileText, DownloadSimple, CheckCircle, CurrencyCircleDollar,
@@ -463,9 +464,16 @@ function EmployeesTab({ items, onChanged }) {
     ev.preventDefault();
     setBusy(true);
     try {
-      if (edit) await api.patch(`/payroll/employees/${edit.id}`, form);
-      else await api.post('/payroll/employees', form);
-      toast.success(edit ? 'Employee updated' : 'Employee added');
+      if (edit) {
+        // Strip salary/position from the generic update payload — they MUST
+        // go through "Change Salary" / "Change Position" actions in history.
+        // eslint-disable-next-line no-unused-vars
+        const { monthly_salary, position, ...safe } = form;
+        await api.patch(`/payroll/employees/${edit.id}`, safe);
+      } else {
+        await api.post('/payroll/employees', form);
+      }
+      toast.success(edit ? 'Employee info updated' : 'Employee added');
       setOpen(false); onChanged();
     } catch (err) { toast.error(err.response?.data?.message || 'Save failed'); }
     finally { setBusy(false); }
@@ -511,38 +519,102 @@ function EmployeesTab({ items, onChanged }) {
           </table>
         </div>
       )}
-      <Modal open={open} onClose={() => setOpen(false)} title={edit ? 'Edit Employee' : 'Add Employee'} size="lg" testId="employee-modal">
-        <form onSubmit={save} className="grid md:grid-cols-2 gap-3">
-          <Field label="Full Name"><input required value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} className="input-axistra" data-testid="employee-name-input"/></Field>
-          <Field label="Position"><input required value={form.position} onChange={(e) => setForm({ ...form, position: e.target.value })} className="input-axistra" data-testid="employee-position-input"/></Field>
-          <Field label="Monthly Salary"><input type="number" step="0.01" required value={form.monthly_salary} onChange={(e) => setForm({ ...form, monthly_salary: e.target.value })} className="input-axistra" data-testid="employee-salary-input"/></Field>
-          <Field label="Currency">
-            <select value={form.salary_currency} onChange={(e) => setForm({ ...form, salary_currency: e.target.value })} className="input-axistra" data-testid="employee-currency-select">
-              <option>AED</option><option>USD</option><option>EUR</option><option>INR</option>
-            </select>
-          </Field>
-          <Field label="Start Date"><input type="date" required value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} className="input-axistra"/></Field>
-          <Field label="Status">
-            <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="input-axistra">
-              <option value="active">Active</option><option value="on_leave">On Leave</option><option value="terminated">Terminated</option>
-            </select>
-          </Field>
-          <Field label="Email"><input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="input-axistra"/></Field>
-          <Field label="Phone"><input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="input-axistra"/></Field>
-          <Field label="Bank Name"><input value={form.bank_name} onChange={(e) => setForm({ ...form, bank_name: e.target.value })} className="input-axistra"/></Field>
-          <Field label="IBAN"><input value={form.bank_iban} onChange={(e) => setForm({ ...form, bank_iban: e.target.value })} className="input-axistra font-mono"/></Field>
-          <div className="md:col-span-2">
-            <Field label="Notes"><textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="input-axistra"/></Field>
-          </div>
-          <div className="md:col-span-2 flex justify-end gap-2 pt-1">
-            <button type="button" onClick={() => setOpen(false)} className="btn-secondary">Cancel</button>
-            <button type="submit" disabled={busy} className="btn-primary" data-testid="employee-save-btn">{busy ? 'Saving…' : (edit ? 'Save' : 'Add Employee')}</button>
-          </div>
-        </form>
+      <Modal open={open} onClose={() => setOpen(false)} title={edit ? `Edit Employee — ${edit.full_name}` : 'Add Employee'} size="lg" testId="employee-modal">
+        {edit ? (
+          <EditEmployeeBody employee={edit} form={form} setForm={setForm} save={save} busy={busy} onClose={() => setOpen(false)} onChanged={onChanged} />
+        ) : (
+          <EmployeeForm form={form} setForm={setForm} save={save} busy={busy} onClose={() => setOpen(false)} edit={false} />
+        )}
       </Modal>
     </div>
   );
 }
+
+/** Read-only form fields for ADD mode + EDIT info tab. */
+function EmployeeForm({ form, setForm, save, busy, onClose, edit }) {
+  return (
+    <form onSubmit={save} className="grid md:grid-cols-2 gap-3">
+      <Field label="Full Name"><input required value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} className="input-axistra" data-testid="employee-name-input"/></Field>
+      <Field label="Position">
+        <input
+          required
+          value={form.position}
+          onChange={(e) => setForm({ ...form, position: e.target.value })}
+          className={`input-axistra ${edit ? 'bg-gray-50 cursor-not-allowed' : ''}`}
+          readOnly={edit}
+          data-testid="employee-position-input"
+          title={edit ? 'Use the "Change Position" action to update' : ''}
+        />
+        {edit && <div className="text-[10px] text-gray-500 mt-1">🔒 Use "Change Position" in the Employment History tab to update.</div>}
+      </Field>
+      <Field label="Monthly Salary">
+        <input
+          type="number" step="0.01" required
+          value={form.monthly_salary}
+          onChange={(e) => setForm({ ...form, monthly_salary: e.target.value })}
+          className={`input-axistra ${edit ? 'bg-gray-50 cursor-not-allowed' : ''}`}
+          readOnly={edit}
+          data-testid="employee-salary-input"
+          title={edit ? 'Use the "Change Salary" action to update' : ''}
+        />
+        {edit && <div className="text-[10px] text-gray-500 mt-1">🔒 Use "Change Salary" in the Employment History tab to update.</div>}
+      </Field>
+      <Field label="Currency">
+        <select value={form.salary_currency} onChange={(e) => setForm({ ...form, salary_currency: e.target.value })} className="input-axistra" data-testid="employee-currency-select">
+          <option>AED</option><option>USD</option><option>EUR</option><option>INR</option>
+        </select>
+      </Field>
+      <Field label="Start Date"><input type="date" required value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} className="input-axistra"/></Field>
+      <Field label="Status">
+        <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="input-axistra">
+          <option value="active">Active</option><option value="on_leave">On Leave</option><option value="terminated">Terminated</option>
+        </select>
+      </Field>
+      <Field label="Email"><input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="input-axistra"/></Field>
+      <Field label="Phone"><input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="input-axistra"/></Field>
+      <Field label="Bank Name"><input value={form.bank_name} onChange={(e) => setForm({ ...form, bank_name: e.target.value })} className="input-axistra"/></Field>
+      <Field label="IBAN"><input value={form.bank_iban} onChange={(e) => setForm({ ...form, bank_iban: e.target.value })} className="input-axistra font-mono"/></Field>
+      <div className="md:col-span-2">
+        <Field label="Notes"><textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="input-axistra"/></Field>
+      </div>
+      <div className="md:col-span-2 flex justify-end gap-2 pt-1">
+        <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
+        <button type="submit" disabled={busy} className="btn-primary" data-testid="employee-save-btn">{busy ? 'Saving…' : (edit ? 'Save Info' : 'Add Employee')}</button>
+      </div>
+    </form>
+  );
+}
+
+/** Edit modal body with two tabs: Info (regular fields) | Employment History (salary/position changes + timeline). */
+function EditEmployeeBody({ employee, form, setForm, save, busy, onClose, onChanged }) {
+  const [tab, setTab] = useState('info');
+  return (
+    <div>
+      <div className="flex border-b border-gray-200 mb-4 gap-1">
+        <TabBtn active={tab === 'info'} onClick={() => setTab('info')} testId="employee-tab-info">Personal Info</TabBtn>
+        <TabBtn active={tab === 'history'} onClick={() => setTab('history')} testId="employee-tab-history">Employment History &amp; Changes</TabBtn>
+      </div>
+      {tab === 'info' && <EmployeeForm form={form} setForm={setForm} save={save} busy={busy} onClose={onClose} edit={true} />}
+      {tab === 'history' && (
+        <EmploymentHistory
+          employee={employee}
+          apiBase={API_BASE}
+          onSalaryOrPositionChanged={() => onChanged?.()}
+        />
+      )}
+    </div>
+  );
+}
+
+const TabBtn = ({ active, onClick, testId, children }) => (
+  <button
+    onClick={onClick}
+    data-testid={testId}
+    className={`px-3 py-2 text-sm font-medium border-b-2 transition ${
+      active ? 'border-axistra-green text-axistra-green' : 'border-transparent text-gray-500 hover:text-gray-800'
+    }`}
+  >{children}</button>
+);
 
 // ===================================================================
 // Tab: Bank Accounts
