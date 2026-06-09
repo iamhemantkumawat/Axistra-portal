@@ -29,6 +29,18 @@ export class RechargesController {
     return this.svc.addSplitSibling(id, body, req.user);
   }
 
+  /** Heal a TX whose siblings were recorded as independent recharges. */
+  @Post('heal-split')
+  healSplit(@Body() body: any, @Req() req: any) {
+    return this.svc.healSplitByTxHash(body, req.user);
+  }
+
+  /** Bulk-heal every duplicated tx_hash in the recharges table. */
+  @Post('heal-all-splits')
+  healAllSplits(@Req() req: any) {
+    return this.svc.healAllSplits(req.user);
+  }
+
   @Get(':id')
   get(@Param('id') id: string) {
     return this.svc.get(id);

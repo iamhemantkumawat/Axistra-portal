@@ -3,9 +3,10 @@ import api from '../lib/api';
 import { PageHeader, Badge, Modal, Field, Hash } from '../components/Atoms';
 import { RECHARGE_STATUS_META, fmtDate } from '../lib/format';
 import { useCurrency } from '../lib/currency';
-import { Plus, MagnifyingGlass, Info } from '@phosphor-icons/react';
+import { Plus, MagnifyingGlass, Info, ArrowsSplit, Wrench } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 import { Link, useNavigate } from 'react-router-dom';
+import { SplitRechargeModal } from '../components/recharges/SplitRechargeModal';
 
 const GATEWAYS = ['Binance', 'OKX', 'OxaPay', 'BTCPay'];
 const COINS = ['BTC', 'USDT', 'ETH', 'USDC', 'BNB', 'TRX'];
@@ -34,6 +35,8 @@ export default function Recharges() {
   const { format } = useCurrency();
   const [form, setForm] = useState(emptyForm);
   const [loading, setLoading] = useState(false);
+  const [splitModalOpen, setSplitModalOpen] = useState(false);
+  const [healing, setHealing] = useState(false);
   const nav = useNavigate();
 
   const load = () => {
@@ -91,6 +94,20 @@ export default function Recharges() {
     if (matchedWallet) setForm({ ...form, wallet_address: matchedWallet.address });
   };
 
+  const runHealAll = async () => {
+    if (!window.confirm('Scan for duplicated tx_hashes and heal split groups? Safe to re-run — only mutates rows that need fixing.')) return;
+    setHealing(true);
+    try {
+      const { data } = await api.post('/recharges/heal-all-splits');
+      const fixed = (data.results || []).filter((r) => r.healed).length;
+      if (fixed === 0) toast.success(`Scanned ${data.processed} TX hash(es) — all already healed.`);
+      else toast.success(`Healed ${fixed} of ${data.processed} TX hash(es). Wallet ledger now reflects on-chain totals.`);
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Heal failed');
+    } finally { setHealing(false); }
+  };
+
   return (
     <div>
       <PageHeader
@@ -98,9 +115,17 @@ export default function Recharges() {
         title="Recharges"
         subtitle="Every sale keeps its own customer payment TXID; later sweeps to OKX/Binance are linked through treasury batches."
         actions={
-          <button onClick={openNewModal} className="btn-primary inline-flex items-center gap-2" data-testid="new-recharge-btn">
-            <Plus size={16} /> New Recharge
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={runHealAll} disabled={healing} className="btn-secondary inline-flex items-center gap-2 disabled:opacity-60" data-testid="heal-splits-btn" title="Scan recharges for duplicated TX hashes and consolidate split-group ledger rows">
+              <Wrench size={14} weight="duotone" /> {healing ? 'Healing…' : 'Heal Splits'}
+            </button>
+            <button onClick={() => setSplitModalOpen(true)} className="btn-secondary inline-flex items-center gap-2" data-testid="new-split-recharge-btn">
+              <ArrowsSplit size={16} /> Split Recharge
+            </button>
+            <button onClick={openNewModal} className="btn-primary inline-flex items-center gap-2" data-testid="new-recharge-btn">
+              <Plus size={16} /> New Recharge
+            </button>
+          </div>
         }
       />
 
@@ -136,7 +161,14 @@ export default function Recharges() {
             {items.length === 0 && <tr><td colSpan="8" className="text-center text-gray-500 py-10">No recharges yet.</td></tr>}
             {items.map((r) => (
               <tr key={r.id} data-testid={`recharge-row-${r.recharge_code}`} onClick={() => nav(`/recharges/${r.id}`)} className="cursor-pointer">
-                <td><Link to={`/recharges/${r.id}`} className="font-mono text-axistra-green font-medium hover:underline" onClick={(e) => e.stopPropagation()}>{r.recharge_code}</Link></td>
+                <td>
+                  <Link to={`/recharges/${r.id}`} className="font-mono text-axistra-green font-medium hover:underline" onClick={(e) => e.stopPropagation()}>{r.recharge_code}</Link>
+                  {r.split_group_id && (
+                    <Badge className="badge-info ml-1.5 align-middle" data-testid={`split-badge-${r.recharge_code}`} title={`Part of a ${r.split_total}-way split — group ${r.split_group_id?.slice(0, 8)}`}>
+                      <ArrowsSplit size={10} className="inline mr-0.5" />{r.split_index}/{r.split_total}
+                    </Badge>
+                  )}
+                </td>
                 <td>
                   <div className="font-medium">{r.customer?.full_name || '—'}</div>
                   <div className="text-xs text-gray-500">
@@ -239,6 +271,13 @@ export default function Recharges() {
           </div>
         </form>
       </Modal>
+
+      <SplitRechargeModal
+        open={splitModalOpen}
+        onClose={() => setSplitModalOpen(false)}
+        customers={customers}
+        onSuccess={load}
+      />
     </div>
   );
 }

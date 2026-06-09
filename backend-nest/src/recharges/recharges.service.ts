@@ -490,6 +490,131 @@ export class RechargesService implements OnModuleInit {
     throw new BadRequestException(`No customer found for split row (magnus_username=${split.magnus_username || '—'})`);
   }
 
+  /**
+   * Idempotently heal a TX whose split siblings were recorded as
+   * independent recharges (each booked its own ledger row, often into
+   * the WRONG wallet — e.g. a Binance TX showing up partly on BTCPAY).
+   *
+   * Picks the ledger row sitting on `primary_wallet` (auto-detected from
+   * the receiving address if not provided) as the canonical one. Sets
+   * its amount to the SUM of all sibling shares (the true on-chain
+   * deposit), wipes every other ledger row sharing the same tx_hash,
+   * and stamps split_group_id / split_index / split_total on each
+   * recharge so they show as a group in the UI.
+   *
+   * Safe to re-run: detects when the group is already healed and
+   * returns { healed: false, group_id } without further mutation.
+   */
+  async healSplitByTxHash(body: { tx_hash: string; primary_wallet?: string }, actor?: any) {
+    const tx = (body.tx_hash || '').trim();
+    if (!tx) throw new BadRequestException('tx_hash is required');
+
+    const siblings = await this.repo.find({ where: { tx_hash: tx }, order: { created_at: 'ASC' } });
+    if (siblings.length < 2) {
+      throw new BadRequestException(`Only ${siblings.length} recharge(s) found for TX ${tx} — need at least 2 to heal`);
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { randomUUID } = require('crypto');
+    const N = siblings.length;
+    const totalCrypto = siblings.reduce((s, r) => s + (parseFloat(r.crypto_amount || '0') || 0), 0);
+    const totalFiat = siblings.reduce((s, r) => s + (parseFloat(r.amount || '0') || 0), 0);
+
+    const ledgerRows = await this.walletLedgerRepo.find({ where: { tx_hash: tx, tx_type: 'deposit' as any } });
+    if (ledgerRows.length === 0) {
+      throw new BadRequestException(`No deposit ledger rows for TX ${tx} — nothing to heal`);
+    }
+
+    // Pick the primary ledger row: explicit override > detected wallet > first row by event_at
+    let primaryWallet = body.primary_wallet;
+    if (!primaryWallet) {
+      const firstWalletAddr = siblings.find((s) => s.wallet_address)?.wallet_address;
+      if (firstWalletAddr) {
+        const detected = await this.detectGatewayFromAddress(firstWalletAddr);
+        if (detected) {
+          primaryWallet = ({ Binance: 'BINANCE', OKX: 'OKX', OxaPay: 'OXAPAY', BTCPay: 'BTCPAY' } as any)[detected] || null;
+        }
+      }
+    }
+    let primary = primaryWallet ? ledgerRows.find((r) => r.wallet === primaryWallet) : null;
+    if (!primary) primary = ledgerRows.sort((a, b) => +new Date(a.event_at || 0) - +new Date(b.event_at || 0))[0];
+    const otherLedgerRows = ledgerRows.filter((r) => r.id !== primary!.id);
+
+    const alreadyHealed = siblings.every((s) => s.split_group_id)
+      && siblings.every((s) => s.split_total === N)
+      && Math.abs(parseFloat(primary.amount || '0') - totalCrypto) < 1e-9
+      && otherLedgerRows.length === 0;
+    if (alreadyHealed) {
+      return { healed: false, group_id: siblings[0].split_group_id, siblings: siblings.length, total_crypto: totalCrypto };
+    }
+
+    const groupId = siblings.find((s) => s.split_group_id)?.split_group_id || randomUUID();
+    // Stamp split markers
+    for (let i = 0; i < siblings.length; i += 1) {
+      siblings[i].split_group_id = groupId;
+      siblings[i].split_index = i + 1;
+      siblings[i].split_total = N;
+      await this.repo.save(siblings[i]);
+    }
+
+    // Bump primary ledger row to the actual on-chain total
+    const refsList = siblings.map((s) => s.recharge_code).join(', ');
+    const counterpartiesList = siblings.map((s) => `${s.magnus_username}=${s.amount} ${s.currency}`).join(' | ');
+    primary.amount = totalCrypto.toFixed(8);
+    primary.external_ref = `SPLIT-${groupId.slice(0, 8)} (${refsList})`;
+    primary.counterparty = siblings.map((s) => s.magnus_username).join(' + ');
+    primary.notes = `Healed split ${N}-way: ${counterpartiesList}`;
+    await this.walletLedgerRepo.save(primary);
+
+    // Wipe the duplicate ledger rows on other wallets
+    for (const dup of otherLedgerRows) {
+      await this.walletLedgerRepo.delete(dup.id);
+    }
+
+    await this.audit.log({
+      actor_id: actor?.id, actor_email: actor?.email,
+      action: 'heal_split_recharge', entity_type: 'recharge', entity_id: siblings[0].id,
+      details: `Healed TX ${tx} (${N}-way): group ${groupId}, total=${totalCrypto.toFixed(8)} ${siblings[0].crypto_coin}, fiat=${totalFiat.toFixed(2)} ${siblings[0].currency}; removed ${otherLedgerRows.length} dup ledger row(s)`,
+    });
+
+    return {
+      healed: true,
+      group_id: groupId,
+      siblings_count: N,
+      total_crypto: totalCrypto,
+      total_fiat: totalFiat,
+      primary_wallet: primary.wallet,
+      removed_duplicate_ledger_rows: otherLedgerRows.length,
+    };
+  }
+
+  /**
+   * Bulk healing — discovers every tx_hash with > 1 recharge and runs
+   * healSplitByTxHash on each. Use this once to fix a database that
+   * never went through the proper split endpoint. Idempotent.
+   */
+  async healAllSplits(actor?: any) {
+    const rows = await this.repo
+      .createQueryBuilder('r')
+      .select('r.tx_hash', 'tx_hash')
+      .addSelect('COUNT(*)', 'cnt')
+      .where('r.tx_hash IS NOT NULL')
+      .andWhere("r.tx_hash <> ''")
+      .groupBy('r.tx_hash')
+      .having('COUNT(*) > 1')
+      .getRawMany<{ tx_hash: string; cnt: string }>();
+    const results = [] as any[];
+    for (const row of rows) {
+      try {
+        const result = await this.healSplitByTxHash({ tx_hash: row.tx_hash }, actor);
+        results.push({ tx_hash: row.tx_hash, ...result });
+      } catch (e) {
+        results.push({ tx_hash: row.tx_hash, error: (e as any)?.message });
+      }
+    }
+    return { processed: rows.length, results };
+  }
+
   async createFromGatewayPayment(data: any, actor?: any) {
     const customer = await this.findOrCreateCustomerFromPayment(data);
     const existingTx = data.tx_hash?.trim()
