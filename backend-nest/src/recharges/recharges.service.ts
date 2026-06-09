@@ -622,6 +622,27 @@ export class RechargesService implements OnModuleInit {
       : null;
     if (existingTx) return this.applyGatewayPayment(existingTx.recharge_id, data, actor);
 
+    // Merge into a matching PENDING placeholder if one exists. This
+    // avoids creating duplicate rows when a Telegram bot first announces
+    // a payment (no tx_hash) and then the actual on-chain TX webhook
+    // arrives — we now update the placeholder instead of forking a new
+    // recharge that would later show as "Pending Payment" forever.
+    const pendingMatch = await this.findPendingMergeCandidate(customer.id, data);
+    if (pendingMatch) {
+      this.logger.log(`Merging incoming gateway payment into pending recharge ${pendingMatch.recharge_code} (customer=${customer.customer_code}, amount=${data.amount} ${data.currency || ''})`);
+      const merged = await this.applyGatewayPayment(pendingMatch.id, data, actor);
+      if (data.magnus_credit_added || data.magnus_reference_id) {
+        const latest = await this.repo.findOne({ where: { id: pendingMatch.id } });
+        if (latest?.tx_hash) {
+          await this.syncMagnus(pendingMatch.id, {
+            magnus_credit_added: data.magnus_credit_added || data.amount,
+            magnus_reference_id: data.magnus_reference_id,
+          }, actor);
+        }
+      }
+      return merged;
+    }
+
     const recharge = await this.create({
       customer_id: customer.id,
       magnus_username: data.magnus_username || customer.magnus_username,
@@ -656,6 +677,29 @@ export class RechargesService implements OnModuleInit {
       }
     }
     return this.get(recharge.id);
+  }
+
+  /**
+   * Find a pending recharge that an incoming webhook should attach itself
+   * to instead of forking a duplicate. Matches by customer + amount +
+   * currency, prefers the row that already has no tx_hash, restricted to
+   * the last 30 days so we never reopen ancient placeholders.
+   */
+  private async findPendingMergeCandidate(customerId: string, data: any) {
+    const amount = parseFloat(String(data.amount || '0'));
+    if (!customerId || !Number.isFinite(amount) || amount <= 0) return null;
+    const currency = String(data.currency || 'USD').toUpperCase();
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const qb = this.repo
+      .createQueryBuilder('r')
+      .where('r.customer_id = :customer', { customer: customerId })
+      .andWhere('r.status = :pending', { pending: 'pending_payment' })
+      .andWhere('UPPER(r.currency) = :currency', { currency })
+      .andWhere('ABS(r.amount::numeric - :amount::numeric) < 0.01', { amount })
+      .andWhere("(r.tx_hash IS NULL OR r.tx_hash = '')")
+      .andWhere('r.created_at >= :since', { since })
+      .orderBy('r.created_at', 'DESC');
+    return qb.getOne();
   }
 
   async applyGatewayPayment(rechargeId: string, data: any, actor?: any) {

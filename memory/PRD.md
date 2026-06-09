@@ -21,7 +21,7 @@ Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corpora
 ### Implemented
 - Auth (JWT login, admin user list/create, **TOTP 2FA with enforcement, recovery codes, and self-service disable/regenerate** — see § Two-Factor Authentication)
 - Customers (CRUD, code `AXC-NNNNN`, risk levels, KYC status, signup IP). **KYC docs support multi-file upload (Feb 2026)** — pick passport front + back in one go via `POST /api/kyc/:customerId/upload-multi`.
-- Recharges (CRUD, code `RCH-YYYY-NNNNN`, status flow with mismatch detection)
+- Recharges (CRUD, code `RCH-YYYY-NNNNN`, status flow with mismatch detection). **Split Recharge support (Feb 2026)** — single on-chain TX shared between N Magnus accounts via `POST /api/recharges/split`. Ledger sees the deposit once; siblings carry `split_group_id`/`split_index`/`split_total`. Webhook ingestion (`telegram-manual`, `oxapay`, `btcpay`) now auto-merges incoming TX+amount into an existing PENDING placeholder for the same customer/amount/currency within the last 30 days (no orphan duplicates).
 - Invoices (auto-generated `AX-YYYY-NNNNN`, Puppeteer PDF, View + Download)
 - Crypto Treasury (per-recharge movement, USDT → OKX → AED → Wio chain)
 - Treasury Batches (NEW — aggregated batch view)

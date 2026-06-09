@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import api from '../lib/api';
 import { PageHeader, Badge, Modal, Field, Hash } from '../components/Atoms';
 import { RECHARGE_STATUS_META, fmtDate } from '../lib/format';
@@ -39,18 +39,18 @@ export default function Recharges() {
   const [healing, setHealing] = useState(false);
   const nav = useNavigate();
 
-  const load = () => {
+  const load = useCallback(() => {
     const p = {};
     if (search) p.search = search;
     if (status) p.status = status;
     api.get('/recharges', { params: p }).then((r) => setItems(r.data));
-  };
+  }, [search, status]);
 
   useEffect(() => {
     load();
     api.get('/customers').then((r) => setCustomers(r.data));
     api.get('/settings/receiving-wallets').then((r) => setReceivingWallets(r.data));
-  /* eslint-disable-next-line */ }, [status]);
+  }, [load]);
 
   // Auto-detect: when gateway + coin + network are picked, pre-fill the matching saved wallet address.
   const matchedWallet = useMemo(() => {
@@ -63,12 +63,6 @@ export default function Recharges() {
     );
   }, [receivingWallets, form.payment_gateway, form.crypto_coin, form.crypto_network]);
 
-  useEffect(() => {
-    if (matchedWallet && !form.wallet_address) {
-      setForm((f) => ({ ...f, wallet_address: matchedWallet.address }));
-    }
-  /* eslint-disable-next-line */ }, [matchedWallet]);
-
   const openNewModal = () => {
     setForm(emptyForm);
     setModalOpen(true);
@@ -78,7 +72,11 @@ export default function Recharges() {
     e.preventDefault();
     setLoading(true);
     try {
-      const { data } = await api.post('/recharges', form);
+      const payload = {
+        ...form,
+        wallet_address: form.wallet_address || matchedWallet?.address || '',
+      };
+      const { data } = await api.post('/recharges', payload);
       toast.success(`Recharge ${data.recharge_code} created`);
       setModalOpen(false);
       setForm(emptyForm);
