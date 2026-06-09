@@ -17,6 +17,18 @@ export class RechargesController {
     return this.svc.create(body, req.user);
   }
 
+  /** Create N sibling recharges in one transaction from a single on-chain TX. */
+  @Post('split')
+  createSplit(@Body() body: any, @Req() req: any) {
+    return this.svc.createSplit(body, req.user);
+  }
+
+  /** Add the missing sibling to an existing single-half recharge (backfill). */
+  @Post(':id/add-split-sibling')
+  addSplitSibling(@Param('id') id: string, @Body() body: any, @Req() req: any) {
+    return this.svc.addSplitSibling(id, body, req.user);
+  }
+
   @Get(':id')
   get(@Param('id') id: string) {
     return this.svc.get(id);

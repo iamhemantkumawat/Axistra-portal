@@ -47,6 +47,17 @@ export class Recharge {
   @Column({ type: 'text', nullable: true }) reconciliation_note: string;
   @Column({ type: 'text', nullable: true }) admin_notes: string;
 
+  // ── Split-recharge support ──────────────────────────────────────────────
+  // When the same on-chain TX is shared between N Magnus accounts (e.g.
+  // 0.0036 BTC arrives once, split half-half between two customers), every
+  // sibling recharge stores the SAME `split_group_id`, its own `split_index`
+  // (1-based) and the total `split_total`. The wallet ledger row is created
+  // ONCE per group (via the dedupe-by-tx_hash guard) so the bank/exchange
+  // balance reflects the actual on-chain receipt — not N copies of it.
+  @Index() @Column({ type: 'uuid', nullable: true }) split_group_id: string | null;
+  @Column({ type: 'int', nullable: true }) split_index: number | null;
+  @Column({ type: 'int', nullable: true }) split_total: number | null;
+
   @CreateDateColumn() created_at: Date;
   @UpdateDateColumn() updated_at: Date;
 }

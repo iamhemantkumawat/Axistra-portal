@@ -243,6 +243,253 @@ export class RechargesService implements OnModuleInit {
     throw lastErr || new BadRequestException('Could not allocate a unique recharge code');
   }
 
+  // ──────────────────────────────────────────────────────────────────────
+  // Split recharges
+  // ──────────────────────────────────────────────────────────────────────
+
+  /**
+   * Create N sibling recharges from a single on-chain TX shared between
+   * multiple Magnus accounts (e.g. 0.0036 BTC arrives, half goes to
+   * Martello, half to joker).
+   *
+   * Guarantees:
+   *   • All siblings carry the SAME `split_group_id`, with `split_index`
+   *     1..N and `split_total` = N.
+   *   • The wallet ledger sees the deposit **once** (via the dedupe-by
+   *     tx_hash guard in `recordRechargeDeposit`). The remaining siblings
+   *     get linked via a `linked_recharges` JSON note on the ledger row.
+   *   • If the sum of share crypto_amounts overshoots the user-provided
+   *     `total_crypto_amount` by more than 1 sat (1e-8) we throw — the
+   *     UI must round inside the boundary before submitting.
+   *   • Idempotent on `tx_hash`: if the TX is already split into the
+   *     same set of siblings we no-op and return the existing group.
+   */
+  async createSplit(data: {
+    tx_hash: string;
+    total_crypto_amount: string;
+    crypto_coin?: string;
+    crypto_network?: string;
+    wallet_address?: string;
+    wallet_tag?: string;
+    payment_gateway?: string;
+    payment_date?: any;
+    admin_notes?: string;
+    splits: Array<{
+      customer_id?: string;
+      magnus_username?: string;
+      amount: string;
+      currency?: string;
+      crypto_share?: string;
+    }>;
+  }, actor?: any) {
+    const tx = (data.tx_hash || '').trim();
+    if (!tx) throw new BadRequestException('tx_hash is required for a split recharge');
+    if (!Array.isArray(data.splits) || data.splits.length < 2) {
+      throw new BadRequestException('A split needs at least 2 customer rows');
+    }
+    if (!this.isPositiveNumber(data.total_crypto_amount)) {
+      throw new BadRequestException('total_crypto_amount must be > 0');
+    }
+
+    // Short-circuit if this tx is already a split — return the existing group
+    const existing = await this.repo.find({ where: { tx_hash: tx } });
+    if (existing.length > 0 && existing[0].split_group_id) {
+      this.logger.log(`Split tx ${tx} already recorded as group ${existing[0].split_group_id} — returning ${existing.length} sibling(s)`);
+      return { group_id: existing[0].split_group_id, siblings: existing, idempotent: true };
+    }
+    if (existing.length > 0) {
+      throw new BadRequestException(`tx_hash ${tx} is already used by recharge ${existing[0].recharge_code} (non-split). Split aborted.`);
+    }
+
+    const totalBtc = parseFloat(data.total_crypto_amount);
+    const sumShares = data.splits.reduce((s, r) => s + (parseFloat(r.crypto_share || '0') || 0), 0);
+    if (sumShares > totalBtc + 1e-8) {
+      throw new BadRequestException(`Sum of shares (${sumShares.toFixed(8)}) exceeds total (${totalBtc.toFixed(8)})`);
+    }
+
+    // Auto-derive equal shares if any are missing
+    const N = data.splits.length;
+    const equalShare = (totalBtc / N).toFixed(8);
+
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { randomUUID } = require('crypto');
+    const groupId: string = randomUUID();
+    const gateway = data.payment_gateway || (await this.detectGatewayFromAddress(data.wallet_address)) || 'Binance';
+    if (gateway === 'Manual') throw new BadRequestException('Manual gateway is not supported. Pick Binance, OKX, OxaPay, or BTCPay.');
+
+    const created: Recharge[] = [];
+    for (let i = 0; i < data.splits.length; i += 1) {
+      const split = data.splits[i];
+      const customer = await this.resolveCustomerForSplit(split);
+      const shareCrypto = this.isPositiveNumber(split.crypto_share) ? split.crypto_share! : equalShare;
+
+      // Build the per-sibling recharge via the same `create()` flow so we
+      // get a fresh invoice + treasury_movement + audit log per row.
+      // We pass an empty crypto_amount for siblings #2..N so `create()` does
+      // NOT call recordRechargeDeposit a second time; we then patch the
+      // split markers + crypto_amount + manual ledger linkage below.
+      const isFirst = i === 0;
+      const sibling = await this.create({
+        customer_id: customer.id,
+        magnus_username: split.magnus_username || customer.magnus_username,
+        amount: split.amount,
+        currency: split.currency || 'EUR',
+        // Only the first sibling carries the crypto_amount so the deposit
+        // is booked in the ledger exactly once. Siblings #2..N start with
+        // '0' so they don't trigger a duplicate ledger row. We patch the
+        // real share AFTER save() so per-recharge crypto_amount is accurate.
+        crypto_amount: isFirst ? shareCrypto : '0',
+        crypto_coin: data.crypto_coin || 'BTC',
+        crypto_network: data.crypto_network || 'BTC',
+        wallet_address: data.wallet_address,
+        wallet_tag: data.wallet_tag,
+        payment_gateway: gateway,
+        payment_date: data.payment_date || new Date(),
+        // tx_hash on the first sibling only — siblings get the same hash
+        // patched in below (after the ledger row is created), so the
+        // dedupe guard does not block them.
+        tx_hash: isFirst ? tx : null,
+        admin_notes: data.admin_notes
+          ? `${data.admin_notes} [split ${i + 1}/${N}]`
+          : `Split ${i + 1}/${N} of TX ${tx.slice(0, 12)}…`,
+      }, actor);
+
+      sibling.split_group_id = groupId;
+      sibling.split_index = i + 1;
+      sibling.split_total = N;
+      sibling.tx_hash = tx;
+      // Patch real crypto_amount (the create() call left siblings #2..N at 0)
+      sibling.crypto_amount = shareCrypto;
+      await this.repo.save(sibling);
+
+      // Patch the treasury_movement so the recorded total_usdt_received
+      // matches the share (otherwise siblings #2..N have 0 in treasury).
+      await this.treasuryRepo.update({ recharge_id: sibling.id }, {
+        total_usdt_received: shareCrypto,
+        receive_tx_hash: tx,
+      });
+
+      created.push(sibling);
+    }
+
+    // Attach split-group context to the single ledger deposit row (sibling #1)
+    try {
+      const ledgerRow = await this.walletLedgerRepo.findOne({
+        where: { tx_hash: tx, tx_type: 'deposit' as any },
+      });
+      if (ledgerRow) {
+        const allRefs = created.map((c) => c.recharge_code).join(', ');
+        ledgerRow.external_ref = `SPLIT-${groupId.slice(0, 8)} (${allRefs})`;
+        ledgerRow.notes = `Split ${N}-way: ${created.map((c) => `${c.magnus_username}=${c.amount} ${c.currency}`).join(' | ')}`;
+        await this.walletLedgerRepo.save(ledgerRow);
+      }
+    } catch (e) {
+      this.logger.warn(`Could not attach split context to ledger row for ${tx}: ${(e as any)?.message}`);
+    }
+
+    await this.audit.log({
+      actor_id: actor?.id, actor_email: actor?.email,
+      action: 'create_split_recharge', entity_type: 'recharge', entity_id: created[0].id,
+      details: `Split ${N}-way (group ${groupId}) for TX ${tx}: ${created.map((c) => c.recharge_code).join(', ')}`,
+    });
+
+    return { group_id: groupId, siblings: created, idempotent: false };
+  }
+
+  /**
+   * Backfill helper for the iter-26 incident: existing recharge `id` is the
+   * first half of a split; this endpoint creates the missing sibling(s)
+   * WITHOUT triggering a duplicate ledger row. Use it when the bot only
+   * recorded one half of a 1/N split.
+   */
+  async addSplitSibling(rechargeId: string, data: {
+    magnus_username?: string;
+    customer_id?: string;
+    amount: string;
+    currency?: string;
+    crypto_share?: string;
+    split_total?: number;
+  }, actor?: any) {
+    const existing = await this.repo.findOne({ where: { id: rechargeId } });
+    if (!existing) throw new NotFoundException('Source recharge not found');
+    if (!existing.tx_hash) throw new BadRequestException('Source recharge has no tx_hash');
+
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { randomUUID } = require('crypto');
+    const groupId = existing.split_group_id || randomUUID();
+    let total = existing.split_total || data.split_total || 2;
+    const currentSiblings = await this.repo.find({ where: { tx_hash: existing.tx_hash } });
+    if (currentSiblings.length >= total) {
+      total = currentSiblings.length + 1;
+    }
+
+    // Promote the existing recharge to a split group if it wasn't already
+    if (!existing.split_group_id) {
+      existing.split_group_id = groupId;
+      existing.split_index = 1;
+      existing.split_total = total;
+      await this.repo.save(existing);
+    }
+
+    const customer = await this.resolveCustomerForSplit({
+      customer_id: data.customer_id,
+      magnus_username: data.magnus_username,
+    });
+
+    const sibling = await this.create({
+      customer_id: customer.id,
+      magnus_username: data.magnus_username || customer.magnus_username,
+      amount: data.amount,
+      currency: data.currency || existing.currency,
+      crypto_amount: '0', // never create a duplicate ledger row
+      crypto_coin: existing.crypto_coin,
+      crypto_network: existing.crypto_network,
+      wallet_address: existing.wallet_address,
+      payment_gateway: existing.payment_gateway,
+      payment_date: existing.payment_date,
+      tx_hash: null, // patched below
+      admin_notes: `Backfilled split sibling of ${existing.recharge_code} (TX ${existing.tx_hash.slice(0, 12)}…)`,
+    }, actor);
+
+    const nextIndex = currentSiblings.length + 1;
+    sibling.split_group_id = groupId;
+    sibling.split_index = nextIndex;
+    sibling.split_total = total;
+    sibling.tx_hash = existing.tx_hash;
+    sibling.crypto_amount = data.crypto_share || '0';
+    await this.repo.save(sibling);
+    await this.treasuryRepo.update({ recharge_id: sibling.id }, {
+      total_usdt_received: data.crypto_share || '0',
+      receive_tx_hash: existing.tx_hash,
+    });
+
+    // Update ALL siblings' split_total so they agree
+    await this.repo.update({ split_group_id: groupId }, { split_total: total });
+
+    await this.audit.log({
+      actor_id: actor?.id, actor_email: actor?.email,
+      action: 'backfill_split_sibling', entity_type: 'recharge', entity_id: sibling.id,
+      details: `Added split sibling ${sibling.recharge_code} (${nextIndex}/${total}) for ${existing.recharge_code} TX ${existing.tx_hash}`,
+    });
+
+    return { sibling, group_id: groupId };
+  }
+
+  private async resolveCustomerForSplit(split: { customer_id?: string; magnus_username?: string }): Promise<Customer> {
+    if (split.customer_id) {
+      const c = await this.customerRepo.findOne({ where: { id: split.customer_id } });
+      if (c) return c;
+    }
+    if (split.magnus_username) {
+      const c = await this.customerRepo
+        .createQueryBuilder('c')
+        .where('LOWER(c.magnus_username) = LOWER(:u)', { u: split.magnus_username })
+        .getOne();
+      if (c) return c;
+    }
+    throw new BadRequestException(`No customer found for split row (magnus_username=${split.magnus_username || '—'})`);
+  }
+
   async createFromGatewayPayment(data: any, actor?: any) {
     const customer = await this.findOrCreateCustomerFromPayment(data);
     const existingTx = data.tx_hash?.trim()

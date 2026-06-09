@@ -10,7 +10,11 @@ export class CryptoTransaction {
   @Column({ default: 'TRC20' }) network: string;
   @Column({ nullable: true }) receiving_wallet: string;
   @Column({ nullable: true }) receiving_wallet_tag: string;
-  @Index({ unique: true }) @Column() tx_hash: string;
+  // tx_hash is intentionally NOT unique — split recharges legitimately
+  // share one on-chain TX across N customers (each gets their own
+  // crypto_transactions row). De-duplication of the actual deposit
+  // happens in `wallet_ledgers` via `recordRechargeDeposit`.
+  @Index() @Column() tx_hash: string;
   @Column({ nullable: true }) gateway_invoice_id: string;
   @Column({ nullable: true }) gateway_track_id: string;
   @Column({ nullable: true }) gateway_tx_status: string;
