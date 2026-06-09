@@ -123,7 +123,7 @@ export class RechargesService implements OnModuleInit {
     if (!customer) throw new BadRequestException('Customer not found');
     // Detect the receiving wallet → gateway override
     const detected = await this.detectGatewayFromAddress(data.wallet_address);
-    const gateway = data.payment_gateway || detected || 'Binance';
+    const gateway = this.resolveGateway(data.payment_gateway, detected);
     if (gateway === 'Manual') throw new BadRequestException('Manual gateway is no longer supported. Pick Binance, OKX, OxaPay, or BTCPay.');
 
     // Retry-on-duplicate guard: in rare races, two webhooks can claim the
@@ -314,7 +314,7 @@ export class RechargesService implements OnModuleInit {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { randomUUID } = require('crypto');
     const groupId: string = randomUUID();
-    const gateway = data.payment_gateway || (await this.detectGatewayFromAddress(data.wallet_address)) || 'Binance';
+    const gateway = this.resolveGateway(data.payment_gateway, await this.detectGatewayFromAddress(data.wallet_address));
     if (gateway === 'Manual') throw new BadRequestException('Manual gateway is not supported. Pick Binance, OKX, OxaPay, or BTCPay.');
 
     const created: Recharge[] = [];
@@ -1197,6 +1197,29 @@ export class RechargesService implements OnModuleInit {
       .andWhere('w.is_active = true')
       .getOne();
     return row?.gateway || null;
+  }
+
+  /**
+   * Canonicalize the payment_gateway label so non-standard intake strings
+   * like "BTC Add to Username" or "BTC Split 1/2" don't get persisted as
+   * gateway names — those are workflow tags, not real gateways. Falls back
+   * order:
+   *   1. user-provided value, if it's one of the 4 canonical gateways
+   *   2. address-detected gateway (via Settings → Receiving Wallets)
+   *   3. literal user-provided value (last resort, never null)
+   *   4. 'Binance'
+   *
+   * Returning the detected gateway means a manual "BTC Add to Username"
+   * recharge created against a Binance-tagged receiving address ends up
+   * routed to BINANCE in the wallet ledger and shows "Binance" in the UI.
+   */
+  private resolveGateway(provided?: string, detected?: string | null): string {
+    const canonical = new Set(['Binance', 'OKX', 'OxaPay', 'BTCPay', 'Wio Bank']);
+    const norm = String(provided || '').trim();
+    if (norm && canonical.has(norm)) return norm;
+    if (detected && canonical.has(detected)) return detected;
+    if (norm) return norm;
+    return 'Binance';
   }
 
   /**
