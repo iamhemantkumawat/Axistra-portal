@@ -6,12 +6,13 @@ import { Invoice } from '../entities/invoice.entity';
 import { CryptoTransaction } from '../entities/crypto-transaction.entity';
 import { TreasuryMovement } from '../entities/treasury-movement.entity';
 import { TreasuryBatch } from '../entities/treasury-batch.entity';
+import { WalletLedger } from '../entities/wallet-ledger.entity';
 import { ConversionRegisterService } from './conversion-register.service';
 import { ConversionRegisterController } from './conversion-register.controller';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Recharge, Customer, Invoice, CryptoTransaction, TreasuryMovement, TreasuryBatch]),
+    TypeOrmModule.forFeature([Recharge, Customer, Invoice, CryptoTransaction, TreasuryMovement, TreasuryBatch, WalletLedger]),
   ],
   controllers: [ConversionRegisterController],
   providers: [ConversionRegisterService],

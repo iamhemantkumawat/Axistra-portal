@@ -7,6 +7,7 @@ import { Invoice } from '../entities/invoice.entity';
 import { CryptoTransaction } from '../entities/crypto-transaction.entity';
 import { TreasuryMovement } from '../entities/treasury-movement.entity';
 import { TreasuryBatch } from '../entities/treasury-batch.entity';
+import { WalletLedger } from '../entities/wallet-ledger.entity';
 
 /**
  * Crypto Conversion Register & Source of Funds.
@@ -24,6 +25,7 @@ export class ConversionRegisterService {
     @InjectRepository(CryptoTransaction) private cryptoRepo: Repository<CryptoTransaction>,
     @InjectRepository(TreasuryMovement) private movementRepo: Repository<TreasuryMovement>,
     @InjectRepository(TreasuryBatch) private batchRepo: Repository<TreasuryBatch>,
+    @InjectRepository(WalletLedger) private ledgerRepo: Repository<WalletLedger>,
   ) {}
 
   async list(filter: { from?: string; to?: string; status?: string; currency?: string }) {
@@ -82,12 +84,46 @@ export class ConversionRegisterService {
       mvMap[m.recharge_id] = { movement: m, batch: batch.id ? batch : null };
     });
 
-    return rows.map((r) => {
+    return Promise.all(rows.map(async (r) => {
       const cust = cMap[r.customer_id] || null;
       const inv = iMap[r.id] || null;
       const txList = tMap[r.id] || [];
       const mv = mvMap[r.id] || {};
       const batch = mv.batch || null;
+
+      // Pull wallet_ledger fallbacks for steps 5-7 when the treasury_batch
+      // doesn't carry those fields (operators who did the conversion via
+      // Wallet Ledger directly instead of via the batch workflow).
+      let usdtLedger: WalletLedger | null = null;
+      let aedLedger: WalletLedger | null = null;
+      let wioLedger: WalletLedger | null = null;
+      const usdtMissing = !batch || !batch.usdt_amount;
+      const aedMissing = !batch || !batch.fiat_received;
+      const wioMissing = !batch || !batch.bank_reference;
+      if (batch && (usdtMissing || aedMissing || wioMissing)) {
+        const destExchange = String(batch.destination_exchange || batch.destination_wallet || '').toUpperCase();
+        const since = batch.exchange_received_at || batch.created_at;
+        if (destExchange && since) {
+          const ledgerRows = await this.ledgerRepo
+            .createQueryBuilder('l')
+            .where("(l.wallet = :ex OR l.wallet = 'WIO_BANK')", { ex: destExchange })
+            .andWhere('l.event_at >= :since', { since })
+            .orderBy('l.event_at', 'ASC')
+            .limit(200)
+            .getMany();
+          if (usdtMissing) {
+            usdtLedger = ledgerRows.find((l) => l.wallet === destExchange && l.tx_type === 'convert_to' && (l.coin || '').toUpperCase() === 'USDT') || null;
+          }
+          if (aedMissing) {
+            aedLedger = ledgerRows.find((l) => l.wallet === destExchange && l.tx_type === 'convert_to' && (l.coin || '').toUpperCase() === 'AED') ||
+                        ledgerRows.find((l) => l.wallet === destExchange && l.tx_type === 'cashout' && (l.coin || '').toUpperCase() === 'AED') ||
+                        null;
+          }
+          if (wioMissing) {
+            wioLedger = ledgerRows.find((l) => l.wallet === 'WIO_BANK' && l.tx_type === 'bank_deposit') || null;
+          }
+        }
+      }
 
       return {
         recharge_id: r.id,
@@ -126,32 +162,54 @@ export class ConversionRegisterService {
           received_amount: batch.received_crypto_amount,
           received_at: batch.exchange_received_at,
         } : null,
-        // Step 5: Conversion to USDT (if applicable)
-        usdt_conversion: batch && batch.usdt_amount ? {
+        // Step 5: Conversion to USDT
+        usdt_conversion: (batch && batch.usdt_amount) ? {
           usdt_amount: batch.usdt_amount,
           rate: batch.usdt_conversion_rate,
           date: batch.usdt_conversion_date,
           reference: batch.usdt_conversion_reference,
+        } : usdtLedger ? {
+          usdt_amount: Math.abs(parseFloat(usdtLedger.amount)).toFixed(8),
+          rate: usdtLedger.rate_used || null,
+          date: usdtLedger.event_at,
+          reference: usdtLedger.external_ref || usdtLedger.tx_hash,
         } : null,
         // Step 6: AED / Fiat sale
-        fiat_conversion: batch && batch.fiat_received ? {
+        fiat_conversion: (batch && batch.fiat_received) ? {
           fiat_received: batch.fiat_received,
           fiat_currency: batch.fiat_currency,
           rate: batch.conversion_rate,
           date: batch.conversion_date,
           crypto_sold: batch.crypto_converted,
+          reference: batch.batch_code,
+        } : aedLedger ? {
+          fiat_received: Math.abs(parseFloat(aedLedger.amount)).toFixed(2),
+          fiat_currency: aedLedger.coin,
+          rate: aedLedger.rate_used || null,
+          date: aedLedger.event_at,
+          crypto_sold: null,
+          reference: aedLedger.external_ref || aedLedger.tx_hash,
         } : null,
         // Step 7: Wio Bank deposit
-        wio_deposit: batch && batch.bank_reference ? {
+        wio_deposit: (batch && batch.bank_reference) ? {
           bank_name: batch.bank_name,
           reference: batch.bank_reference,
           deposit_date: batch.bank_deposit_date,
           gross_amount: batch.fiat_received,
           fee_aed: batch.bank_fee_aed,
           net_amount: batch.net_bank_deposit_amount,
+          currency: batch.fiat_currency || 'AED',
+        } : wioLedger ? {
+          bank_name: 'Wio Bank',
+          reference: wioLedger.external_ref || wioLedger.tx_hash,
+          deposit_date: wioLedger.event_at,
+          gross_amount: parseFloat(wioLedger.amount).toFixed(2),
+          fee_aed: 0,
+          net_amount: parseFloat(wioLedger.amount).toFixed(2),
+          currency: wioLedger.coin,
         } : null,
       };
-    });
+    }));
   }
 
   async summary(filter: { from?: string; to?: string }) {

@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import api from '../lib/api';
 import { PageHeader, Badge, Field, Hash, Modal } from '../components/Atoms';
 import AuditChain from '../components/AuditChain';
+import RechargeAuditChainFull from '../components/RechargeAuditChainFull';
 import { RECHARGE_STATUS_META, fmtMoney, fmtDateTime, downloadBlob } from '../lib/format';
 import { API_BASE } from '../lib/api';
 import { toast } from 'sonner';
@@ -178,6 +179,10 @@ export default function RechargeDetail() {
 
       <div className="mb-6">
         <AuditChain recharge={r} treasury={r.treasury} invoice={r.invoice} crypto={r.crypto_transactions} />
+      </div>
+
+      <div className="mb-6">
+        <RechargeAuditChainFull rechargeId={r.id} />
       </div>
 
       {r.status === 'mismatch' && (
