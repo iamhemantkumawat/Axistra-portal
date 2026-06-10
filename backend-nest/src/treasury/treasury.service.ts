@@ -1383,6 +1383,82 @@ export class TreasuryService {
 
     // Always show the terminal Wio step — if no downstream cashout exists
     // yet we still want a visible "pending" pill so the chain feels finite.
+    // First: when no treasury_batch chain exists for steps 5-7, also walk
+    // wallet_ledger directly. This catches the case where conversions and
+    // bank deposits were recorded as raw ledger entries (the user's "Convert
+    // Coin" + "Withdraw AED to Wio" + "Manual deposit" flows) without
+    // creating a treasury_batch — those operations are real, they just
+    // never showed up because we were only looking at treasury_batches.
+    if (sweepBatch) {
+      const destExchange = (sweepBatch.destination_exchange || sweepBatch.destination_wallet || '').toUpperCase();
+      const sweepDate = sweepBatch.exchange_received_at || sweepBatch.created_at;
+      const hasUsdtStep = chain.some((c) => c.stage === 'usdt');
+      const hasAedStep = chain.some((c) => c.stage === 'aed');
+      const hasWioStep = chain.some((c) => c.stage === 'wio');
+
+      if (destExchange && sweepDate && (!hasUsdtStep || !hasAedStep || !hasWioStep)) {
+        // Pull every wallet_ledger movement on the destination exchange + WIO_BANK
+        // since the sweep landed. Used to back-fill chain steps that have no
+        // treasury_batch but DO have real movements on the ledger.
+        const ledgerRows: any[] = await this.ledgerRepo
+          .createQueryBuilder('l')
+          .where("(l.wallet = :ex OR l.wallet = 'WIO_BANK')", { ex: destExchange })
+          .andWhere('l.event_at >= :since', { since: sweepDate })
+          .orderBy('l.event_at', 'ASC')
+          .limit(200)
+          .getMany();
+
+        // Step 5 — USDT Convert (convert_to USDT on the exchange)
+        if (!hasUsdtStep) {
+          const usdtIn = ledgerRows.find((r) => r.wallet === destExchange && r.tx_type === 'convert_to' && (r.coin || '').toUpperCase() === 'USDT');
+          if (usdtIn) {
+            chain.push({
+              stage: 'usdt',
+              status: 'done',
+              label: 'Convert to USDT',
+              ref: usdtIn.external_ref || usdtIn.tx_hash,
+              when: usdtIn.event_at,
+              detail: `+${parseFloat(usdtIn.amount).toFixed(2)} USDT on ${destExchange}${usdtIn.rate_used ? ' @ ' + usdtIn.rate_used : ''}`,
+            });
+          }
+        }
+
+        // Step 6 — AED Sale (convert_to AED on the exchange OR cashout from
+        // the exchange which represents the AED leaving en route to Wio)
+        if (!hasAedStep) {
+          const aedIn = ledgerRows.find((r) => r.wallet === destExchange && r.tx_type === 'convert_to' && (r.coin || '').toUpperCase() === 'AED');
+          const aedCashout = ledgerRows.find((r) => r.wallet === destExchange && r.tx_type === 'cashout' && (r.coin || '').toUpperCase() === 'AED');
+          const usdSale = ledgerRows.find((r) => r.wallet === destExchange && r.tx_type === 'convert_from' && (r.coin || '').toUpperCase() === 'USD');
+          const pick = aedIn || aedCashout || usdSale;
+          if (pick) {
+            chain.push({
+              stage: 'aed',
+              status: 'done',
+              label: pick.tx_type === 'cashout' ? 'AED Cashout from Exchange' : pick === usdSale ? 'USD → AED Sale' : 'Convert to AED',
+              ref: pick.external_ref || pick.tx_hash,
+              when: pick.event_at,
+              detail: `${parseFloat(pick.amount).toFixed(2)} ${pick.coin} on ${destExchange}${pick.rate_used ? ' @ ' + pick.rate_used : ''}${pick.counterparty ? ' · ' + pick.counterparty : ''}`,
+            });
+          }
+        }
+
+        // Step 7 — Wio Deposit (bank_deposit on WIO_BANK, AED or USD)
+        if (!hasWioStep) {
+          const wioDep = ledgerRows.find((r) => r.wallet === 'WIO_BANK' && r.tx_type === 'bank_deposit');
+          if (wioDep) {
+            chain.push({
+              stage: 'wio',
+              status: 'done',
+              label: 'Wio Bank Deposit',
+              ref: wioDep.external_ref || wioDep.tx_hash,
+              when: wioDep.event_at,
+              detail: `+${parseFloat(wioDep.amount).toFixed(2)} ${wioDep.coin} on Wio Bank${wioDep.counterparty ? ' · ' + wioDep.counterparty : ''}`,
+            });
+          }
+        }
+      }
+    }
+
     const hasWioStep = chain.some((c) => c.stage === 'wio');
     if (!hasWioStep) {
       chain.push({
