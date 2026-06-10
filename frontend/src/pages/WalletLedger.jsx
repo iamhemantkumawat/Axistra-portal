@@ -3,6 +3,7 @@ import api from '../lib/api';
 import { toast } from 'sonner';
 import { PageHeader, KpiCard, Modal, Field, Hash, Badge, EmptyState } from '../components/Atoms';
 import { fmtDateTime, fmtNumber } from '../lib/format';
+import { useCurrency } from '../lib/currency';
 import {
   Wallet, Bank, Buildings, Coin, ArrowsLeftRight, ArrowSquareOut, Sparkle,
   PaperPlaneTilt, MagnifyingGlass, Receipt, Trash,
@@ -13,7 +14,7 @@ const WALLET_ICONS = {
   BTCPAY:  { icon: Coin,       hint: 'BTCPay store wallet — BTC only',                    type: 'crypto',   coins: ['BTC'] },
   BINANCE: { icon: Buildings,  hint: 'Binance exchange wallet — multi-coin + fiat',        type: 'exchange', coins: ['USDT', 'BTC', 'ETH', 'AED', 'USD', 'EUR', 'GBP'] },
   OKX:     { icon: Buildings,  hint: 'OKX exchange wallet — multi-coin + fiat',            type: 'exchange', coins: ['USDT', 'BTC', 'ETH', 'AED', 'USD', 'EUR', 'GBP'] },
-  WIO_BANK:{ icon: Bank,       hint: 'Wio AED settlement bank',                           type: 'bank',     coins: ['AED'] },
+  WIO_BANK:{ icon: Bank,       hint: 'Wio settlement bank — multi-currency (AED + USD)',  type: 'bank',     coins: ['AED', 'USD'] },
 };
 
 /** Single-coin wallets can't host an in-wallet Convert (no second coin to swap to). */
@@ -76,6 +77,7 @@ const initialCashoutForm = (wallet) => ({
 });
 
 export default function WalletLedger() {
+  const { rates } = useCurrency();
   const [overview, setOverview] = useState([]);
   const [active, setActive] = useState('OXAPAY');
   const [ledger, setLedger] = useState({ rows: [], total: 0 });
@@ -160,17 +162,29 @@ export default function WalletLedger() {
   useEffect(() => { loadLedger(active); /* eslint-disable-next-line */ }, [active, coinFilter, typeFilter]);
 
   const totals = useMemo(() => {
-    const t = { walletsCount: overview.length, totalAedWio: 0, totalAedAll: 0, totalUsdt: 0, txCount: 0 };
+    const t = {
+      walletsCount: overview.length,
+      totalAedWio: 0,
+      totalUsdWio: 0,
+      totalAedAll: 0,
+      totalUsdt: 0,
+      txCount: 0,
+    };
     overview.forEach((w) => w.balances.forEach((b) => {
       t.txCount += b.tx_count;
       if (b.coin === 'AED') {
         t.totalAedAll += b.balance;
         if (w.code === 'WIO_BANK') t.totalAedWio += b.balance;
       }
+      if (b.coin === 'USD' && w.code === 'WIO_BANK') t.totalUsdWio += b.balance;
       if (b.coin === 'USDT') t.totalUsdt += b.balance;
     }));
+    // USD → AED equivalent for the "Total Wio Bank ≈ AED" line
+    const usdToAed = rates?.USD || 3.6725;
+    t.wioUsdInAed = t.totalUsdWio * usdToAed;
+    t.wioTotalAedEquiv = t.totalAedWio + t.wioUsdInAed;
     return t;
-  }, [overview]);
+  }, [overview, rates]);
 
   const activeWallet = useMemo(() => overview.find((w) => w.code === active), [overview, active]);
 
@@ -274,11 +288,13 @@ export default function WalletLedger() {
         <KpiCard label="Wallets Tracked" value={totals.walletsCount} icon={Wallet} testId="kpi-wallets" />
         <KpiCard label="Total USDT" value={fmtCrypto(totals.totalUsdt, 'USDT')} icon={Coin} testId="kpi-total-usdt" />
         <KpiCard
-          label="AED on Wio Bank"
-          value={`AED ${fmtNumber(totals.totalAedWio)}`}
-          sub={Math.abs(totals.totalAedAll - totals.totalAedWio) > 0.01
-            ? `+ AED ${fmtNumber(totals.totalAedAll - totals.totalAedWio)} on exchanges (pending cashout)`
-            : 'No AED held on exchanges'}
+          label="Wio Bank (AED + USD)"
+          value={`AED ${fmtNumber(totals.wioTotalAedEquiv)}`}
+          sub={totals.totalUsdWio > 0
+            ? `AED ${fmtNumber(totals.totalAedWio)} + USD ${fmtNumber(totals.totalUsdWio)} (≈ AED ${fmtNumber(totals.wioUsdInAed)} @ ${(rates?.USD || 3.6725).toFixed(4)})`
+            : (Math.abs(totals.totalAedAll - totals.totalAedWio) > 0.01
+              ? `+ AED ${fmtNumber(totals.totalAedAll - totals.totalAedWio)} on exchanges (pending cashout)`
+              : 'No exchange AED pending · No USD position')}
           icon={Bank} accent testId="kpi-total-aed"
         />
         <KpiCard label="Ledger Rows" value={totals.txCount} icon={Receipt} testId="kpi-tx-count" />
