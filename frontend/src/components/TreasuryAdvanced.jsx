@@ -294,6 +294,7 @@ function KpiBlock({ label, value, sub, accent }) {
 /* ─── Bank Statement Import modal ─── upload Wio CSV and auto-match ─── */
 export function BankStatementImportModal({ open, onClose, onMatched }) {
   const [csvText, setCsvText] = useState('');
+  const [currency, setCurrency] = useState('AED');
   const [result, setResult] = useState(null);
   const [busy, setBusy] = useState(false);
 
@@ -329,7 +330,7 @@ export function BankStatementImportModal({ open, onClose, onMatched }) {
     if (!rows.length) { toast.error('Could not parse any rows from the CSV'); return; }
     setBusy(true);
     try {
-      const res = await api.post('/treasury/import-bank-statement', { rows });
+      const res = await api.post('/treasury/import-bank-statement', { rows, currency });
       setResult(res.data);
       toast.success(`${res.data.matched_count} matched / ${res.data.unmatched_count} unmatched`);
       onMatched?.(res.data);
@@ -345,6 +346,17 @@ export function BankStatementImportModal({ open, onClose, onMatched }) {
       <p className="text-xs text-gray-500 mb-3">
         Paste your Wio statement CSV (or any bank export) below. Expected columns include Date, Reference, Amount and Description in any order. Only credits are processed.
       </p>
+      <Field label="Currency">
+        <select
+          className="input-axistra"
+          value={currency}
+          onChange={(e) => setCurrency(e.target.value)}
+          data-testid="bank-import-currency"
+        >
+          <option value="AED">AED (Wio AED sub-account)</option>
+          <option value="USD">USD (Wio USD sub-account)</option>
+        </select>
+      </Field>
       <Field label="CSV content">
         <textarea
           rows={8} value={csvText} onChange={(e) => setCsvText(e.target.value)}
@@ -374,7 +386,7 @@ export function BankStatementImportModal({ open, onClose, onMatched }) {
                       <div className="font-mono">{row.ref || '—'}</div>
                       <div className="text-[11px] text-gray-500 truncate">{row.description || row.date || ''}</div>
                     </div>
-                    <div className="font-mono whitespace-nowrap">{fmtNumber(row.amount)} AED</div>
+                    <div className="font-mono whitespace-nowrap">{fmtNumber(row.amount)} {currency}</div>
                   </div>
                 ))}
               </div>

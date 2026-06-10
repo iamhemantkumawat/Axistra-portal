@@ -1408,8 +1408,9 @@ export class TreasuryService {
    * mark match/unmatch.  Unmatched rows are surfaced so the operator
    * can convert them into a cashout in one click.
    */
-  async importBankStatement(input: { rows: Array<{ date: string; ref?: string; amount: number; description?: string }>; }, _actor?: any) {
-    const wioRows = await this.ledgerRepo.find({ where: { wallet: 'WIO_BANK' as any } });
+  async importBankStatement(input: { rows: Array<{ date: string; ref?: string; amount: number; description?: string }>; currency?: 'AED' | 'USD'; }, _actor?: any) {
+    const currency = String(input.currency || 'AED').toUpperCase();
+    const wioRows = await this.ledgerRepo.find({ where: { wallet: 'WIO_BANK' as any, coin: currency } });
     const byRef = new Map<string, any>();
     const byAmount = new Map<string, any[]>();
     for (const r of wioRows) {
@@ -1435,11 +1436,120 @@ export class TreasuryService {
       }
     }
     return {
+      currency,
       total_in_statement: (input.rows || []).length,
       matched_count: matched.length,
       unmatched_count: unmatched.length,
       matched,
       unmatched,
+    };
+  }
+
+  /**
+   * Record an inbound deposit on the Wio bank account in AED or USD. Used
+   * for direct customer/vendor deposits that don't pass through a treasury
+   * batch (e.g. an AED bank transfer landing without a corresponding USDT
+   * cashout, or a USD wire from a foreign customer).
+   * Idempotent on (wallet=WIO_BANK, tx_hash=reference) — re-posting the same
+   * bank reference returns the existing row instead of inserting a duplicate.
+   */
+  async recordWioDeposit(input: {
+    currency: 'AED' | 'USD';
+    amount: number | string;
+    reference: string;
+    counterparty?: string;
+    event_at?: string | Date;
+    notes?: string;
+  }, actor?: any) {
+    const currency = String(input.currency || 'AED').toUpperCase();
+    if (!['AED', 'USD'].includes(currency)) throw new BadRequestException('Currency must be AED or USD');
+    const amount = parseFloat(String(input.amount));
+    if (!(amount > 0)) throw new BadRequestException('Amount must be positive');
+    if (!input.reference?.trim()) throw new BadRequestException('Bank reference is required');
+    const eventAt = input.event_at ? new Date(input.event_at) : new Date();
+    const ref = input.reference.trim();
+    const existing = await this.ledgerRepo.findOne({ where: { wallet: 'WIO_BANK' as any, tx_hash: ref } });
+    if (existing) return { duplicate: true, ledger_id: existing.id, currency: existing.coin, amount: parseFloat(existing.amount || '0') };
+    const row = this.ledgerRepo.create({
+      wallet: 'WIO_BANK' as any,
+      coin: currency,
+      tx_type: 'bank_deposit',
+      amount: amount.toFixed(2),
+      tx_hash: ref,
+      external_ref: ref,
+      counterparty: input.counterparty?.trim() || 'Direct deposit',
+      notes: input.notes || null,
+      event_at: eventAt,
+      actor_email: actor?.email,
+    } as any);
+    const saved: any = await this.ledgerRepo.save(row);
+    return { id: saved.id, currency, amount, reference: ref, event_at: eventAt };
+  }
+
+  /**
+   * Record an internal AED ↔ USD currency conversion inside the Wio bank
+   * account. Creates a paired `convert_from` / `convert_to` ledger entry
+   * on WIO_BANK so the multi-currency balance reflects reality without
+   * touching exchanges or batches.
+   */
+  async recordWioFx(input: {
+    from_currency: 'AED' | 'USD';
+    to_currency: 'AED' | 'USD';
+    from_amount: number | string;
+    to_amount: number | string;
+    rate?: number | string;
+    reference?: string;
+    event_at?: string | Date;
+    notes?: string;
+  }, actor?: any) {
+    const fromCcy = String(input.from_currency).toUpperCase();
+    const toCcy = String(input.to_currency).toUpperCase();
+    if (!['AED', 'USD'].includes(fromCcy) || !['AED', 'USD'].includes(toCcy)) {
+      throw new BadRequestException('Only AED ↔ USD conversion is supported');
+    }
+    if (fromCcy === toCcy) throw new BadRequestException('From and To currencies must differ');
+    const fromAmt = parseFloat(String(input.from_amount));
+    const toAmt = parseFloat(String(input.to_amount));
+    if (!(fromAmt > 0) || !(toAmt > 0)) throw new BadRequestException('Amounts must be positive');
+    const rate = input.rate ? parseFloat(String(input.rate)) : toAmt / fromAmt;
+    const eventAt = input.event_at ? new Date(input.event_at) : new Date();
+    const ref = (input.reference || `WIO-FX-${Date.now()}`).trim();
+    const baseNote = input.notes || `Wio internal FX: ${fromAmt} ${fromCcy} → ${toAmt} ${toCcy} @ ${rate.toFixed(4)}`;
+    const outRow = this.ledgerRepo.create({
+      wallet: 'WIO_BANK' as any,
+      coin: fromCcy,
+      tx_type: 'convert_from',
+      amount: (-fromAmt).toFixed(2),
+      external_ref: ref,
+      counterparty: `Wio FX → ${toCcy}`,
+      rate_used: rate.toFixed(8),
+      notes: baseNote,
+      event_at: eventAt,
+      actor_email: actor?.email,
+    } as any);
+    const inRow = this.ledgerRepo.create({
+      wallet: 'WIO_BANK' as any,
+      coin: toCcy,
+      tx_type: 'convert_to',
+      amount: toAmt.toFixed(2),
+      external_ref: ref,
+      counterparty: `Wio FX ← ${fromCcy}`,
+      rate_used: rate.toFixed(8),
+      notes: baseNote,
+      event_at: eventAt,
+      actor_email: actor?.email,
+    } as any);
+    const out: any = await this.ledgerRepo.save(outRow);
+    const inn: any = await this.ledgerRepo.save(inRow);
+    out.linked_ledger_id = inn.id;
+    inn.linked_ledger_id = out.id;
+    await this.ledgerRepo.save([out, inn]);
+    return {
+      reference: ref,
+      from: { id: out.id, amount: -fromAmt, currency: fromCcy },
+      to: { id: inn.id, amount: toAmt, currency: toCcy },
+      rate,
+      event_at: eventAt,
     };
   }
 }

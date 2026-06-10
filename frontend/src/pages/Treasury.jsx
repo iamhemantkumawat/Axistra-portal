@@ -7,6 +7,8 @@ import { ReceiptsTab } from '../components/treasury/ReceiptsTab';
 import { BtcPayTab } from '../components/treasury/BtcPayTab';
 import { OxaPayTab } from '../components/treasury/OxaPayTab';
 import { AedWioTab } from '../components/treasury/AedWioTab';
+import { WioFxModal } from '../components/treasury/WioFxModal';
+import { WioDepositModal } from '../components/treasury/WioDepositModal';
 import {
   BATCH_STATUS_META, dateInput, statusMeta, fmtCrypto, fmtLedgerAmount,
   txFinalUsdt, rechargeFinalUsdt, rechargeCryptoLabel,
@@ -100,6 +102,8 @@ export default function Treasury() {
   // full batch flow) — we need these to keep the AED & Wio tab honest.
   const [wioLedger, setWioLedger] = useState([]);
   const [importBankOpen, setImportBankOpen] = useState(false);
+  const [wioFxOpen, setWioFxOpen] = useState(false);
+  const [wioDepositOpen, setWioDepositOpen] = useState(false);
   const [okxLedger, setOkxLedger] = useState([]);
   const [binanceLedger, setBinanceLedger] = useState([]);
 
@@ -1111,6 +1115,8 @@ export default function Treasury() {
           binanceLedger={binanceLedger}
           openBatch={openBatch}
           openImportBank={() => setImportBankOpen(true)}
+          openWioFx={() => setWioFxOpen(true)}
+          openWioDeposit={() => setWioDepositOpen(true)}
         />
       )}
 
@@ -1523,6 +1529,18 @@ export default function Treasury() {
         open={importBankOpen}
         onClose={() => setImportBankOpen(false)}
         onMatched={() => load()}
+      />
+
+      <WioFxModal
+        open={wioFxOpen}
+        onClose={() => setWioFxOpen(false)}
+        onSaved={() => load()}
+      />
+
+      <WioDepositModal
+        open={wioDepositOpen}
+        onClose={() => setWioDepositOpen(false)}
+        onSaved={() => load()}
       />
 
     </div>

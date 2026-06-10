@@ -72,6 +72,16 @@ export class TreasuryController {
     return this.svc.recordExchangeConversion(body, req.user);
   }
 
+  @Post('wio-deposit')
+  wioDeposit(@Body() body: any, @Req() req: any) {
+    return this.svc.recordWioDeposit(body, req.user);
+  }
+
+  @Post('wio-fx')
+  wioFx(@Body() body: any, @Req() req: any) {
+    return this.svc.recordWioFx(body, req.user);
+  }
+
   @Post('batches/:id/sync-ledger')
   syncBatchLedger(@Param('id') id: string, @Req() req: any) {
     return this.svc.syncBatchLedger(id, req.user);
