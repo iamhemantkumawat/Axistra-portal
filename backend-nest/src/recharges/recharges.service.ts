@@ -617,10 +617,22 @@ export class RechargesService implements OnModuleInit {
 
   async createFromGatewayPayment(data: any, actor?: any) {
     const customer = await this.findOrCreateCustomerFromPayment(data);
-    const existingTx = data.tx_hash?.trim()
-      ? await this.cryptoRepo.findOne({ where: { tx_hash: data.tx_hash.trim() } })
+    const txHash = data.tx_hash?.trim();
+    // When a tx_hash is shared across multiple Magnus accounts (split
+    // payment from Telegram), each account's webhook MUST create its own
+    // recharge row. We only short-circuit to applyGatewayPayment when the
+    // existing crypto_tx already belongs to the SAME customer — otherwise
+    // we fall through and create a new sibling recharge for this customer.
+    const existingTx = txHash
+      ? await this.cryptoRepo.findOne({ where: { tx_hash: txHash } })
       : null;
-    if (existingTx) return this.applyGatewayPayment(existingTx.recharge_id, data, actor);
+    if (existingTx) {
+      const existingRecharge = await this.repo.findOne({ where: { id: existingTx.recharge_id } });
+      if (existingRecharge?.customer_id === customer.id) {
+        return this.applyGatewayPayment(existingTx.recharge_id, data, actor);
+      }
+      this.logger.log(`tx_hash ${txHash} already linked to ${existingRecharge?.recharge_code} (customer ${existingRecharge?.customer_id}); creating sibling recharge for ${customer.customer_code} as part of the split.`);
+    }
 
     // Merge into a matching PENDING placeholder if one exists. This
     // avoids creating duplicate rows when a Telegram bot first announces
@@ -988,7 +1000,12 @@ export class RechargesService implements OnModuleInit {
 
     for (const item of incoming) {
       const existingTx = await this.cryptoRepo.findOne({ where: { tx_hash: item.tx_hash.trim() } });
-      if (existingTx) {
+      // For split payments: the same on-chain tx_hash is now shared
+      // across multiple recharges (one per Magnus account in the split).
+      // We only short-circuit when the existing tx already belongs to
+      // THIS recharge. Otherwise we fall through and create a sibling
+      // crypto_tx row so this recharge's crypto_amount can be populated.
+      if (existingTx && existingTx.recharge_id === id) {
         let changed = false;
         for (const key of [
           'gateway_tx_status', 'sender_address', 'sent_amount', 'sent_value', 'received_amount',

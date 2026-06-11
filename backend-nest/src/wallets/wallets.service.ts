@@ -823,12 +823,28 @@ export class WalletsService {
     // it gets associated with two recharges. Earlier the dedupe also required
     // `linked_recharge_id` to match, which allowed a 1065-sat-style drift
     // when the same hash slipped past two flows. Now we hard-block any
-    // deposit row that already exists for this tx_hash.
+    // deposit row that already exists for this tx_hash — UNLESS the new
+    // call comes from a different recharge (split-payment sibling), in
+    // which case we BUMP the existing row's amount by the new share so
+    // the ledger reflects the true on-chain total.
     if (input.tx_hash) {
       const existing = await this.ledger.findOne({
         where: { tx_hash: input.tx_hash, tx_type: 'deposit' as any },
       });
-      if (existing) return existing;
+      if (existing) {
+        const isSplitSibling = input.recharge_id
+          && existing.linked_recharge_id
+          && existing.linked_recharge_id !== input.recharge_id;
+        if (isSplitSibling) {
+          const bumped = parseFloat(existing.amount || '0') + amt;
+          existing.amount = bumped.toFixed(8);
+          // Append split context to the notes so audit trail is self-explanatory
+          const splitNote = `Split sibling +${amt.toFixed(8)} ${input.coin} for ${input.counterparty || 'extra customer'}`;
+          existing.notes = existing.notes ? `${existing.notes} | ${splitNote}` : splitNote;
+          await this.ledger.save(existing);
+        }
+        return existing;
+      }
     }
     const wallet = input.received_wallet
       || this.pickWalletFromTag(input.wallet_tag)

@@ -313,10 +313,25 @@ export class WebhooksService {
       .map((tx) => tx.tx_hash || `${tx.currency || 'coin'}:${tx.received_amount || tx.sent_amount || tx.value || ''}:${tx.date || ''}`)
       .filter(Boolean)
       .join(',');
+    const paymentGatewayRaw = String(this.first(p.payment_gateway, p.gateway, '') || '');
+    // Split payment detection: a single on-chain TX shared across N
+    // Magnus accounts arrives as N separate Telegram webhooks with the
+    // SAME tx_hash but DIFFERENT magnus_username. Without disambiguation
+    // we'd dedupe the 2nd, 3rd, … halves and silently drop them. Adding
+    // the magnus_username to the event_id makes each share unique while
+    // still deduping true retransmits (same tx + same username).
+    const isTelegramSplit = source === 'telegram_manual'
+      && /^BTC\s*Split/i.test(paymentGatewayRaw);
+    const splitMagnusUser = String(this.first(
+      p.magnus_username, p.magnusUser, p.username, p.user, p.login,
+      meta.magnus_username, meta.username, meta.sipUsername,
+    ) || '').trim().toLowerCase();
     const eventId = source === 'oxapay' && gatewayInvoiceId
       ? `${gatewayInvoiceId}:${status || eventType || 'event'}:${oxapayTxFingerprint || txHash || this.first(p.track_id, p.trackId, p.date, oxapayTx?.date, Date.now())}`
       : source === 'btcpay' && gatewayInvoiceId
         ? `${gatewayInvoiceId}:${eventType || status || 'event'}:${btcpayTx?.tx_hash || btcpayTx?.payment_id || p.deliveryId || p.originalDeliveryId || p.timestamp || Date.now()}`
+      : isTelegramSplit && txHash && splitMagnusUser
+        ? `split:${txHash}:${splitMagnusUser}`
       : eventIdBase;
     const paid = this.isPaid(source, p);
     const shouldIgnore = this.shouldIgnoreEvent(source, p, { eventType, txHash, cryptoAmount, amount });
