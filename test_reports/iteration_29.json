@@ -1,0 +1,35 @@
+{
+  "summary": "Iteration 29 — verification of the country-aware UAE VAT fix (5% for UAE customers, 0% zero-rated exports for all others, Article 31 VAT ER). Backend: re-ran /app/backend/tests/test_iter29_zero_rated_vat.py — 18/18 PASSED in 5.62s (sales-journal totals, all-rows zero-rated, VAT return NIL RETURN, UAE-customer standard-rated positive path with cleanup + baseline restoration, 6 regression report endpoints, CA access to 3 reports, CSV/Excel/PDF exports). Frontend Playwright on the public preview URL: admin login (T&C checkbox) -> /reports -> Sales Journal preview shows TOTAL VAT 0.00, ZERO RATED COUNT 1105 (no thousand separator), STANDARD RATED COUNT 0, all 501 rendered rows show 'Zero-rated export' with vat amount 0.00 and zero 'Standard-rated 5%' occurrences; VAT Return preview shows ZERO RATED SALES: GROSS AED 141,777.61, STANDARD RATED SALES: GROSS AED 0.00, NET VAT PAYABLE 0.00, STATUS 'NIL RETURN', no raw JSON braces in either preview body. CA (ca@axistratech.com) sees both Sales Journal and VAT Return cards and gets the identical NIL RETURN / 141,777.61 render. All requested assertions passed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Reports -> Sales Journal preview KPI tiles",
+        "issues": [
+          "Number formatting is inconsistent across KPI tiles: 'TOTAL GROSS'/'TOTAL NET' render as 141,777.61 while 'ZERO RATED GROSS' renders as 141777.61 (no thousand separator) and 'STANDARD RATED GROSS' renders as '0' instead of '0.00'. Cosmetic only, values are correct."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter29_zero_rated_vat.py",
+    "/app/test_reports/pytest/iter29.xml"
+  ],
+  "action_items": [
+    "Optional (cosmetic): normalise currency formatting for 'zero_rated_gross' / 'standard_rated_gross' KPI tiles in the Reports preview renderer so they match the 141,777.61 / 0.00 style used by total_gross and total_net."
+  ],
+  "critical_code_review_comments": [],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "Transient only: the UAE positive-path test creates TEST_UAE VAT Probe customer + a 105 AED recharge/invoice and deletes them in a finally block; a follow-up test asserts the baseline (1105 zero-rated rows, 141,777.61 gross, NIL RETURN) is restored. Verified restored.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@axistratech.com / admin123 (admin), ca@axistratech.com / ca123456 (chartered_accountant). Login requires ticking data-testid=login-terms-checkbox before submit. ENFORCE_ADMIN_2FA=false so admin lands directly on /dashboard.",
+  "context_for_next_testing_agent": "VAT zero-rating fix is fully verified end-to-end (backend 18/18 + Playwright admin & CA). Reusable suite: /app/backend/tests/test_iter29_zero_rated_vat.py. Useful selectors: report-view-{key}, report-card-{key}, preview-body-{key}, preview-close, reports-year, reports-month. Baseline for FY2026: 1105 zero-rated recharges, gross 141,777.61 AED, total_vat 0, NIL RETURN. Only outstanding item is the cosmetic KPI number-formatting inconsistency noted above.",
+  "rca_of_the_issue": "N/A — no defects found this iteration. The previously applied fix in /app/backend-nest/src/reports/reports.service.ts (salesJournal + vatReturn) correctly branches on customer country: UAE -> Standard-rated 5%, everything else -> Zero-rated export at 0%, and the VAT return aggregates net payable to 0 with status NIL RETURN when no standard-rated supplies exist."
+}
