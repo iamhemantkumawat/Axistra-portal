@@ -211,8 +211,10 @@ export class ReportsService {
   /**
    * Sales Journal — every recharge/invoice for the year with:
    * - date, invoice number, recharge code, customer, magnus username
-   * - amount (net), VAT amount (5% UAE standard rate), gross
-   * - payment gateway, status
+   * - amount (net), VAT amount, gross, VAT treatment
+   * Under UAE VAT law customer geography drives the rate:
+   *   • Customer in UAE  → standard-rated 5% VAT (VAT-inclusive amount)
+   *   • Customer outside UAE → zero-rated export of services (0% VAT)
    * This is the primary source document a CA files VAT201 from.
    */
   async salesJournal(year?: number) {
@@ -226,6 +228,7 @@ export class ReportsService {
         'r.invoice_id AS invoice_id',
         'c.full_name AS customer_name',
         'c.customer_code AS customer_code',
+        'c.country AS customer_country',
         'r.magnus_username AS magnus_username',
         'r.amount AS amount',
         'r.currency AS currency',
@@ -235,20 +238,35 @@ export class ReportsService {
       .where('EXTRACT(YEAR FROM r.created_at) = :y', { y })
       .orderBy('r.created_at', 'ASC')
       .getRawMany();
-    const VAT_RATE = 0.05;
+    const STANDARD_RATE = 0.05;
     const enriched = rows.map((r) => {
       const gross = parseFloat(r.amount || '0');
-      // For UAE, VAT is included in the invoice amount → net = gross / 1.05
-      const net = +(gross / (1 + VAT_RATE)).toFixed(2);
-      const vat = +(gross - net).toFixed(2);
-      return { ...r, net_amount: net, vat_amount: vat, gross_amount: gross };
+      const country = String(r.customer_country || '').trim().toLowerCase();
+      const isUae = country === 'uae' || country === 'united arab emirates' || country === 'ae' || country === 'u.a.e.';
+      const rate = isUae ? STANDARD_RATE : 0;
+      const net = isUae ? +(gross / (1 + STANDARD_RATE)).toFixed(2) : gross;
+      const vat = isUae ? +(gross - net).toFixed(2) : 0;
+      return {
+        ...r,
+        vat_treatment: isUae ? 'Standard-rated 5%' : 'Zero-rated export',
+        vat_rate_pct: rate * 100,
+        net_amount: net,
+        vat_amount: vat,
+        gross_amount: gross,
+      };
     });
+    const zero = enriched.filter((r) => r.vat_rate_pct === 0);
+    const standard = enriched.filter((r) => r.vat_rate_pct > 0);
     return {
       year: y,
-      vat_rate_pct: VAT_RATE * 100,
+      note: 'UAE VAT: standard-rated (5%) applies only to customers inside UAE. All other jurisdictions are zero-rated exports of services under Article 31 of the Executive Regulations.',
       total_gross: +enriched.reduce((s, r) => s + r.gross_amount, 0).toFixed(2),
       total_net: +enriched.reduce((s, r) => s + r.net_amount, 0).toFixed(2),
       total_vat: +enriched.reduce((s, r) => s + r.vat_amount, 0).toFixed(2),
+      zero_rated_gross: +zero.reduce((s, r) => s + r.gross_amount, 0).toFixed(2),
+      standard_rated_gross: +standard.reduce((s, r) => s + r.gross_amount, 0).toFixed(2),
+      zero_rated_count: zero.length,
+      standard_rated_count: standard.length,
       count: enriched.length,
       rows: enriched,
     };
@@ -256,8 +274,9 @@ export class ReportsService {
 
   /**
    * VAT Return — UAE VAT201-style summary for the given quarter or year.
-   * Splits standard-rated sales (5%), zero-rated, and computes net VAT
-   * payable/refundable. Input VAT recovered from expenses with tax_amount.
+   * Splits standard-rated sales (UAE customers, 5%) from zero-rated exports
+   * (non-UAE customers, 0%) and computes net VAT payable/refundable.
+   * Input VAT recovered from expenses with tax_amount.
    */
   async vatReturn(year?: number, quarter?: number) {
     const y = year || new Date().getFullYear();
@@ -266,16 +285,31 @@ export class ReportsService {
     const endMonth = q ? q * 3 : 12;
     const start = new Date(Date.UTC(y, startMonth - 1, 1, 0, 0, 0));
     const end = new Date(Date.UTC(y, endMonth, 0, 23, 59, 59));
-    const VAT_RATE = 0.05;
+    const STANDARD_RATE = 0.05;
 
-    // Output VAT (from sales / recharges — VAT-inclusive)
-    const sales = await this.recharges
+    // Pull sales joined with customer country so we can classify each row.
+    const salesRows = await this.recharges
       .createQueryBuilder('r')
+      .leftJoin('customers', 'c', 'c.id = r.customer_id')
+      .select([
+        'r.amount AS amount',
+        'c.country AS country',
+      ])
       .where('r.created_at BETWEEN :s AND :e', { s: start, e: end })
-      .getMany();
-    const salesGross = sales.reduce((s, r) => s + parseFloat(r.amount || '0'), 0);
-    const salesNet = salesGross / (1 + VAT_RATE);
-    const outputVat = salesGross - salesNet;
+      .getRawMany();
+    let standardGross = 0;
+    let zeroGross = 0;
+    let standardCount = 0;
+    let zeroCount = 0;
+    salesRows.forEach((r: any) => {
+      const gross = parseFloat(r.amount || '0');
+      const country = String(r.country || '').trim().toLowerCase();
+      const isUae = country === 'uae' || country === 'united arab emirates' || country === 'ae' || country === 'u.a.e.';
+      if (isUae) { standardGross += gross; standardCount += 1; }
+      else { zeroGross += gross; zeroCount += 1; }
+    });
+    const standardNet = standardGross / (1 + STANDARD_RATE);
+    const outputVat = standardGross - standardNet;
 
     // Input VAT (from expenses — using tax_amount if present, else 0)
     const exps = await this.expenses
@@ -287,13 +321,8 @@ export class ReportsService {
     exps.forEach((e: any) => {
       const gross = parseFloat(e.aed_value || e.amount || '0');
       const tax = parseFloat(e.tax_amount || '0');
-      if (tax > 0) {
-        inputVat += tax;
-        inputNet += (gross - tax);
-      } else {
-        // Not VAT-registered vendor → no input claim
-        inputNet += gross;
-      }
+      if (tax > 0) { inputVat += tax; inputNet += (gross - tax); }
+      else { inputNet += gross; }
     });
 
     const netVatPayable = outputVat - inputVat;
@@ -304,12 +333,20 @@ export class ReportsService {
         from: start.toISOString().slice(0, 10),
         to: end.toISOString().slice(0, 10),
       },
-      vat_rate_pct: VAT_RATE * 100,
-      output_vat: {
-        sales_count: sales.length,
-        sales_gross_aed: +salesGross.toFixed(2),
-        sales_net_aed: +salesNet.toFixed(2),
+      note: 'Zero-rated: exports of services to customers outside UAE (Article 31, VAT ER).',
+      // VAT201-style boxes — output side split by rate
+      standard_rated_sales: {
+        count: standardCount,
+        gross_aed: +standardGross.toFixed(2),
+        net_aed: +standardNet.toFixed(2),
         output_vat_aed: +outputVat.toFixed(2),
+        rate_pct: STANDARD_RATE * 100,
+      },
+      zero_rated_sales: {
+        count: zeroCount,
+        gross_aed: +zeroGross.toFixed(2),
+        output_vat_aed: 0,
+        rate_pct: 0,
       },
       input_vat: {
         expenses_count: exps.length,
@@ -317,7 +354,7 @@ export class ReportsService {
         input_vat_aed: +inputVat.toFixed(2),
       },
       net_vat_payable_aed: +netVatPayable.toFixed(2),
-      status: netVatPayable > 0 ? 'PAYABLE' : 'REFUNDABLE',
+      status: netVatPayable > 0 ? 'PAYABLE' : netVatPayable < 0 ? 'REFUNDABLE' : 'NIL RETURN',
     };
   }
 
