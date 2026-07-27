@@ -15,6 +15,10 @@ const REPORT_META: Record<string, { title: string; subtitle?: string; columns?: 
   'corporate-tax':        { title: 'Corporate Tax Estimate', subtitle: 'Estimated UAE corporate tax (9% above AED 375,000 of taxable profit).' },
   'expenses':             { title: 'Expense Report',         subtitle: 'All operating expenses with category and payment method.' },
   'suspicious':           { title: 'Suspicious Activity / Compliance', subtitle: 'High-risk customers and recent compliance actions.' },
+  'sales-journal':        { title: 'Sales Journal (VAT-ready)',   subtitle: 'Every invoice with net/VAT/gross split — primary source for VAT201 filing.' },
+  'vat-return':           { title: 'VAT Return (VAT201-style)',   subtitle: 'Output VAT (sales) minus Input VAT (expenses) → net payable/refundable.' },
+  'expense-ledger':       { title: 'Expense Ledger',              subtitle: 'Detailed expense list with vendor, category, VAT input, and net.' },
+  'corporate-tax-working': { title: 'Corporate Tax Working Paper', subtitle: 'Full 9% UAE CT computation with bracket breakdown.' },
 };
 
 @UseGuards(AuthGuard('jwt'))
@@ -32,6 +36,10 @@ export class ReportsController {
   @Get('corporate-tax')     corp(@Query('year') year?: string) { return this.svc.corporateTax(year ? parseInt(year, 10) : undefined); }
   @Get('expenses')          exp() { return this.svc.expenseReport(); }
   @Get('suspicious')        sus() { return this.svc.suspicious(); }
+  @Get('sales-journal')     salesJ(@Query('year') year?: string) { return this.svc.salesJournal(year ? parseInt(year, 10) : undefined); }
+  @Get('vat-return')        vatRet(@Query('year') year?: string, @Query('quarter') q?: string) { return this.svc.vatReturn(year ? parseInt(year, 10) : undefined, q ? parseInt(q, 10) : undefined); }
+  @Get('expense-ledger')    expL(@Query('year') year?: string) { return this.svc.expenseLedger(year ? parseInt(year, 10) : undefined); }
+  @Get('corporate-tax-working') ctW(@Query('year') year?: string) { return this.svc.corporateTaxWorking(year ? parseInt(year, 10) : undefined); }
 
   @Get('dashboard/charts')
   charts(@Query('year') year?: string) { return this.svc.chartsDashboard(year ? parseInt(year, 10) : undefined); }
@@ -119,6 +127,10 @@ export class ReportsController {
       'quarterly-sales',
       'vat-threshold',
       'corporate-tax',
+      'sales-journal',
+      'vat-return',
+      'expense-ledger',
+      'corporate-tax-working',
       'customer-recharge',
       'crypto-to-aed',
       'bank-reconciliation',
@@ -203,6 +215,10 @@ export class ReportsController {
       case 'corporate-tax':      return [await this.svc.corporateTax(y)];
       case 'expenses':           return (await this.svc.expenseReport()).rows;
       case 'suspicious':         return (await this.svc.suspicious()).recent_compliance_actions;
+      case 'sales-journal':      return (await this.svc.salesJournal(y)).rows;
+      case 'vat-return':         return [await this.svc.vatReturn(y)];
+      case 'expense-ledger':     return (await this.svc.expenseLedger(y)).rows;
+      case 'corporate-tax-working': return [await this.svc.corporateTaxWorking(y)];
       default: return [];
     }
   }

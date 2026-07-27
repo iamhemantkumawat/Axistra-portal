@@ -6,6 +6,7 @@ import {
   FileXls, FileCsv, FilePdf, ChartBar, ChartLine, ChartPie, CurrencyDollar,
   TrendUp, Bank, Coins, Package, Receipt, Wallet, Sparkle,
 } from '@phosphor-icons/react';
+import { toast } from 'sonner';
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   BarChart, Bar, PieChart, Pie, Cell, Legend,
@@ -22,6 +23,10 @@ const REPORTS = [
   { key: 'corporate-tax',       name: 'Corporate Tax',          icon: CurrencyDollar },
   { key: 'expenses',            name: 'Expense Report',         icon: Receipt },
   { key: 'suspicious',          name: 'Suspicious Activity',    icon: ChartPie },
+  { key: 'sales-journal',       name: 'Sales Journal (VAT-ready)',    icon: Receipt, ca: true },
+  { key: 'vat-return',          name: 'VAT Return (VAT201-style)',    icon: Wallet, ca: true },
+  { key: 'expense-ledger',      name: 'Expense Ledger (Detailed)',    icon: Receipt, ca: true },
+  { key: 'corporate-tax-working', name: 'Corporate Tax Working Paper', icon: CurrencyDollar, ca: true },
 ];
 
 const COLORS = ['#0A5C3E', '#C6A14B', '#1E7D5C', '#E0BC4F', '#3D9974', '#F0D88A', '#5BB58C', '#996A1F', '#80C99F', '#705425'];
@@ -43,6 +48,8 @@ export default function Reports() {
     try {
       const { data } = await api.get(`/reports/${key}?year=${year}`);
       setPreview({ key, data });
+    } catch (err) {
+      toast.error(err?.response?.data?.message || `Failed to load ${key}`);
     } finally { setLoading(''); }
   };
 
@@ -239,13 +246,90 @@ export default function Reports() {
         <div className="card-axistra p-6" data-testid="report-preview">
           <div className="flex justify-between items-center mb-4">
             <h3 className="font-display text-lg font-semibold">Preview — {preview.key}</h3>
-            <button onClick={() => setPreview(null)} className="text-xs text-gray-500 hover:text-gray-900">Close</button>
+            <button onClick={() => setPreview(null)} className="text-xs text-gray-500 hover:text-gray-900" data-testid="preview-close">Close</button>
           </div>
-          <pre className="bg-gray-50 border border-gray-200 rounded-md p-4 text-xs overflow-x-auto max-h-96 font-mono">
-            {JSON.stringify(preview.data, null, 2)}
-          </pre>
+          <ReportPreviewRenderer data={preview.data} testKey={preview.key} />
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Renders a report response as a proper table + summary block. Falls back to
+ * a formatted JSON view only when the payload shape isn't recognised. Used
+ * by the "View" button on each report card — replaces the previous raw-<pre>
+ * dump that read as "not working" to a CA.
+ */
+function ReportPreviewRenderer({ data, testKey }) {
+  if (data == null) return <div className="text-sm text-gray-500">No data.</div>;
+  // Extract the row array from common response shapes
+  const rowKeys = ['rows', 'movements', 'high_risk_customers', 'recent_compliance_actions'];
+  let rows = null;
+  let summaryEntries = [];
+  if (Array.isArray(data)) {
+    rows = data;
+  } else if (typeof data === 'object') {
+    for (const k of rowKeys) {
+      if (Array.isArray(data[k])) { rows = data[k]; break; }
+    }
+    // Everything that isn't rows-like becomes a KPI at the top
+    summaryEntries = Object.entries(data).filter(([k, v]) => {
+      if (rowKeys.includes(k)) return false;
+      if (v == null) return false;
+      if (typeof v === 'object' && !Array.isArray(v)) return true;
+      if (Array.isArray(v)) return false;
+      return true;
+    });
+  }
+  const cols = rows && rows.length ? Object.keys(rows[0]) : [];
+  return (
+    <div className="space-y-4" data-testid={`preview-body-${testKey}`}>
+      {summaryEntries.length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {summaryEntries.map(([k, v]) => (
+            <div key={k} className="rounded-md border border-gray-200 p-3 bg-gray-50">
+              <div className="label-xs mb-1">{k.replace(/_/g, ' ')}</div>
+              <div className="font-mono text-sm text-gray-900 break-all">
+                {typeof v === 'object' ? (
+                  <pre className="whitespace-pre-wrap text-[11px]">{JSON.stringify(v, null, 2)}</pre>
+                ) : (
+                  String(v)
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {rows && rows.length > 0 ? (
+        <div className="overflow-x-auto border border-gray-200 rounded-md">
+          <table className="min-w-full text-xs font-mono">
+            <thead className="bg-[var(--axistra-green-light)] text-gray-700 sticky top-0">
+              <tr>
+                {cols.map((c) => <th key={c} className="text-left px-3 py-2 border-b border-gray-200 whitespace-nowrap uppercase tracking-wider text-[10px]">{c.replace(/_/g, ' ')}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.slice(0, 500).map((r, i) => (
+                <tr key={i} className={i % 2 ? 'bg-white' : 'bg-gray-50/40'}>
+                  {cols.map((c) => (
+                    <td key={c} className="px-3 py-1.5 border-b border-gray-100 whitespace-nowrap">
+                      {r[c] === null || r[c] === undefined ? '—' : typeof r[c] === 'object' ? JSON.stringify(r[c]) : String(r[c])}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {rows.length > 500 && (
+            <div className="text-[11px] text-gray-500 p-2 text-center border-t border-gray-200">
+              Showing first 500 of {rows.length} rows. Download full report as CSV / Excel.
+            </div>
+          )}
+        </div>
+      ) : rows && rows.length === 0 ? (
+        <div className="text-sm text-gray-500 text-center py-6 border border-dashed rounded-md">No rows for this period.</div>
+      ) : null}
     </div>
   );
 }

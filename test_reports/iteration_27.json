@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 27 — Reports View-button bug fix + 4 new CA reports. Backend: 65 pytest cases (/app/backend/tests/test_iter27_ca_reports.py) covering the 4 new endpoints (data-shape + arithmetic assertions), regression on the original 10 report endpoints, CSV/Excel/PDF exports for all 14 keys, Accountant Pack ZIP contents/manifest, and CA-role access — 63 passed / 2 failed. Frontend: admin + CA logins, /reports shows 14 cards for both roles, View renders a real HTML table (not raw <pre> JSON) for monthly-sales (3 rows), quarterly-sales (2), expenses (46), expense-ledger (46), sales-journal (500 cap). vat-return & corporate-tax-working render KPI tiles (no row array by design). CA PDF download of sales-journal succeeded. No console errors.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/reports/export/csv?report=crypto-to-aed&year=2026", "issue": "Returns HTTP 200 with a completely EMPTY body (0 bytes) when the report has no rows — toCsv() returns '' for empty arrays. User downloads a 0-byte .csv. Should emit at least a header row or a 'No data for this period' line (the Excel path already does this)."},
+      {"endpoint": "/api/reports/export/csv?report=suspicious&year=2026", "issue": "Same empty-body (0 bytes) CSV issue as crypto-to-aed."},
+      {"endpoint": "/api/reports/corporate-tax-working", "issue": "Unrounded float artefacts leaked to a CA-facing document: revenue_aed=141777.60999999996, gross_profit_aed=-6761.490000000078, taxable_income_aed same. yearlyPl values are not .toFixed(2)-rounded before being reused. Cosmetically wrong on a tax working paper."},
+      {"endpoint": "/api/reports/vat-return", "issue": "input_vat_aed = 0 for FY2026 because none of the 46 seeded expenses carry tax_amount, so the VAT201 input-VAT claim is always nil. Not a code defect per se, but the CA-facing figure is misleading — consider deriving input VAT from AED gross when the vendor is VAT-registered, or surfacing a 'no VAT-registered expenses' note."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "ReportPreviewRenderer (vat-return, corporate-tax-working)", "issue": "The original complaint (raw JSON dump) still partially remains for object-shaped reports: nested objects (period, output_vat, input_vat) are rendered as raw JSON in a <pre> inside the KPI tile, e.g. '{ \"sales_count\": 1105, \"sales_gross_aed\": 141777.61 ... }'. A CA sees JSON, not labelled figures. Nested objects should be flattened into individual labelled KPI tiles / a 2-column key-value table.", "selector": "[data-testid=\"preview-body-vat-return\"]", "priority": "MEDIUM"},
+      {"component": "ReportPreviewRenderer", "issue": "Numeric values are printed with String(v) so raw floats appear (revenue aed 141777.60999999996). Should use fmtMoney/toFixed(2) for numeric KPI tiles and table cells.", "selector": "[data-testid=\"preview-body-corporate-tax-working\"]", "priority": "MEDIUM"},
+      {"component": "ReportPreviewRenderer (suspicious)", "issue": "For 'suspicious' the renderer picks the FIRST matching key in rowKeys order (high_risk_customers) and shows 'No rows for this period.' even though recent_compliance_actions may hold data — only one row-array can ever be displayed for multi-array payloads.", "selector": "[data-testid=\"preview-body-suspicious\"]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/reports preview panel", "issues": ["Monospace JSON blocks inside grey KPI tiles read as debug output rather than a finance report", "Report card grid sits far below four large Recharts panels; the preview panel renders at the very bottom of the page with no auto-scroll after clicking View — user may think nothing happened (the exact reported symptom). Consider scrollIntoView on the preview after load."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter27_ca_reports.py", "/app/test_reports/pytest/iter27.xml"],
+  "action_items": [
+    "CSV export: emit header row / 'No data' line instead of a 0-byte body when the report has no rows (crypto-to-aed, suspicious).",
+    "Round all numeric outputs in corporateTaxWorking/yearlyPl to 2 decimals before returning.",
+    "ReportPreviewRenderer: flatten nested objects (output_vat, input_vat, period) into labelled KPI tiles instead of <pre> JSON; format numbers with fmtMoney.",
+    "Auto-scroll the report preview panel into view after View is clicked.",
+    "Optional: render all row-arrays for 'suspicious' rather than only the first match."
+  ],
+  "critical_code_review_comments": [
+    "reports.controller.ts toCsv() returns '' for an empty row set — every empty report yields a 0-byte download; add a fallback header/no-data line.",
+    "Accountant Pack builds PDF+Excel for 14 reports serially inside the request (took ~40s in test); consider Promise.all or streaming to avoid gateway timeouts as data grows.",
+    "REPORTS array in Reports.jsx marks 4 entries with `ca: true` but the flag is never used for filtering/badging — dead metadata."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter27_ca_reports.py"],
+  "success_rate": {"backend": "97% (63/65)", "frontend": "100% of tested flows (14 cards, 8 View previews, CA access, PDF download)"},
+  "seed_data_creation": "None — read-only report testing against existing seeded data (1105 recharges, 46 expenses for FY2026).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@axistratech.com / admin123 ; ca@axistratech.com / ca123456 (T&C checkbox must be checked on /login)",
+  "context_for_next_testing_agent": "Reports regression suite lives at /app/backend/tests/test_iter27_ca_reports.py (parametrised over all 14 report keys x csv/excel/pdf + accountant-pack zip). Full run ~155s. Known-failing: csv export for crypto-to-aed and suspicious (empty body, no FY2026 data). Both admin and CA land on /dashboard directly and both see all 14 report cards.",
+  "rca_of_the_issue": "Original bug (View button 'not working') is FIXED — the preview now renders an HTML <table> with proper headers for all rows-bearing reports and shows an error toast on failure. Residual: object-only reports (vat-return, corporate-tax-working) still surface nested objects as raw JSON inside KPI tiles because ReportPreviewRenderer only stringifies objects rather than recursing, so the 'looks like JSON' perception persists for those two reports."
+}

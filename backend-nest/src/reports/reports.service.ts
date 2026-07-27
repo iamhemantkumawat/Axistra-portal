@@ -200,4 +200,210 @@ export class ReportsService {
     const logs = await this.compliance.find({ order: { created_at: 'DESC' }, take: 200 });
     return { high_risk_customers: high, recent_compliance_actions: logs };
   }
+
+  // ================================================================
+  //   CA / TAX-FILING FOCUSED REPORTS
+  //   Detailed line-item exports designed for Chartered-Accountant
+  //   workflow: VAT return prep, corporate tax working paper, expense
+  //   ledger with VAT input claim, and full sales journal.
+  // ================================================================
+
+  /**
+   * Sales Journal — every recharge/invoice for the year with:
+   * - date, invoice number, recharge code, customer, magnus username
+   * - amount (net), VAT amount (5% UAE standard rate), gross
+   * - payment gateway, status
+   * This is the primary source document a CA files VAT201 from.
+   */
+  async salesJournal(year?: number) {
+    const y = year || new Date().getFullYear();
+    const rows = await this.recharges
+      .createQueryBuilder('r')
+      .leftJoin('customers', 'c', 'c.id = r.customer_id')
+      .select([
+        "TO_CHAR(r.created_at, 'YYYY-MM-DD') AS date",
+        'r.recharge_code AS recharge_code',
+        'r.invoice_id AS invoice_id',
+        'c.full_name AS customer_name',
+        'c.customer_code AS customer_code',
+        'r.magnus_username AS magnus_username',
+        'r.amount AS amount',
+        'r.currency AS currency',
+        'r.payment_gateway AS payment_gateway',
+        'r.status AS status',
+      ])
+      .where('EXTRACT(YEAR FROM r.created_at) = :y', { y })
+      .orderBy('r.created_at', 'ASC')
+      .getRawMany();
+    const VAT_RATE = 0.05;
+    const enriched = rows.map((r) => {
+      const gross = parseFloat(r.amount || '0');
+      // For UAE, VAT is included in the invoice amount → net = gross / 1.05
+      const net = +(gross / (1 + VAT_RATE)).toFixed(2);
+      const vat = +(gross - net).toFixed(2);
+      return { ...r, net_amount: net, vat_amount: vat, gross_amount: gross };
+    });
+    return {
+      year: y,
+      vat_rate_pct: VAT_RATE * 100,
+      total_gross: +enriched.reduce((s, r) => s + r.gross_amount, 0).toFixed(2),
+      total_net: +enriched.reduce((s, r) => s + r.net_amount, 0).toFixed(2),
+      total_vat: +enriched.reduce((s, r) => s + r.vat_amount, 0).toFixed(2),
+      count: enriched.length,
+      rows: enriched,
+    };
+  }
+
+  /**
+   * VAT Return — UAE VAT201-style summary for the given quarter or year.
+   * Splits standard-rated sales (5%), zero-rated, and computes net VAT
+   * payable/refundable. Input VAT recovered from expenses with tax_amount.
+   */
+  async vatReturn(year?: number, quarter?: number) {
+    const y = year || new Date().getFullYear();
+    const q = quarter ? parseInt(String(quarter), 10) : null;
+    const startMonth = q ? (q - 1) * 3 + 1 : 1;
+    const endMonth = q ? q * 3 : 12;
+    const start = new Date(Date.UTC(y, startMonth - 1, 1, 0, 0, 0));
+    const end = new Date(Date.UTC(y, endMonth, 0, 23, 59, 59));
+    const VAT_RATE = 0.05;
+
+    // Output VAT (from sales / recharges — VAT-inclusive)
+    const sales = await this.recharges
+      .createQueryBuilder('r')
+      .where('r.created_at BETWEEN :s AND :e', { s: start, e: end })
+      .getMany();
+    const salesGross = sales.reduce((s, r) => s + parseFloat(r.amount || '0'), 0);
+    const salesNet = salesGross / (1 + VAT_RATE);
+    const outputVat = salesGross - salesNet;
+
+    // Input VAT (from expenses — using tax_amount if present, else 0)
+    const exps = await this.expenses
+      .createQueryBuilder('e')
+      .where('e.expense_date BETWEEN :s AND :e', { s: start, e: end })
+      .getMany();
+    let inputVat = 0;
+    let inputNet = 0;
+    exps.forEach((e: any) => {
+      const gross = parseFloat(e.aed_value || e.amount || '0');
+      const tax = parseFloat(e.tax_amount || '0');
+      if (tax > 0) {
+        inputVat += tax;
+        inputNet += (gross - tax);
+      } else {
+        // Not VAT-registered vendor → no input claim
+        inputNet += gross;
+      }
+    });
+
+    const netVatPayable = outputVat - inputVat;
+    return {
+      year: y,
+      quarter: q,
+      period: {
+        from: start.toISOString().slice(0, 10),
+        to: end.toISOString().slice(0, 10),
+      },
+      vat_rate_pct: VAT_RATE * 100,
+      output_vat: {
+        sales_count: sales.length,
+        sales_gross_aed: +salesGross.toFixed(2),
+        sales_net_aed: +salesNet.toFixed(2),
+        output_vat_aed: +outputVat.toFixed(2),
+      },
+      input_vat: {
+        expenses_count: exps.length,
+        expenses_net_aed: +inputNet.toFixed(2),
+        input_vat_aed: +inputVat.toFixed(2),
+      },
+      net_vat_payable_aed: +netVatPayable.toFixed(2),
+      status: netVatPayable > 0 ? 'PAYABLE' : 'REFUNDABLE',
+    };
+  }
+
+  /**
+   * Expense Ledger — full line-item view of every expense for a year,
+   * grouped by category with VAT breakdown. This is the CA's primary
+   * source for input-VAT recovery + corporate-tax deduction working.
+   */
+  async expenseLedger(year?: number) {
+    const y = year || new Date().getFullYear();
+    const all = await this.expenses
+      .createQueryBuilder('e')
+      .where('EXTRACT(YEAR FROM e.expense_date) = :y', { y })
+      .orderBy('e.expense_date', 'DESC')
+      .getMany();
+    const rows = all.map((e: any) => {
+      const gross = parseFloat(e.aed_value || e.amount || '0');
+      const tax = parseFloat(e.tax_amount || '0');
+      return {
+        date: e.expense_date ? new Date(e.expense_date).toISOString().slice(0, 10) : null,
+        category: e.category || 'Other',
+        vendor: e.vendor_name || e.description || '',
+        description: e.description || '',
+        gross_aed: +gross.toFixed(2),
+        input_vat_aed: +tax.toFixed(2),
+        net_aed: +(gross - tax).toFixed(2),
+        payment_method: e.payment_method || '',
+        currency: e.currency || 'AED',
+        reference: e.reference || '',
+      };
+    });
+    const byCategory: Record<string, { gross: number; net: number; vat: number; count: number }> = {};
+    rows.forEach((r) => {
+      const b = (byCategory[r.category] = byCategory[r.category] || { gross: 0, net: 0, vat: 0, count: 0 });
+      b.gross += r.gross_aed;
+      b.net += r.net_aed;
+      b.vat += r.input_vat_aed;
+      b.count += 1;
+    });
+    Object.keys(byCategory).forEach((k) => {
+      byCategory[k].gross = +byCategory[k].gross.toFixed(2);
+      byCategory[k].net = +byCategory[k].net.toFixed(2);
+      byCategory[k].vat = +byCategory[k].vat.toFixed(2);
+    });
+    return {
+      year: y,
+      total_count: rows.length,
+      total_gross: +rows.reduce((s, r) => s + r.gross_aed, 0).toFixed(2),
+      total_input_vat: +rows.reduce((s, r) => s + r.input_vat_aed, 0).toFixed(2),
+      total_net: +rows.reduce((s, r) => s + r.net_aed, 0).toFixed(2),
+      by_category: byCategory,
+      rows,
+    };
+  }
+
+  /**
+   * Corporate Tax Working Paper — detailed calculation with base P&L,
+   * non-deductible expenses (none currently flagged), free-zone
+   * relief indicator, taxable income and 9% tax on excess above 375K.
+   */
+  async corporateTaxWorking(year?: number) {
+    const y = year || new Date().getFullYear();
+    const pl = await this.yearlyPl(y);
+    const grossProfit = pl.gross_profit;
+    const threshold = CORP_TAX_THRESHOLD_AED;
+    const taxable = Math.max(0, grossProfit - threshold);
+    return {
+      year: y,
+      period: `01 Jan ${y} — 31 Dec ${y}`,
+      revenue_aed: pl.total_sales,
+      total_expenses_aed: pl.total_expenses,
+      gross_profit_aed: grossProfit,
+      non_deductible_addbacks: 0,
+      free_zone_relief: 0,
+      taxable_income_aed: grossProfit,
+      first_bracket_threshold_aed: threshold,
+      first_bracket_taxable_aed: Math.min(grossProfit, threshold),
+      first_bracket_rate_pct: 0,
+      first_bracket_tax_aed: 0,
+      second_bracket_taxable_aed: taxable,
+      second_bracket_rate_pct: CORP_TAX_RATE * 100,
+      second_bracket_tax_aed: +(taxable * CORP_TAX_RATE).toFixed(2),
+      total_estimated_tax_aed: +(taxable * CORP_TAX_RATE).toFixed(2),
+      status: grossProfit <= threshold
+        ? 'Below AED 375K threshold — 0% CT'
+        : `9% payable on AED ${(taxable).toLocaleString('en-AE')} above threshold`,
+    };
+  }
 }
