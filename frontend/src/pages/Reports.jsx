@@ -243,7 +243,7 @@ export default function Reports() {
       </div>
 
       {preview && (
-        <div className="card-axistra p-6" data-testid="report-preview">
+        <div ref={(el) => { if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }} className="card-axistra p-6" data-testid="report-preview">
           <div className="flex justify-between items-center mb-4">
             <h3 className="font-display text-lg font-semibold">Preview — {preview.key}</h3>
             <button onClick={() => setPreview(null)} className="text-xs text-gray-500 hover:text-gray-900" data-testid="preview-close">Close</button>
@@ -262,10 +262,6 @@ export default function Reports() {
  * dump that read as "not working" to a CA.
  */
 function ReportPreviewRenderer({ data, testKey }) {
-  const previewRef = useRef(null);
-  useEffect(() => {
-    if (previewRef.current) previewRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, [testKey]);
   if (data == null) return <div className="text-sm text-gray-500">No data.</div>;
   const rowKeys = ['rows', 'movements', 'high_risk_customers', 'recent_compliance_actions'];
   let rows = null;
@@ -298,17 +294,23 @@ function ReportPreviewRenderer({ data, testKey }) {
   const cols = rows && rows.length ? Object.keys(rows[0]) : [];
   const fmtVal = (v, keyHint) => {
     if (v == null) return '—';
-    if (typeof v === 'number') {
-      const looksMoney = /aed|usd|amount|total|net|gross|payable|refund|revenue|profit|tax|threshold|balance|value/i.test(keyHint || '');
+    // Coerce numeric strings so table cells (which arrive as string from PG)
+    // get the same money formatting as scalar KPI tiles.
+    let n = v;
+    if (typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v)) n = Number(v);
+    if (typeof n === 'number') {
+      const isIdentifier = /year|quarter|month\b|count|pct|rate|threshold_pct/i.test(keyHint || '');
+      const looksMoney = /aed|usd|amount|total|net|gross|payable|refund|revenue|profit|tax|balance|value|sales|expense|debit|credit|fee|price|salary|payroll/i.test(keyHint || '');
+      if (isIdentifier) return String(n);
       return looksMoney
-        ? v.toLocaleString('en-AE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-        : v.toLocaleString('en-AE');
+        ? n.toLocaleString('en-AE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        : n.toLocaleString('en-AE');
     }
     if (typeof v === 'object') return JSON.stringify(v);
     return String(v);
   };
   return (
-    <div ref={previewRef} className="space-y-4" data-testid={`preview-body-${testKey}`}>
+    <div className="space-y-4" data-testid={`preview-body-${testKey}`}>
       {summaryEntries.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {summaryEntries.map(([k, v, keyHint]) => (
