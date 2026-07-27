@@ -52,7 +52,10 @@ const ProtectedRoutes = () => {
  */
 const RoleGate = ({ allow, children }) => {
   const { user } = useAuth();
-  const role = user?.role || 'admin';
+  // Fail-closed: an undefined role must NOT default to admin — otherwise
+  // a partially-loaded user object could briefly open admin-only routes.
+  // Backend guards remain the real authority; this is a UX belt-and-braces.
+  const role = user?.role || '';
   if (allow && !allow.includes(role)) return <Navigate to="/dashboard" replace />;
   return children;
 };
