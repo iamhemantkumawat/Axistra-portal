@@ -13,7 +13,7 @@ const NAV = [
   { to: '/customers', label: 'Customers', icon: Users, tid: 'sidebar-nav-customers' },
   { to: '/recharges', label: 'Recharges', icon: CurrencyCircleDollar, tid: 'sidebar-nav-recharges' },
   { to: '/invoices', label: 'Invoices', icon: FileText, tid: 'sidebar-nav-invoices' },
-  { to: '/treasury', label: 'Crypto Treasury', icon: Wallet, tid: 'sidebar-nav-treasury' },
+  { to: '/treasury', label: 'Crypto Treasury', icon: Wallet, tid: 'sidebar-nav-treasury', hideForCa: true },
   { to: '/wallets', label: 'Wallet Ledger', icon: Wallet, tid: 'sidebar-nav-wallets' },
   { to: '/audit-chain', label: 'Audit Chain', icon: Shield, tid: 'sidebar-nav-audit-chain' },
   { to: '/expenses', label: 'Expenses', icon: Receipt, tid: 'sidebar-nav-expenses' },
@@ -25,13 +25,13 @@ const NAV = [
   { to: '/contracts', label: 'Contracts', icon: Handshake, tid: 'sidebar-nav-contracts' },
   { to: '/conversion-register', label: 'Conversion Register', icon: ArrowsClockwise, tid: 'sidebar-nav-conversion-register' },
   { to: '/compliance', label: 'Compliance', icon: Shield, tid: 'sidebar-nav-compliance' },
-  { to: '/magnus', label: 'Magnus Sync', icon: Plug, tid: 'sidebar-nav-magnus' },
-  { to: '/magnus-users', label: 'Magnus Users', icon: IdentificationCard, tid: 'sidebar-nav-magnus-users' },
-  { to: '/leads', label: 'Leads', icon: ChatCircleDots, tid: 'sidebar-nav-leads' },
-  { to: '/webhook-logs', label: 'Webhook Logs', icon: Plug, tid: 'sidebar-nav-webhook-logs' },
-  { to: '/settings', label: 'Settings', icon: Gear, tid: 'sidebar-nav-settings' },
-  { to: '/admins', label: 'Admin Users', icon: UserCircleGear, tid: 'sidebar-nav-admins' },
-  { to: '/audit-logs', label: 'Audit Logs', icon: ClockCounterClockwise, tid: 'sidebar-nav-audit-logs' },
+  { to: '/magnus', label: 'Magnus Sync', icon: Plug, tid: 'sidebar-nav-magnus', hideForCa: true },
+  { to: '/magnus-users', label: 'Magnus Users', icon: IdentificationCard, tid: 'sidebar-nav-magnus-users', hideForCa: true },
+  { to: '/leads', label: 'Leads', icon: ChatCircleDots, tid: 'sidebar-nav-leads', hideForCa: true },
+  { to: '/webhook-logs', label: 'Webhook Logs', icon: Plug, tid: 'sidebar-nav-webhook-logs', hideForCa: true },
+  { to: '/settings', label: 'Settings', icon: Gear, tid: 'sidebar-nav-settings', hideForCa: true },
+  { to: '/admins', label: 'Admin Users', icon: UserCircleGear, tid: 'sidebar-nav-admins', hideForCa: true, adminOnly: true },
+  { to: '/audit-logs', label: 'Audit Logs', icon: ClockCounterClockwise, tid: 'sidebar-nav-audit-logs', hideForCa: true },
 ];
 
 const LOGO_DARK_URL = '/axistra-wordmark-darkbg.png';
@@ -101,7 +101,12 @@ export default function AppLayout() {
         </div>
 
         <nav className="flex-1 py-3">
-          {NAV.map((item) => {
+          {NAV.filter((item) => {
+            const role = user?.role || 'admin';
+            if (role === 'chartered_accountant' && item.hideForCa) return false;
+            if (item.adminOnly && role !== 'admin') return false;
+            return true;
+          }).map((item) => {
             const Icon = item.icon;
             return (
               <NavLink

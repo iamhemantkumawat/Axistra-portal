@@ -1,0 +1,24 @@
+{
+  "summary": "Iteration 26: Verified (1) the /sign/:token employee counter-signing bug fix end-to-end in a real browser, and (2) the new chartered_accountant role (sidebar filtering + RoleGate direct-URL guards), plus admin regression. 8/8 backend pytest cases passed; all frontend checks passed. No functional defects found.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": { "ui_bugs": [], "integration_issues": [], "design_issues": [] },
+  "test_report_links": [
+    "/app/backend/tests/test_iter26_sign_letter_ca_role.py",
+    "/app/test_reports/pytest/iter26_results.xml"
+  ],
+  "action_items": [
+    "Doc drift only: /app/memory/test_credentials.md states ENFORCE_ADMIN_2FA=true, but /app/backend-nest/.env has ENFORCE_ADMIN_2FA=false, so admin login returns must_setup_2fa=false and lands directly on /dashboard (no /setup-2fa redirect). Align the doc or the env value."
+  ],
+  "critical_code_review_comments": [
+    "RoleGate defaults role to 'admin' when user?.role is undefined (App.jsx L55) — if the user object ever loads late/partially this fails open to admin-level routes. Prefer defaulting to a non-privileged role or rendering nothing until auth resolves. Note the backend must remain the real authority; frontend RoleGate is UX-only.",
+    "SignLetter page footer says 'single-use link' but the token remains readable after signing (GET returns the doc with sign_status=agreed). Re-POST is correctly rejected, so this is cosmetic/informational only."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter26_sign_letter_ca_role.py"],
+  "success_rate": { "backend": "100% (8/8)", "frontend": "100% (all sidebar, guard and sign-flow checks passed)" },
+  "seed_data_creation": "None created. Consumed two pre-existing sign tokens: 8A70g4Y74SJ33u3qNCaWOWJWODEWliBL (AXR-SAL-2026-002, signed via UI) and CcpGK6PN3DTWDEyKRSmdecGLkyhYt7-T (signed via API). Both are now sign_status=agreed and cannot be re-used — generate fresh tokens for future sign-flow tests.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@axistratech.com/admin123 (admin, no 2FA prompt currently), ca@axistratech.com/ca123456 (chartered_accountant) — both valid.",
+  "context_for_next_testing_agent": "Detailed results: (A) SIGN BUG FIXED — /sign/8A70... rendered SignLetter (data-testid=sign-letter-page) with AXR-SAL-2026-002, 'Salary Revision Letter', AED 15,000 -> AED 40,000, prefilled signature 'Sanjana Kumawat'; clicking sign-agree-btn showed sign-done confirmation and GET /api/sign-letter/<token> now returns sign_status='agreed', signed_at=2026-07-27T07:20:59Z. No redirect to landing page. (B) CA ROLE — login lands directly on /dashboard; sidebar shows exactly 15 items (dashboard, customers, recharges, invoices, wallets, audit-chain, expenses, payroll, profit-loss, reports, tax, corporate-docs, contracts, conversion-register, compliance); zero leaked items from the hidden list. All 8 direct URLs (/treasury /settings /admins /webhook-logs /audit-logs /magnus /magnus-users /leads) redirect to /dashboard. (C) ADMIN REGRESSION — 23 sidebar items, all operational items present, /treasury /settings /admins /audit-logs all reachable. IMPORTANT: both sign tokens are now consumed; create new ones before re-testing the signing flow. Backend regression suite for this feature: /app/backend/tests/test_iter26_sign_letter_ca_role.py (the POST-agree test is idempotent-safe — it asserts 400/409 if the token was already signed).",
+  "rca_of_the_issue": "Original bug root cause (already fixed by main agent): the /sign/:token route was absent from App.jsx, so the catch-all '*' route navigated users to '/'. The route is now declared at App.jsx L74 outside ProtectedRoutes, keeping it public/token-authenticated; verified working."
+}

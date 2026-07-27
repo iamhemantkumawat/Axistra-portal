@@ -55,7 +55,7 @@ export default function AdminUsers() {
           <Field label="Full Name"><input className="input-axistra" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} data-testid="admin-form-name" /></Field>
           <Field label="Role" span={2}>
             <select className="input-axistra" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} data-testid="admin-form-role">
-              <option value="admin">Admin</option><option value="accountant">Accountant</option><option value="auditor">Auditor</option>
+              <option value="admin">Admin</option><option value="accountant">Accountant</option><option value="auditor">Auditor</option><option value="chartered_accountant">Chartered Accountant (CA)</option>
             </select>
           </Field>
           <div className="col-span-2 flex gap-2 justify-end">

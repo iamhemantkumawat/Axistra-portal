@@ -120,12 +120,15 @@ export class AuthService {
   async createAdmin(data: { email: string; password: string; full_name?: string; role?: string }) {
     const exists = await this.adminRepo.findOne({ where: { email: data.email } });
     if (exists) throw new UnauthorizedException('Email already exists');
+    // Whitelist supported roles so the DB doesn't fill up with typos.
+    const allowedRoles = new Set(['admin', 'accountant', 'auditor', 'chartered_accountant']);
+    const role = data.role && allowedRoles.has(data.role) ? data.role : 'admin';
     const hash = await bcrypt.hash(data.password, 10);
     const user = this.adminRepo.create({
       email: data.email,
       password_hash: hash,
       full_name: data.full_name || data.email.split('@')[0],
-      role: data.role || 'admin',
+      role,
     });
     return this.adminRepo.save(user);
   }
