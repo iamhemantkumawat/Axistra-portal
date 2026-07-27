@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import api, { API_BASE } from '../lib/api';
 import { PageHeader, KpiCard } from '../components/Atoms';
 import { downloadBlob, fmtMoney } from '../lib/format';
@@ -262,8 +262,11 @@ export default function Reports() {
  * dump that read as "not working" to a CA.
  */
 function ReportPreviewRenderer({ data, testKey }) {
+  const previewRef = useRef(null);
+  useEffect(() => {
+    if (previewRef.current) previewRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [testKey]);
   if (data == null) return <div className="text-sm text-gray-500">No data.</div>;
-  // Extract the row array from common response shapes
   const rowKeys = ['rows', 'movements', 'high_risk_customers', 'recent_compliance_actions'];
   let rows = null;
   let summaryEntries = [];
@@ -273,30 +276,45 @@ function ReportPreviewRenderer({ data, testKey }) {
     for (const k of rowKeys) {
       if (Array.isArray(data[k])) { rows = data[k]; break; }
     }
-    // Everything that isn't rows-like becomes a KPI at the top
-    summaryEntries = Object.entries(data).filter(([k, v]) => {
-      if (rowKeys.includes(k)) return false;
-      if (v == null) return false;
-      if (typeof v === 'object' && !Array.isArray(v)) return true;
-      if (Array.isArray(v)) return false;
-      return true;
+    // Flatten top-level entries — nested objects become their own group of
+    // labelled KPI tiles (e.g. output_vat.sales_gross_aed → "Sales gross aed"
+    // tile) instead of a raw JSON blob. This is the whole point of the CA-
+    // friendly preview: no {curly braces} in front of the accountant.
+    const seen = new Set();
+    Object.entries(data).forEach(([k, v]) => {
+      if (rowKeys.includes(k) || v == null) return;
+      if (typeof v === 'object' && !Array.isArray(v)) {
+        Object.entries(v).forEach(([kk, vv]) => {
+          if (vv == null || typeof vv === 'object') return;
+          const label = `${k}: ${kk}`.replace(/_/g, ' ');
+          if (!seen.has(label)) { seen.add(label); summaryEntries.push([label, vv, kk]); }
+        });
+      } else if (!Array.isArray(v)) {
+        const label = k.replace(/_/g, ' ');
+        if (!seen.has(label)) { seen.add(label); summaryEntries.push([label, v, k]); }
+      }
     });
   }
   const cols = rows && rows.length ? Object.keys(rows[0]) : [];
+  const fmtVal = (v, keyHint) => {
+    if (v == null) return '—';
+    if (typeof v === 'number') {
+      const looksMoney = /aed|usd|amount|total|net|gross|payable|refund|revenue|profit|tax|threshold|balance|value/i.test(keyHint || '');
+      return looksMoney
+        ? v.toLocaleString('en-AE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        : v.toLocaleString('en-AE');
+    }
+    if (typeof v === 'object') return JSON.stringify(v);
+    return String(v);
+  };
   return (
-    <div className="space-y-4" data-testid={`preview-body-${testKey}`}>
+    <div ref={previewRef} className="space-y-4" data-testid={`preview-body-${testKey}`}>
       {summaryEntries.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {summaryEntries.map(([k, v]) => (
+          {summaryEntries.map(([k, v, keyHint]) => (
             <div key={k} className="rounded-md border border-gray-200 p-3 bg-gray-50">
-              <div className="label-xs mb-1">{k.replace(/_/g, ' ')}</div>
-              <div className="font-mono text-sm text-gray-900 break-all">
-                {typeof v === 'object' ? (
-                  <pre className="whitespace-pre-wrap text-[11px]">{JSON.stringify(v, null, 2)}</pre>
-                ) : (
-                  String(v)
-                )}
-              </div>
+              <div className="label-xs mb-1 capitalize">{k}</div>
+              <div className="font-mono text-sm text-gray-900 break-all">{fmtVal(v, keyHint)}</div>
             </div>
           ))}
         </div>
@@ -314,7 +332,7 @@ function ReportPreviewRenderer({ data, testKey }) {
                 <tr key={i} className={i % 2 ? 'bg-white' : 'bg-gray-50/40'}>
                   {cols.map((c) => (
                     <td key={c} className="px-3 py-1.5 border-b border-gray-100 whitespace-nowrap">
-                      {r[c] === null || r[c] === undefined ? '—' : typeof r[c] === 'object' ? JSON.stringify(r[c]) : String(r[c])}
+                      {fmtVal(r[c], c)}
                     </td>
                   ))}
                 </tr>

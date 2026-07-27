@@ -61,12 +61,12 @@ export class ReportsService {
     const yEnd = new Date(`${y}-12-31T23:59:59Z`);
     const r = await this.recharges.find({ where: { created_at: Between(yStart, yEnd) } });
     const e = await this.expenses.find({ where: { expense_date: Between(yStart, yEnd) } });
-    const sales = sum(r, 'amount');
-    const exp = e.reduce((s, x) => s + parseFloat(x.aed_value || x.amount || '0'), 0);
-    const gross = sales - exp;
+    const sales = +sum(r, 'amount').toFixed(2);
+    const exp = +e.reduce((s, x) => s + parseFloat(x.aed_value || x.amount || '0'), 0).toFixed(2);
+    const gross = +(sales - exp).toFixed(2);
     const taxable = Math.max(0, gross - CORP_TAX_THRESHOLD_AED);
-    const tax = taxable * CORP_TAX_RATE;
-    return { year: y, total_sales: sales, total_expenses: exp, gross_profit: gross, estimated_corp_tax: tax, net_profit: gross - tax };
+    const tax = +(taxable * CORP_TAX_RATE).toFixed(2);
+    return { year: y, total_sales: sales, total_expenses: exp, gross_profit: gross, estimated_corp_tax: tax, net_profit: +(gross - tax).toFixed(2) };
   }
 
   async customerRecharge() {

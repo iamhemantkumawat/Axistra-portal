@@ -338,7 +338,7 @@ export class ReportsController {
   }
 
   private toCsv(rows: any[]): string {
-    if (!rows.length) return '';
+    if (!rows || !rows.length) return 'notice\nNo data for the selected period.\n';
     const headers = Object.keys(rows[0]);
     const esc = (v: any) => {
       if (v === null || v === undefined) return '';

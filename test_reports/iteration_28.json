@@ -1,0 +1,54 @@
+{
+  "summary": "Iteration 28 — RE-VERIFICATION of the 5 items fixed after iteration_27. Backend: new pytest suite /app/backend/tests/test_iter28_reports_fixes.py — 35/35 PASSED (corporate-tax-working / yearly-pl / vat-return recursive float-rounding assertions, empty-CSV notice for crypto-to-aed + suspicious, all 14 report endpoints 200, 12 export combos (csv/excel/pdf x 4 new CA reports) 200 with non-empty bodies, CA-role access). Frontend (Playwright, admin + CA): /reports shows 14 cards for BOTH roles; VAT Return and Corporate Tax Working previews now render flattened labelled KPI tiles ('output vat: sales gross aed → 141,777.61'), ZERO <pre> tags and ZERO raw '{' braces; money values formatted to 2dp with thousand separators; preview panel auto-scrolls into view on every View click; monthly-sales(3 rows)/quarterly-sales(2)/expenses(46)/expense-ledger(46)/sales-journal(500) still render real HTML tables; /sign/:token resolves to the signing page ('Invalid signing link' for a bogus token, no crash). No console errors on /reports. ALL 5 REQUESTED ITEMS VERIFIED FIXED.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "ReportPreviewRenderer — fmtVal",
+        "issue": "Non-money integers are still passed through toLocaleString('en-AE'), so the 'year' KPI tile renders as '2,026' instead of '2026'. Suggest skipping grouping for keys matching /year|quarter|month|count|pct|rate/.",
+        "selector": "[data-testid=\"preview-body-corporate-tax-working\"]",
+        "priority": "LOW"
+      },
+      {
+        "component": "ReportPreviewRenderer — table cells (monthly-sales)",
+        "issue": "The 'sales' column renders raw '18610.58' (no thousand separator / 2dp) because the money regex in fmtVal does not include 'sales' (and the backend likely returns it as a string). Add 'sales|expense|debit|credit|price|fee' to the money keyHint regex and Number()-coerce numeric strings.",
+        "selector": "[data-testid=\"preview-body-monthly-sales\"] table",
+        "priority": "LOW"
+      },
+      {
+        "component": "Report preview panel scroll target",
+        "issue": "scrollIntoView is attached to the inner preview-body div, so for long reports (expenses, expense-ledger, sales-journal) the panel header 'Preview — X' and the Close button end up ~69px above the viewport top. Content is visible so the user symptom is fixed, but attaching the ref to [data-testid=report-preview] (or block:'center') would keep the header + Close visible.",
+        "selector": "[data-testid=\"report-preview\"]",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter28_reports_fixes.py",
+    "/app/test_reports/pytest/iter28.xml"
+  ],
+  "action_items": [
+    "Optional cosmetic: do not thousand-separate 'year' in KPI tiles (shows 2,026).",
+    "Optional cosmetic: extend fmtVal money regex to cover 'sales' and coerce numeric strings so table money columns are formatted.",
+    "Optional: move scrollIntoView ref to the outer report-preview card so the panel header/Close stays visible for long reports."
+  ],
+  "critical_code_review_comments": [
+    "Reports.jsx is 354 lines and readable; ReportPreviewRenderer flattening logic is correct and de-duplicates labels via a Set. No blocking issues found.",
+    "toCsv() empty-state notice verified end-to-end: crypto-to-aed and suspicious CSVs now return 'notice\\nNo data for the selected period.' with non-zero length."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter28_reports_fixes.py"
+  ],
+  "success_rate": {"backend": "100% (35/35)", "frontend": "100% of requested flows"},
+  "seed_data_creation": "None — read-only report verification only.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@axistratech.com / admin123 ; ca@axistratech.com / ca123456 (login form requires ticking the Terms & Conditions checkbox before the submit button enables — important for future Playwright scripts)",
+  "context_for_next_testing_agent": "Valid report keys are: monthly-sales, quarterly-sales, yearly-pl, customer-recharge, crypto-to-aed, bank-reconciliation, vat-threshold, corporate-tax, expenses, suspicious, sales-journal, vat-return, expense-ledger, corporate-tax-working (14 total). Login requires checking the T&C checkbox first. Session persists in localStorage — clear it before switching roles. Iteration 27's 4 deferred minor items (suspicious single-array rendering, ~40s Accountant Pack, unused CA flag, vat-return input_vat=0) remain open by design.",
+  "rca_of_the_issue": "N/A — all iteration_27 defects re-verified as fixed. Root causes previously: ReportPreviewRenderer JSON.stringify'd nested objects (fixed by flattening into 'parent: child' tiles), yearlyPl returned unrounded IEEE floats (fixed with toFixed(2)), toCsv returned '' for empty row arrays (fixed with a notice line), and the preview rendered below the fold without scrollIntoView."
+}
