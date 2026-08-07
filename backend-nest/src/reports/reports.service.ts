@@ -106,6 +106,17 @@ export class ReportsService {
     return this.buildDetailedSales(start, end, `${y} Q${q}`);
   }
 
+  /**
+   * Annual detailed sales — every invoice for the picked year in one AED-first
+   * table. Handed straight to a CA/auditor as the yearly transaction log.
+   */
+  async yearlyDetailed(year?: number) {
+    const y = year || new Date().getFullYear();
+    const start = new Date(Date.UTC(y, 0, 1, 0, 0, 0));
+    const end = new Date(Date.UTC(y, 11, 31, 23, 59, 59));
+    return this.buildDetailedSales(start, end, `${y}`);
+  }
+
   private async buildDetailedSales(start: Date, end: Date, periodLabel: string) {
     const rows = await this.recharges
       .createQueryBuilder('r')

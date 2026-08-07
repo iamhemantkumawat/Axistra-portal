@@ -9,6 +9,7 @@ const REPORT_META: Record<string, { title: string; subtitle?: string; columns?: 
   'quarterly-sales':      { title: 'Quarterly Sales',       subtitle: 'Revenue grouped by fiscal quarter (AED-converted).' },
   'monthly-detailed':     { title: 'Monthly Sales — Detailed', subtitle: 'Every invoice for the selected month with date, invoice #, customer, source amount and AED amount.' },
   'quarterly-detailed':   { title: 'Quarterly Sales — Detailed', subtitle: 'Every invoice for the selected quarter with per-line AED conversion.' },
+  'yearly-detailed':      { title: 'Yearly Sales — Detailed', subtitle: 'Every invoice for the entire year with per-line AED conversion (auditor-ready).' },
   'yearly-pl':            { title: 'Yearly Profit & Loss',  subtitle: 'Aggregate sales, expenses, profit and estimated corporate tax for the year.' },
   'customer-recharge':    { title: 'Customer Recharge Ledger', subtitle: 'Every recharge with the associated customer, gateway and status.' },
   'crypto-to-aed':        { title: 'Crypto → AED Conversion', subtitle: 'USDT converted to AED via OKX/Binance with average rate.' },
@@ -36,6 +37,7 @@ export class ReportsController {
   @Get('quarterly-detailed') quarterlyDet(@Query('year') year?: string, @Query('quarter') quarter?: string) {
     return this.svc.quarterlyDetailed(year ? parseInt(year, 10) : undefined, quarter ? parseInt(quarter, 10) : undefined);
   }
+  @Get('yearly-detailed')   yearlyDet(@Query('year') year?: string) { return this.svc.yearlyDetailed(year ? parseInt(year, 10) : undefined); }
   @Get('yearly-pl')         yearly(@Query('year') year?: string) { return this.svc.yearlyPl(year ? parseInt(year, 10) : undefined); }
   @Get('customer-recharge') custRecharge() { return this.svc.customerRecharge(); }
   @Get('crypto-to-aed')     cryptoAed() { return this.svc.cryptoToAed(); }
@@ -90,9 +92,95 @@ export class ReportsController {
     return y;
   }
 
-  @Get('bundle/month-end')
-  async bundle(@Query('year') year: string, @Query('month') month: string, @Res() res: Response) {
+  /**
+   * Period bundle — pick a year and optionally a month OR quarter and receive
+   * a ZIP with the AED-first detailed transaction log for that scope (PDF +
+   * Excel + CSV) plus a period-level P&L context sheet. Designed so the CA
+   * can grab exactly the slice of the year they need.
+   */
+  @Get('bundle/period')
+  async periodBundle(
+    @Query('year') year: string,
+    @Query('month') month: string,
+    @Query('quarter') quarter: string,
+    @Res() res: Response,
+  ) {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const archiver = require('archiver');
+    const y = year || String(new Date().getFullYear());
+
+    let scope: 'month' | 'quarter' | 'year';
+    let scopeLabel: string;
+    let detailKey: string;
+    if (month) {
+      scope = 'month';
+      scopeLabel = `${y}-${String(parseInt(month, 10)).padStart(2, '0')}`;
+      detailKey = 'monthly-detailed';
+    } else if (quarter) {
+      scope = 'quarter';
+      scopeLabel = `${y}-Q${quarter}`;
+      detailKey = 'quarterly-detailed';
+    } else {
+      scope = 'year';
+      scopeLabel = String(y);
+      detailKey = 'yearly-detailed';
+    }
+
+    const coverPdf = await renderCoverPdf({
+      title: `Period Bundle · ${scopeLabel}`,
+      subtitle: `AED-first transaction pack for ${scopeLabel}. Contains the detailed sales log (every invoice with source amount and AED conversion) in PDF and Excel, plus a summary PDF for context. All amounts computed live at generation time — TRN 105415374500001.`,
+      items: [
+        { name: REPORT_META[detailKey]?.title || detailKey, desc: REPORT_META[detailKey]?.subtitle },
+        { name: REPORT_META['yearly-pl']?.title, desc: REPORT_META['yearly-pl']?.subtitle },
+      ],
+    });
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="axistra-period-${scopeLabel}.zip"`);
+
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    archive.on('error', (err: Error) => res.status(500).send(String(err)));
+    archive.pipe(res);
+
+    archive.append(coverPdf, { name: `00-Cover-${scopeLabel}.pdf` });
+
+    // Detailed sheet as PDF + Excel + CSV
+    const detailPdf = await this.buildPdf(detailKey, y, month, quarter);
+    const detailXlsx = await this.buildExcel(detailKey, y, month, quarter);
+    const detailRaw = await this.fetchByName(detailKey, y, month, quarter);
+    const detailCsv = this.toCsv(this.flatten(detailRaw));
+    archive.append(detailPdf, { name: `01-${detailKey}-${scopeLabel}.pdf` });
+    archive.append(detailXlsx, { name: `01-${detailKey}-${scopeLabel}.xlsx` });
+    archive.append(detailCsv, { name: `01-${detailKey}-${scopeLabel}.csv` });
+
+    // Year-level P&L context (always attached — a period never stands alone)
+    const plPdf = await this.buildPdf('yearly-pl', y);
+    const plXlsx = await this.buildExcel('yearly-pl', y);
+    archive.append(plPdf, { name: `02-yearly-pl-${y}.pdf` });
+    archive.append(plXlsx, { name: `02-yearly-pl-${y}.xlsx` });
+
+    // README
+    const readme = [
+      `Axistra Technologies — FZCO`,
+      `Period Bundle — ${scopeLabel} (${scope})`,
+      `Generated: ${new Date().toISOString()}`,
+      ``,
+      `Contents:`,
+      `  01. ${REPORT_META[detailKey]?.title || detailKey} — every invoice for the ${scope} with AED conversion`,
+      `      • PDF (printable, first 200 rows)`,
+      `      • XLSX (complete, filterable)`,
+      `      • CSV (complete, machine-readable)`,
+      `  02. Yearly P&L context for ${y}`,
+      ``,
+      `Corporate TRN: 105415374500001 · License 86256`,
+    ].join('\n');
+    archive.append(readme, { name: `README-${scopeLabel}.txt` });
+
+    await archive.finalize();
+  }
+
+  @Get('bundle/month-end')
+  async bundle(@Query('year') year: string, @Query('month') month: string, @Res() res: Response) {    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const archiver = require('archiver');
     const y = year || String(new Date().getFullYear());
     const m = month || String(new Date().getMonth() + 1).padStart(2, '0');
@@ -229,6 +317,7 @@ export class ReportsController {
       case 'quarterly-sales':    return (await this.svc.quarterlySales(y)).rows;
       case 'monthly-detailed':   return (await this.svc.monthlyDetailed(y, m)).rows;
       case 'quarterly-detailed': return (await this.svc.quarterlyDetailed(y, q)).rows;
+      case 'yearly-detailed':    return (await this.svc.yearlyDetailed(y)).rows;
       case 'yearly-pl':          return [await this.svc.yearlyPl(y)];
       case 'customer-recharge':  return await this.svc.customerRecharge();
       case 'crypto-to-aed':      return (await this.svc.cryptoToAed()).rows;
@@ -279,6 +368,11 @@ export class ReportsController {
     } else if (report === 'quarterly-detailed') {
       const q = quarter ? parseInt(quarter, 10) : undefined;
       const summary = await this.svc.quarterlyDetailed(y, q);
+      kpis.push({ label: 'Period', value: summary.period });
+      kpis.push({ label: 'Total Invoices', value: String(summary.total_invoices) });
+      kpis.push({ label: 'Total Sales (AED)', value: this.aed(summary.total_sales_aed) });
+    } else if (report === 'yearly-detailed') {
+      const summary = await this.svc.yearlyDetailed(y);
       kpis.push({ label: 'Period', value: summary.period });
       kpis.push({ label: 'Total Invoices', value: String(summary.total_invoices) });
       kpis.push({ label: 'Total Sales (AED)', value: this.aed(summary.total_sales_aed) });

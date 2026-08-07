@@ -17,6 +17,7 @@ const REPORTS = [
   { key: 'quarterly-sales',     name: 'Quarterly Sales (AED)',  icon: ChartBar },
   { key: 'monthly-detailed',    name: 'Monthly Detailed',       icon: Receipt, period: 'month' },
   { key: 'quarterly-detailed',  name: 'Quarterly Detailed',     icon: Receipt, period: 'quarter' },
+  { key: 'yearly-detailed',     name: 'Yearly Detailed',        icon: Receipt },
   { key: 'yearly-pl',           name: 'Yearly P&L',             icon: TrendUp },
   { key: 'customer-recharge',   name: 'Customer Recharge',      icon: Receipt },
   { key: 'crypto-to-aed',       name: 'Crypto → AED Conversion', icon: Coins },
@@ -41,6 +42,7 @@ export default function Reports() {
   const [preview, setPreview] = useState(null);
   const [loading, setLoading] = useState('');
   const [bundling, setBundling] = useState(false);
+  const [periodScope, setPeriodScope] = useState('month'); // 'month' | 'quarter' | 'year'
 
   useEffect(() => {
     api.get(`/reports/dashboard/charts?year=${year}`).then((r) => setCharts(r.data)).catch(() => setCharts(null));
@@ -83,6 +85,17 @@ export default function Reports() {
     } finally { setBundling(false); }
   };
 
+  const downloadPeriodBundle = async () => {
+    setBundling(true);
+    try {
+      let qs = `year=${year}`;
+      let suffix = String(year);
+      if (periodScope === 'month') { qs += `&month=${parseInt(month, 10)}`; suffix = `${year}-${String(parseInt(month, 10)).padStart(2, '0')}`; }
+      else if (periodScope === 'quarter') { qs += `&quarter=${quarter}`; suffix = `${year}-Q${quarter}`; }
+      await downloadBlob(`${API_BASE}/reports/bundle/period?${qs}`, `axistra-period-${suffix}.zip`);
+    } finally { setBundling(false); }
+  };
+
   const downloadAccountantPack = async () => {
     setBundling(true);
     try {
@@ -111,7 +124,15 @@ export default function Reports() {
             <select value={quarter} onChange={(e) => setQuarter(e.target.value)} className="input-axistra w-24" data-testid="reports-quarter">
               {[1, 2, 3, 4].map((q) => <option key={q} value={String(q)}>{`Q${q}`}</option>)}
             </select>
-            <button onClick={downloadBundle} disabled={bundling} className="btn-primary inline-flex items-center gap-2 disabled:opacity-50" data-testid="reports-bundle">
+            <select value={periodScope} onChange={(e) => setPeriodScope(e.target.value)} className="input-axistra w-32" data-testid="reports-period-scope" title="Scope for the Period ZIP button">
+              <option value="month">Bundle: Month</option>
+              <option value="quarter">Bundle: Quarter</option>
+              <option value="year">Bundle: Year</option>
+            </select>
+            <button onClick={downloadPeriodBundle} disabled={bundling} className="btn-primary inline-flex items-center gap-2 disabled:opacity-50" data-testid="reports-period-bundle">
+              <Package size={16} /> {bundling ? 'Building…' : 'Period ZIP'}
+            </button>
+            <button onClick={downloadBundle} disabled={bundling} className="btn-secondary inline-flex items-center gap-2 disabled:opacity-50" data-testid="reports-bundle">
               <Package size={16} /> {bundling ? 'Building…' : `Month-End ZIP`}
             </button>
             <button onClick={downloadAccountantPack} disabled={bundling} className="btn-secondary inline-flex items-center gap-2 disabled:opacity-50" data-testid="reports-accountant-pack" title={`Full annual export with every report + manifest + README — designed for handover to an external accountant.`}>
