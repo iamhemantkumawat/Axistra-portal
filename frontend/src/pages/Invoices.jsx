@@ -1,15 +1,31 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import api, { API_BASE } from '../lib/api';
 import { PageHeader, Modal } from '../components/Atoms';
 import { fmtDate, downloadBlob } from '../lib/format';
-import { DownloadSimple, FileText, Eye, Trash } from '@phosphor-icons/react';
+import { DownloadSimple, FileText, Eye, Trash, MagnifyingGlass, X } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 
 export default function Invoices() {
   const [items, setItems] = useState([]);
   const [preview, setPreview] = useState(null);
   const [loadingId, setLoadingId] = useState(null);
+  const [query, setQuery] = useState('');
   useEffect(() => { api.get('/invoices').then((r) => setItems(r.data)); }, []);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter((i) => {
+      const bag = [
+        i.invoice_number,
+        i.customer_name,
+        i.customer_email,
+        i.magnus_username,
+        i.customer_company,
+      ].map((v) => String(v || '').toLowerCase());
+      return bag.some((v) => v.includes(q));
+    });
+  }, [items, query]);
 
   const printPreview = () => {
     if (!preview?.html) return;
@@ -57,17 +73,48 @@ export default function Invoices() {
         title="Invoices"
         subtitle="Every recharge auto-generates a single-page A4 invoice with Axistra branding, payment trace and digital seal."
       />
+
+      <div className="card-axistra p-4 mb-4">
+        <div className="flex items-center gap-3">
+          <div className="relative flex-1">
+            <MagnifyingGlass size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search by invoice #, customer name, email, or Magnus username…"
+              className="input-axistra w-full pl-9 pr-9"
+              data-testid="invoice-search-input"
+            />
+            {query && (
+              <button
+                onClick={() => setQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"
+                title="Clear"
+                data-testid="invoice-search-clear"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+          <div className="text-xs text-gray-500 whitespace-nowrap" data-testid="invoice-search-count">
+            {filtered.length} of {items.length}
+          </div>
+        </div>
+      </div>
+
       <div className="card-axistra overflow-x-auto">
         <table className="table-axistra">
           <thead>
-            <tr><th>Invoice #</th><th>Customer</th><th>Amount (Source)</th><th>Total (AED)</th><th>Method</th><th>Status</th><th>Issued</th><th>Actions</th></tr>
+            <tr><th>Invoice #</th><th>Customer</th><th>Magnus User</th><th>Amount (Source)</th><th>Total (AED)</th><th>Method</th><th>Status</th><th>Issued</th><th>Actions</th></tr>
           </thead>
           <tbody>
-            {items.length === 0 && <tr><td colSpan="8" className="text-center text-gray-500 py-10">Invoices will appear here once you create recharges.</td></tr>}
-            {items.map((i) => (
+            {filtered.length === 0 && <tr><td colSpan="9" className="text-center text-gray-500 py-10">{items.length === 0 ? 'Invoices will appear here once you create recharges.' : 'No invoices match your search.'}</td></tr>}
+            {filtered.map((i) => (
               <tr key={i.id} data-testid={`invoice-row-${i.invoice_number}`}>
                 <td className="font-mono font-medium text-axistra-green"><FileText size={14} className="inline mr-1" />{i.invoice_number}</td>
                 <td>{i.customer_name}<div className="text-xs text-gray-500">{i.customer_email}</div></td>
+                <td className="font-mono text-xs">{i.magnus_username || '—'}</td>
                 <td className="font-mono">{String(i.currency || 'USD').toUpperCase()} {parseFloat(i.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                 <td className="font-mono font-semibold text-axistra-green">
                   AED {parseFloat(i.aed_total ?? i.amount ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}

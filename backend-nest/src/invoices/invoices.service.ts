@@ -93,6 +93,7 @@ export class InvoicesService {
       ? await this.rechargeRepo.findOne({ where: { id: invoice.recharge_id } })
       : await this.rechargeRepo.findOne({ where: { invoice_id: invoice.id } });
     const rechargeId = recharge?.id || invoice.recharge_id;
+    const magnusUsername = recharge?.magnus_username || null;
     const paymentTransactions = rechargeId
       ? await this.cryptoRepo.find({ where: { recharge_id: rechargeId }, order: { created_at: 'ASC' } })
       : [];
@@ -100,7 +101,7 @@ export class InvoicesService {
     const aedInfo = await this.buildAedInfo(invoice);
 
     if (!this.isWithinRefreshWindow(invoice)) {
-      return { ...invoice, recharge_id: rechargeId, payment_transactions: paymentTransactions, ...aedInfo };
+      return { ...invoice, recharge_id: rechargeId, magnus_username: magnusUsername, payment_transactions: paymentTransactions, ...aedInfo };
     }
 
     const customer = invoice.customer_id
@@ -110,6 +111,7 @@ export class InvoicesService {
     const merged = {
       ...invoice,
       recharge_id: rechargeId,
+      magnus_username: magnusUsername,
       customer_name: customer?.full_name || invoice.customer_name,
       customer_email: customer?.email || invoice.customer_email,
       customer_country: customer?.country || invoice.customer_country,
@@ -141,7 +143,7 @@ export class InvoicesService {
       invoice.customer_address = merged.customer_address;
       invoice.status = merged.status;
       await this.repo.save(invoice);
-      return { ...invoice, payment_transactions: paymentTransactions, ...aedInfo };
+      return { ...invoice, magnus_username: magnusUsername, payment_transactions: paymentTransactions, ...aedInfo };
     }
 
     return merged;
