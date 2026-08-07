@@ -28,7 +28,7 @@ Internal admin web portal for **Axistra Technologies FZCO** (UAE / IFZA, Corpora
 - Treasury Batches (NEW — aggregated batch view)
 - Expenses (CRUD, 10 categories, payment methods: Bank/Card/USDT/Binance Pay/Cash/Other)
 - Profit & Loss (yearly P&L, UAE Corp Tax 9% estimate, monthly chart)
-- Reports (10 reports, PDF/CSV/Excel exports)
+- Reports (10 reports, PDF/CSV/Excel exports). **AED-first reporting (Aug 2026)** — Monthly Sales and Quarterly Sales now show `sales_aed` and `total_sales_aed` KPIs alongside the source-currency totals. Two new detailed reports (`monthly-detailed`, `quarterly-detailed`) return every invoice for the picked period with date, invoice #, customer, source amount, FX rate and AED amount, plus period totals; all three export formats (PDF / Excel / CSV) support `?month=` and `?quarter=` filters.
 - **Corporate Documents Vault (Feb 2026, P1)** — `corporate_documents` table; 12 doc types (Trade License, MOA, AOA, Share Cert, TRN, Lease, Board/Shareholder Resolutions, COF, POA, Bank Letter, Other); expiry tracking with 90-day warning + expired badges. `/api/corporate-docs` CRUD + file download.
 - **Tax & VAT Center (Feb 2026, P2)** — `tax_filings` table; supports VAT, Corporate Tax, Excise, WHT; period labels (Q1 2026, FY 2025); auto-flag overdue when `due_date < today` and status not in (filed/paid/exempt); summary KPI (upcoming/overdue/outstanding); optional file attachment for filed returns. `/api/tax` + `/api/tax/summary`.
 - **Contracts Vault (Feb 2026, P2)** — `contracts` table; 6 contract types (customer agreement, NDA, supplier, employment, service, other); soft-link to customer; auto-flag expired when `end_date < today` and status=active; expiring-in-60-days KPI. `/api/contracts` CRUD + file download.

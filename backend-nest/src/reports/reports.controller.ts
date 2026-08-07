@@ -5,8 +5,10 @@ import { ReportsService } from './reports.service';
 import { renderReportPdf, renderCoverPdf, ReportPdfInput } from './report-template';
 
 const REPORT_META: Record<string, { title: string; subtitle?: string; columns?: string[]; footer?: string }> = {
-  'monthly-sales':        { title: 'Monthly Sales',         subtitle: 'Revenue grouped by calendar month for the selected year.' },
-  'quarterly-sales':      { title: 'Quarterly Sales',       subtitle: 'Revenue grouped by fiscal quarter.' },
+  'monthly-sales':        { title: 'Monthly Sales',         subtitle: 'Revenue grouped by calendar month for the selected year (AED-converted).' },
+  'quarterly-sales':      { title: 'Quarterly Sales',       subtitle: 'Revenue grouped by fiscal quarter (AED-converted).' },
+  'monthly-detailed':     { title: 'Monthly Sales — Detailed', subtitle: 'Every invoice for the selected month with date, invoice #, customer, source amount and AED amount.' },
+  'quarterly-detailed':   { title: 'Quarterly Sales — Detailed', subtitle: 'Every invoice for the selected quarter with per-line AED conversion.' },
   'yearly-pl':            { title: 'Yearly Profit & Loss',  subtitle: 'Aggregate sales, expenses, profit and estimated corporate tax for the year.' },
   'customer-recharge':    { title: 'Customer Recharge Ledger', subtitle: 'Every recharge with the associated customer, gateway and status.' },
   'crypto-to-aed':        { title: 'Crypto → AED Conversion', subtitle: 'USDT converted to AED via OKX/Binance with average rate.' },
@@ -28,6 +30,12 @@ export class ReportsController {
 
   @Get('monthly-sales')     monthly(@Query('year') year?: string) { return this.svc.monthlySales(year ? parseInt(year, 10) : undefined); }
   @Get('quarterly-sales')   quarterly(@Query('year') year?: string) { return this.svc.quarterlySales(year ? parseInt(year, 10) : undefined); }
+  @Get('monthly-detailed')  monthlyDet(@Query('year') year?: string, @Query('month') month?: string) {
+    return this.svc.monthlyDetailed(year ? parseInt(year, 10) : undefined, month ? parseInt(month, 10) : undefined);
+  }
+  @Get('quarterly-detailed') quarterlyDet(@Query('year') year?: string, @Query('quarter') quarter?: string) {
+    return this.svc.quarterlyDetailed(year ? parseInt(year, 10) : undefined, quarter ? parseInt(quarter, 10) : undefined);
+  }
   @Get('yearly-pl')         yearly(@Query('year') year?: string) { return this.svc.yearlyPl(year ? parseInt(year, 10) : undefined); }
   @Get('customer-recharge') custRecharge() { return this.svc.customerRecharge(); }
   @Get('crypto-to-aed')     cryptoAed() { return this.svc.cryptoToAed(); }
@@ -46,30 +54,40 @@ export class ReportsController {
 
   // Generic CSV/Excel export
   @Get('export/csv')
-  async csv(@Query('report') report: string, @Query('year') year: string, @Res() res: Response) {
-    const data = await this.fetchByName(report, year);
+  async csv(@Query('report') report: string, @Query('year') year: string, @Query('month') month: string, @Query('quarter') quarter: string, @Res() res: Response) {
+    const data = await this.fetchByName(report, year, month, quarter);
     const rows = this.flatten(data);
     const csv = this.toCsv(rows);
+    const suffix = this.periodSuffix(year, month, quarter);
     res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename="${report}-${year || 'current'}.csv"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${report}-${suffix}.csv"`);
     res.send(csv);
   }
 
   @Get('export/excel')
-  async excel(@Query('report') report: string, @Query('year') year: string, @Res() res: Response) {
-    const buf = await this.buildExcel(report, year);
+  async excel(@Query('report') report: string, @Query('year') year: string, @Query('month') month: string, @Query('quarter') quarter: string, @Res() res: Response) {
+    const buf = await this.buildExcel(report, year, month, quarter);
+    const suffix = this.periodSuffix(year, month, quarter);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="${report}-${year || 'current'}.xlsx"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${report}-${suffix}.xlsx"`);
     res.send(buf);
   }
 
   @Get('export/pdf')
-  async pdf(@Query('report') report: string, @Query('year') year: string, @Res() res: Response) {
-    const buf = await this.buildPdf(report, year);
+  async pdf(@Query('report') report: string, @Query('year') year: string, @Query('month') month: string, @Query('quarter') quarter: string, @Res() res: Response) {
+    const buf = await this.buildPdf(report, year, month, quarter);
     const isPdf = buf.slice(0, 4).toString() === '%PDF';
+    const suffix = this.periodSuffix(year, month, quarter);
     res.setHeader('Content-Type', isPdf ? 'application/pdf' : 'text/html');
-    if (isPdf) res.setHeader('Content-Disposition', `attachment; filename="${report}-${year || 'current'}.pdf"`);
+    if (isPdf) res.setHeader('Content-Disposition', `attachment; filename="${report}-${suffix}.pdf"`);
     res.send(buf);
+  }
+
+  private periodSuffix(year?: string, month?: string, quarter?: string) {
+    const y = year || String(new Date().getFullYear());
+    if (month) return `${y}-${String(month).padStart(2, '0')}`;
+    if (quarter) return `${y}-Q${quarter}`;
+    return y;
   }
 
   @Get('bundle/month-end')
@@ -202,11 +220,15 @@ export class ReportsController {
 
   // ---------- helpers ----------
 
-  private async fetchByName(report: string, year?: string) {
+  private async fetchByName(report: string, year?: string, month?: string, quarter?: string) {
     const y = year ? parseInt(year, 10) : undefined;
+    const m = month ? parseInt(month, 10) : undefined;
+    const q = quarter ? parseInt(quarter, 10) : undefined;
     switch (report) {
       case 'monthly-sales':      return (await this.svc.monthlySales(y)).rows;
       case 'quarterly-sales':    return (await this.svc.quarterlySales(y)).rows;
+      case 'monthly-detailed':   return (await this.svc.monthlyDetailed(y, m)).rows;
+      case 'quarterly-detailed': return (await this.svc.quarterlyDetailed(y, q)).rows;
       case 'yearly-pl':          return [await this.svc.yearlyPl(y)];
       case 'customer-recharge':  return await this.svc.customerRecharge();
       case 'crypto-to-aed':      return (await this.svc.cryptoToAed()).rows;
@@ -223,10 +245,10 @@ export class ReportsController {
     }
   }
 
-  private async buildPdf(report: string, year?: string): Promise<Buffer> {
+  private async buildPdf(report: string, year?: string, month?: string, quarter?: string): Promise<Buffer> {
     const y = year ? parseInt(year, 10) : new Date().getFullYear();
     const meta = REPORT_META[report] || { title: report };
-    const raw = await this.fetchByName(report, year);
+    const raw = await this.fetchByName(report, year, month, quarter);
     const rows = this.flatten(raw);
 
     // KPI strip for select reports
@@ -238,6 +260,28 @@ export class ReportsController {
       kpis.push({ label: 'Gross Profit', value: this.aed(pl.gross_profit) });
       kpis.push({ label: 'Net Profit', value: this.aed(pl.net_profit) });
       kpis.push({ label: 'Est. Corp Tax', value: this.aed(pl.estimated_corp_tax) });
+    } else if (report === 'monthly-sales') {
+      const summary = await this.svc.monthlySales(y);
+      kpis.push({ label: 'Total Invoices', value: String(summary.total_invoices) });
+      kpis.push({ label: 'Total Sales (AED)', value: this.aed(summary.total_sales_aed) });
+      kpis.push({ label: 'Months', value: String(summary.rows.length) });
+    } else if (report === 'quarterly-sales') {
+      const summary = await this.svc.quarterlySales(y);
+      kpis.push({ label: 'Total Invoices', value: String(summary.total_invoices) });
+      kpis.push({ label: 'Total Sales (AED)', value: this.aed(summary.total_sales_aed) });
+      kpis.push({ label: 'Quarters', value: String(summary.rows.length) });
+    } else if (report === 'monthly-detailed') {
+      const m = month ? parseInt(month, 10) : undefined;
+      const summary = await this.svc.monthlyDetailed(y, m);
+      kpis.push({ label: 'Period', value: summary.period });
+      kpis.push({ label: 'Total Invoices', value: String(summary.total_invoices) });
+      kpis.push({ label: 'Total Sales (AED)', value: this.aed(summary.total_sales_aed) });
+    } else if (report === 'quarterly-detailed') {
+      const q = quarter ? parseInt(quarter, 10) : undefined;
+      const summary = await this.svc.quarterlyDetailed(y, q);
+      kpis.push({ label: 'Period', value: summary.period });
+      kpis.push({ label: 'Total Invoices', value: String(summary.total_invoices) });
+      kpis.push({ label: 'Total Sales (AED)', value: this.aed(summary.total_sales_aed) });
     } else if (report === 'vat-threshold') {
       const v: any = (raw && raw[0]) || {};
       kpis.push({ label: 'YTD Sales (AED)', value: this.aed(v.ytd_sales_aed_estimate) });
@@ -261,24 +305,36 @@ export class ReportsController {
     // Cap rows to keep PDF manageable
     const limited = rows.slice(0, 200);
 
+    const periodLabel = month
+      ? `${y}-${String(month).padStart(2, '0')}`
+      : quarter
+        ? `${y} Q${quarter}`
+        : `Year ${y}`;
+
     const input: ReportPdfInput = {
       title: meta.title,
       subtitle: meta.subtitle,
-      period: `Year ${y}`,
+      period: periodLabel,
       kpis,
       columns: limited[0] ? Object.keys(limited[0]) : [],
       rows: limited,
-      footer: `Axistra Technologies — FZCO · TRN 105415374500001 · License 86256 · ${meta.title} · ${y}. Rows shown: ${limited.length}${rows.length > limited.length ? ` of ${rows.length} (use Excel export for full set)` : ''}.`,
+      footer: `Axistra Technologies — FZCO · TRN 105415374500001 · License 86256 · ${meta.title} · ${periodLabel}. Rows shown: ${limited.length}${rows.length > limited.length ? ` of ${rows.length} (use Excel export for full set)` : ''}.`,
     };
     return renderReportPdf(input);
   }
 
-  private async buildExcel(report: string, year?: string): Promise<Buffer> {
+  private async buildExcel(report: string, year?: string, month?: string, quarter?: string): Promise<Buffer> {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const ExcelJS = require('exceljs');
     const meta = REPORT_META[report] || { title: report };
-    const raw = await this.fetchByName(report, year);
+    const raw = await this.fetchByName(report, year, month, quarter);
     const rows = this.flatten(raw);
+
+    const periodLabel = month
+      ? `${year || new Date().getFullYear()}-${String(month).padStart(2, '0')}`
+      : quarter
+        ? `${year || new Date().getFullYear()} Q${quarter}`
+        : `Year ${year || new Date().getFullYear()}`;
 
     const wb = new ExcelJS.Workbook();
     wb.creator = 'Axistra Compliance + Accounting Portal';
@@ -288,7 +344,7 @@ export class ReportsController {
     // Banner row
     ws.mergeCells('A1:F1');
     const banner = ws.getCell('A1');
-    banner.value = `${meta.title} · Year ${year || new Date().getFullYear()}`;
+    banner.value = `${meta.title} · ${periodLabel}`;
     banner.font = { bold: true, size: 14, color: { argb: 'FFFFFFFF' } };
     banner.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0A5C3E' } };
     banner.alignment = { horizontal: 'left', vertical: 'middle' };

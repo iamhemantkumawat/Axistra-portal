@@ -13,8 +13,10 @@ import {
 } from 'recharts';
 
 const REPORTS = [
-  { key: 'monthly-sales',       name: 'Monthly Sales',          icon: ChartLine },
-  { key: 'quarterly-sales',     name: 'Quarterly Sales',        icon: ChartBar },
+  { key: 'monthly-sales',       name: 'Monthly Sales (AED)',    icon: ChartLine },
+  { key: 'quarterly-sales',     name: 'Quarterly Sales (AED)',  icon: ChartBar },
+  { key: 'monthly-detailed',    name: 'Monthly Detailed',       icon: Receipt, period: 'month' },
+  { key: 'quarterly-detailed',  name: 'Quarterly Detailed',     icon: Receipt, period: 'quarter' },
   { key: 'yearly-pl',           name: 'Yearly P&L',             icon: TrendUp },
   { key: 'customer-recharge',   name: 'Customer Recharge',      icon: Receipt },
   { key: 'crypto-to-aed',       name: 'Crypto → AED Conversion', icon: Coins },
@@ -34,6 +36,7 @@ const COLORS = ['#0A5C3E', '#C6A14B', '#1E7D5C', '#E0BC4F', '#3D9974', '#F0D88A'
 export default function Reports() {
   const [year, setYear] = useState(new Date().getFullYear());
   const [month, setMonth] = useState(String(new Date().getMonth() + 1).padStart(2, '0'));
+  const [quarter, setQuarter] = useState(String(Math.floor(new Date().getMonth() / 3) + 1));
   const [charts, setCharts] = useState(null);
   const [preview, setPreview] = useState(null);
   const [loading, setLoading] = useState('');
@@ -43,19 +46,35 @@ export default function Reports() {
     api.get(`/reports/dashboard/charts?year=${year}`).then((r) => setCharts(r.data)).catch(() => setCharts(null));
   }, [year]);
 
+  /** Build the query string for a given report — attaches month/quarter only when relevant. */
+  const buildQuery = (report) => {
+    const meta = REPORTS.find((r) => r.key === report);
+    const params = new URLSearchParams({ year: String(year) });
+    if (meta?.period === 'month') params.set('month', String(parseInt(month, 10)));
+    if (meta?.period === 'quarter') params.set('quarter', String(parseInt(quarter, 10)));
+    return params.toString();
+  };
+
   const view = async (key) => {
     setLoading(key);
     try {
-      const { data } = await api.get(`/reports/${key}?year=${year}`);
+      const { data } = await api.get(`/reports/${key}?${buildQuery(key)}`);
       setPreview({ key, data });
     } catch (err) {
       toast.error(err?.response?.data?.message || `Failed to load ${key}`);
     } finally { setLoading(''); }
   };
 
-  const csv = (key)  => downloadBlob(`${API_BASE}/reports/export/csv?report=${key}&year=${year}`,  `${key}-${year}.csv`);
-  const excel = (key) => downloadBlob(`${API_BASE}/reports/export/excel?report=${key}&year=${year}`, `${key}-${year}.xlsx`);
-  const pdf = (key)   => downloadBlob(`${API_BASE}/reports/export/pdf?report=${key}&year=${year}`,   `${key}-${year}.pdf`);
+  const filenameSuffix = (report) => {
+    const meta = REPORTS.find((r) => r.key === report);
+    if (meta?.period === 'month') return `${year}-${String(parseInt(month, 10)).padStart(2, '0')}`;
+    if (meta?.period === 'quarter') return `${year}-Q${quarter}`;
+    return String(year);
+  };
+
+  const csv = (key)  => downloadBlob(`${API_BASE}/reports/export/csv?report=${key}&${buildQuery(key)}`,  `${key}-${filenameSuffix(key)}.csv`);
+  const excel = (key) => downloadBlob(`${API_BASE}/reports/export/excel?report=${key}&${buildQuery(key)}`, `${key}-${filenameSuffix(key)}.xlsx`);
+  const pdf = (key)   => downloadBlob(`${API_BASE}/reports/export/pdf?report=${key}&${buildQuery(key)}`,   `${key}-${filenameSuffix(key)}.pdf`);
 
   const downloadBundle = async () => {
     setBundling(true);
@@ -88,6 +107,9 @@ export default function Reports() {
               {Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0')).map((m) => (
                 <option key={m} value={m}>{new Date(2000, parseInt(m, 10) - 1, 1).toLocaleString('en', { month: 'short' })}</option>
               ))}
+            </select>
+            <select value={quarter} onChange={(e) => setQuarter(e.target.value)} className="input-axistra w-24" data-testid="reports-quarter">
+              {[1, 2, 3, 4].map((q) => <option key={q} value={String(q)}>{`Q${q}`}</option>)}
             </select>
             <button onClick={downloadBundle} disabled={bundling} className="btn-primary inline-flex items-center gap-2 disabled:opacity-50" data-testid="reports-bundle">
               <Package size={16} /> {bundling ? 'Building…' : `Month-End ZIP`}

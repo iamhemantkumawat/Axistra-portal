@@ -29,30 +29,133 @@ export class ReportsService {
 
   async monthlySales(year?: number) {
     const y = year || new Date().getFullYear();
-    const rows = await this.recharges
-      .createQueryBuilder('r')
-      .select("TO_CHAR(DATE_TRUNC('month', r.created_at), 'YYYY-MM')", 'month')
-      .addSelect('SUM(r.amount::numeric)', 'sales')
-      .addSelect('COUNT(*)', 'count')
-      .where('EXTRACT(YEAR FROM r.created_at) = :y', { y })
-      .groupBy('month')
-      .orderBy('month', 'ASC')
-      .getRawMany();
-    return { year: y, rows };
+    const yStart = new Date(Date.UTC(y, 0, 1));
+    const yEnd = new Date(Date.UTC(y, 11, 31, 23, 59, 59));
+    const all = await this.recharges.find({
+      where: { created_at: Between(yStart, yEnd) },
+      order: { created_at: 'ASC' },
+    });
+    const buckets: Record<string, { month: string; sales: number; sales_aed: number; count: number }> = {};
+    for (const r of all) {
+      const d = new Date(r.created_at);
+      const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+      const b = (buckets[key] = buckets[key] || { month: key, sales: 0, sales_aed: 0, count: 0 });
+      const amt = parseFloat(r.amount || '0');
+      b.sales += amt;
+      b.sales_aed += await this.fx.convertToAed(amt, r.currency);
+      b.count += 1;
+    }
+    const rows = Object.values(buckets)
+      .map((b) => ({ month: b.month, sales: +b.sales.toFixed(2), sales_aed: +b.sales_aed.toFixed(2), count: b.count }))
+      .sort((a, b) => a.month.localeCompare(b.month));
+    return {
+      year: y,
+      total_sales_aed: +rows.reduce((s, r) => s + r.sales_aed, 0).toFixed(2),
+      total_invoices: rows.reduce((s, r) => s + r.count, 0),
+      rows,
+    };
   }
 
   async quarterlySales(year?: number) {
     const y = year || new Date().getFullYear();
+    const yStart = new Date(Date.UTC(y, 0, 1));
+    const yEnd = new Date(Date.UTC(y, 11, 31, 23, 59, 59));
+    const all = await this.recharges.find({ where: { created_at: Between(yStart, yEnd) } });
+    const buckets: Record<string, { quarter: string; sales: number; sales_aed: number; count: number }> = {};
+    for (const r of all) {
+      const d = new Date(r.created_at);
+      const q = Math.floor(d.getUTCMonth() / 3) + 1;
+      const key = `Q${q}`;
+      const b = (buckets[key] = buckets[key] || { quarter: key, sales: 0, sales_aed: 0, count: 0 });
+      const amt = parseFloat(r.amount || '0');
+      b.sales += amt;
+      b.sales_aed += await this.fx.convertToAed(amt, r.currency);
+      b.count += 1;
+    }
+    const rows = Object.values(buckets)
+      .map((b) => ({ quarter: b.quarter, sales: +b.sales.toFixed(2), sales_aed: +b.sales_aed.toFixed(2), count: b.count }))
+      .sort((a, b) => a.quarter.localeCompare(b.quarter));
+    return {
+      year: y,
+      total_sales_aed: +rows.reduce((s, r) => s + r.sales_aed, 0).toFixed(2),
+      total_invoices: rows.reduce((s, r) => s + r.count, 0),
+      rows,
+    };
+  }
+
+  /**
+   * Detailed sales report — every invoice/recharge for a given month with
+   * date, invoice number, customer, source amount and AED-converted amount.
+   * Returns totals so a CA can reconcile row-level detail against the
+   * monthly sales summary.
+   */
+  async monthlyDetailed(year?: number, month?: number) {
+    const y = year || new Date().getFullYear();
+    const m = month && month >= 1 && month <= 12 ? month : new Date().getMonth() + 1;
+    const start = new Date(Date.UTC(y, m - 1, 1, 0, 0, 0));
+    const end = new Date(Date.UTC(y, m, 0, 23, 59, 59));
+    return this.buildDetailedSales(start, end, `${y}-${String(m).padStart(2, '0')}`);
+  }
+
+  async quarterlyDetailed(year?: number, quarter?: number) {
+    const y = year || new Date().getFullYear();
+    const q = quarter && quarter >= 1 && quarter <= 4 ? quarter : Math.floor(new Date().getMonth() / 3) + 1;
+    const startMonth = (q - 1) * 3;
+    const start = new Date(Date.UTC(y, startMonth, 1, 0, 0, 0));
+    const end = new Date(Date.UTC(y, startMonth + 3, 0, 23, 59, 59));
+    return this.buildDetailedSales(start, end, `${y} Q${q}`);
+  }
+
+  private async buildDetailedSales(start: Date, end: Date, periodLabel: string) {
     const rows = await this.recharges
       .createQueryBuilder('r')
-      .select(`'Q' || EXTRACT(QUARTER FROM r.created_at)`, 'quarter')
-      .addSelect('SUM(r.amount::numeric)', 'sales')
-      .addSelect('COUNT(*)', 'count')
-      .where('EXTRACT(YEAR FROM r.created_at) = :y', { y })
-      .groupBy('quarter')
-      .orderBy('quarter', 'ASC')
+      .leftJoin('customers', 'c', 'c.id = r.customer_id')
+      .leftJoin('invoices', 'i', 'i.id::text = r.invoice_id')
+      .select([
+        "TO_CHAR(r.created_at, 'YYYY-MM-DD') AS date",
+        'i.invoice_number AS invoice_number',
+        'r.recharge_code AS recharge_code',
+        'COALESCE(c.full_name, r.magnus_username) AS customer_name',
+        'c.customer_code AS customer_code',
+        'c.country AS customer_country',
+        'r.amount AS amount',
+        'r.currency AS currency',
+        'r.payment_gateway AS payment_gateway',
+        'r.status AS status',
+      ])
+      .where('r.created_at BETWEEN :s AND :e', { s: start, e: end })
+      .orderBy('r.created_at', 'ASC')
       .getRawMany();
-    return { year: y, rows };
+    const enriched = [];
+    let totalAed = 0;
+    for (const r of rows) {
+      const amount = parseFloat(r.amount || '0');
+      const rate = await this.fx.rateToAed(r.currency);
+      const amountAed = +(amount * rate).toFixed(2);
+      totalAed += amountAed;
+      enriched.push({
+        date: r.date,
+        invoice_number: r.invoice_number || '—',
+        recharge_code: r.recharge_code,
+        customer_name: r.customer_name || '—',
+        customer_code: r.customer_code || '—',
+        customer_country: r.customer_country || '—',
+        amount: +amount.toFixed(2),
+        currency: (r.currency || 'AED').toUpperCase(),
+        fx_rate: +rate.toFixed(4),
+        amount_aed: amountAed,
+        payment_gateway: r.payment_gateway || '—',
+        status: r.status,
+      });
+    }
+    return {
+      period: periodLabel,
+      from: start.toISOString().slice(0, 10),
+      to: end.toISOString().slice(0, 10),
+      total_invoices: enriched.length,
+      total_sales_aed: +totalAed.toFixed(2),
+      rows: enriched,
+    };
   }
 
   async yearlyPl(year?: number) {
