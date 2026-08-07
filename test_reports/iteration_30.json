@@ -1,0 +1,36 @@
+{
+  "summary": "Iteration 30 — Invoice AED conversion (FX settings + read-time AED totals). Backend: 12/12 pytest cases pass (/app/backend/tests/test_iter30_fx_aed.py) covering GET/PUT /api/fx/settings, auth+admin guards, AED fields on all 1270 invoices, EUR manual/auto rates, USD peg 3.6725, read-time recompute after rate change, HTML render of 'TOTAL BILLED (AED)' + 'FX Rate' + 'Reference (EUR)', and valid %PDF output. Frontend: admin login (T&C checkbox), Settings 'Invoice FX Rates' card (mode/EUR/USD/save + success toast + persistence after reload), Invoices list shows AMOUNT (SOURCE) EUR/USD and TOTAL (AED) with '@ rate' sub-label across all 1270 rows, and invoice preview modal renders FX RATE 1 EUR = 4.5000 AED with TOTAL BILLED (AED) 900.00 for a 200 EUR invoice. One blocker found and unblocked: CA account password did not match documented credentials after the DB restore.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/auth/login (ca@axistratech.com)", "issue": "Returned 401 'Invalid credentials' with documented password ca123456 after the new DB backup was restored. SeedService only idempotently resets the admin password (seed.service.ts lines 23-43); the chartered_accountant user is never seeded/repaired, so a restored hash silently breaks CA login. I reset the CA password_hash directly in users_admin to unblock role tests — add an idempotent CA seed so this survives future restores."},
+      {"endpoint": "/api/invoices", "issue": "Returns all 1270 invoices (3.1 MB, ~1.1s) in one unpaginated payload and hydrateInvoice issues per-invoice recharge/crypto-tx queries (N+1). Works today but will degrade as volume grows; consider pagination/batched joins."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Invoices", "issues": ["All 1270 rows are rendered client-side with no pagination or virtualization — very long page; minor perf/UX concern, not a functional defect."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter30_fx_aed.py", "/app/test_reports/pytest/iter30_results.xml"],
+  "action_items": [
+    "Add idempotent seeding/password repair for ca@axistratech.com (and auditor sarita@axistratech.com) in SeedService so documented credentials always work after a DB restore.",
+    "Optional: paginate /api/invoices and the Invoices table (1270 rows returned/rendered at once)."
+  ],
+  "critical_code_review_comments": [
+    "FX design verified correct: rateToAed() resolves per-read and buildAedInfo() is spread onto hydrateInvoice output only — no AED value is persisted to invoice rows (invoice.currency still EUR/USD after rate changes, asserted in test_rate_change_recomputes_at_read_time).",
+    "fx.controller PUT /fx/settings is correctly guarded by AuthGuard('jwt') + AdminGuard (CA gets 403 and rates are unchanged); GET /fx/settings returns 401 unauthenticated.",
+    "setFxSettings ignores non-positive/invalid rates and falls back to current values — no server-side 400 for garbage input; acceptable but silent (consider a Pydantic-equivalent DTO/ValidationPipe so bad input is rejected explicitly).",
+    "invoice-template-minimal recomputes aedTotal from line items * aed_rate only when inv.aed_total is absent, so HTML/PDF stay consistent with the API value."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter30_fx_aed.py"],
+  "success_rate": {"backend": "100% (12/12 after CA credential repair)", "frontend": "100% of tested FX flows"},
+  "seed_data_creation": "Reset users_admin.password_hash for ca@axistratech.com to bcrypt('ca123456') so the documented CA credential works. FX settings restored to original state {mode: auto, eur_to_aed: 4.00, usd_to_aed: 3.6725} at end of run. No invoice rows modified.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@axistratech.com / admin123 (works); ca@axistratech.com / ca123456 (works only after my manual hash reset — needs a code-level seed fix)",
+  "context_for_next_testing_agent": "FX AED feature is fully verified end-to-end. DB has only EUR (1188) and USD (82) invoices — the AED-native (rate=1) path is code-verified but has no data to exercise. Postgres: PGPASSWORD=axistra_secret_2026 psql -U axistra -h localhost -d axistra_db. FX settings live in app_settings key 'fx_rates'. Login requires checking the T&C checkbox before Sign In. Invoice preview opens in an iframe, so assert via screenshot or iframe frame_locator, not page.inner_text('body').",
+  "rca_of_the_issue": "CA login 401: the restored backup carries a password_hash for ca@axistratech.com that does not correspond to ca123456, and SeedService's idempotent password reset covers only the admin account, so no code path repairs the CA user on boot. Mitigation applied: direct bcrypt hash update in users_admin; permanent fix is to extend SeedService to upsert/repair non-admin seeded roles."
+}

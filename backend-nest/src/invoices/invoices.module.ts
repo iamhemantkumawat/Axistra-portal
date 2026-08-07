@@ -7,9 +7,10 @@ import { CryptoTransaction } from '../entities/crypto-transaction.entity';
 import { InvoicesService } from './invoices.service';
 import { InvoicesController } from './invoices.controller';
 import { AuditModule } from '../audit/audit.module';
+import { FxModule } from '../fx/fx.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Invoice, Customer, Recharge, CryptoTransaction]), AuditModule],
+  imports: [TypeOrmModule.forFeature([Invoice, Customer, Recharge, CryptoTransaction]), AuditModule, FxModule],
   providers: [InvoicesService],
   controllers: [InvoicesController],
   exports: [InvoicesService],

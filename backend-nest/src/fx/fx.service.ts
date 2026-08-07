@@ -1,8 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { AppSetting } from '../entities/app-setting.entity';
 
 const ECB_DAILY_XML_URL = 'https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml';
 const USD_TO_AED = 3.6725;
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const FX_SETTINGS_KEY = 'fx_rates';
 
 type FxSnapshot = {
   source: string;
@@ -12,11 +16,31 @@ type FxSnapshot = {
   rates_to_aed: Record<string, number>;
 };
 
+export type FxMode = 'auto' | 'manual';
+
+export type FxSettings = {
+  mode: FxMode;
+  eur_to_aed: number;
+  usd_to_aed: number;
+  updated_at?: string;
+  updated_by?: string | null;
+};
+
+const DEFAULT_FX_SETTINGS: FxSettings = {
+  mode: 'auto',
+  eur_to_aed: 3.99,
+  usd_to_aed: USD_TO_AED,
+};
+
 @Injectable()
 export class FxService {
   private readonly logger = new Logger(FxService.name);
   private cache: FxSnapshot | null = null;
   private cacheFetchedAt = 0;
+
+  constructor(
+    @InjectRepository(AppSetting) private appSettings: Repository<AppSetting>,
+  ) {}
 
   private fallbackRates(): Record<string, number> {
     return {
@@ -102,10 +126,54 @@ export class FxService {
     }
   }
 
+  /** Read admin-configured FX rates (mode + fixed rates). Falls back to defaults. */
+  async getFxSettings(): Promise<FxSettings> {
+    try {
+      const row = await this.appSettings.findOne({ where: { key: FX_SETTINGS_KEY } });
+      if (!row?.value) return { ...DEFAULT_FX_SETTINGS };
+      const raw = row.value as Partial<FxSettings>;
+      return {
+        mode: raw.mode === 'manual' ? 'manual' : 'auto',
+        eur_to_aed: Number(raw.eur_to_aed) > 0 ? Number(raw.eur_to_aed) : DEFAULT_FX_SETTINGS.eur_to_aed,
+        usd_to_aed: Number(raw.usd_to_aed) > 0 ? Number(raw.usd_to_aed) : DEFAULT_FX_SETTINGS.usd_to_aed,
+        updated_at: raw.updated_at,
+        updated_by: raw.updated_by || null,
+      };
+    } catch {
+      return { ...DEFAULT_FX_SETTINGS };
+    }
+  }
+
+  async setFxSettings(body: Partial<FxSettings>, actorEmail?: string): Promise<FxSettings> {
+    const current = await this.getFxSettings();
+    const next: FxSettings = {
+      mode: body.mode === 'manual' ? 'manual' : body.mode === 'auto' ? 'auto' : current.mode,
+      eur_to_aed: Number(body.eur_to_aed) > 0 ? Number(body.eur_to_aed) : current.eur_to_aed,
+      usd_to_aed: Number(body.usd_to_aed) > 0 ? Number(body.usd_to_aed) : current.usd_to_aed,
+      updated_at: new Date().toISOString(),
+      updated_by: actorEmail || null,
+    };
+    await this.appSettings.save({ key: FX_SETTINGS_KEY, value: next } as AppSetting);
+    return next;
+  }
+
+  /**
+   * Rate to convert 1 unit of `currency` → AED. Applies manual override when
+   * admin has locked EUR/USD rates in Settings; otherwise uses live/pegged rates.
+   */
   async rateToAed(currency?: string | null): Promise<number> {
     const code = String(currency || 'AED').trim().toUpperCase();
     if (code === 'AED') return 1;
-    if (code === 'USD' || code === 'USDT') return USD_TO_AED;
+    const settings = await this.getFxSettings();
+    if (settings.mode === 'manual') {
+      if (code === 'USD' || code === 'USDT') return settings.usd_to_aed;
+      if (code === 'EUR') return settings.eur_to_aed;
+    }
+    if (code === 'USD' || code === 'USDT') return settings.usd_to_aed; // USD stays at pegged/configured value even in auto
+    if (code === 'EUR' && settings.mode === 'auto') {
+      const snapshot = await this.getRates();
+      return snapshot.rates_to_aed.EUR || settings.eur_to_aed;
+    }
     const snapshot = await this.getRates();
     return snapshot.rates_to_aed[code] || 1;
   }

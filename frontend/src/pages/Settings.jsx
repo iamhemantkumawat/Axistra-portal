@@ -41,6 +41,7 @@ export default function Settings() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <CompanyCard />
         <ComplianceCard />
+        <FxRatesCard />
         <CompanyBrandingCard />
         <TwoFactorCard />
         <ReceivingWalletsCard />
@@ -95,6 +96,109 @@ const ComplianceCard = () => {
 };
 
 const AuditChainCard = () => null; // Removed from Settings — kept stub to avoid orphan imports
+
+/* ---------------- FX Rates (Invoice AED conversion) ---------------- */
+
+function FxRatesCard() {
+  const [settings, setSettings] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ mode: 'auto', eur_to_aed: '', usd_to_aed: '' });
+
+  useEffect(() => {
+    api.get('/fx/settings').then((r) => {
+      setSettings(r.data);
+      setForm({
+        mode: r.data.mode || 'auto',
+        eur_to_aed: String(r.data.eur_to_aed ?? ''),
+        usd_to_aed: String(r.data.usd_to_aed ?? ''),
+      });
+    }).catch(() => {});
+  }, []);
+
+  const save = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const body = {
+        mode: form.mode,
+        eur_to_aed: parseFloat(form.eur_to_aed),
+        usd_to_aed: parseFloat(form.usd_to_aed),
+      };
+      const r = await api.put('/fx/settings', body);
+      setSettings(r.data);
+      toast.success('FX rates saved — all invoices will re-render with new AED totals.');
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!settings) {
+    return (
+      <div className="card-axistra p-6" data-testid="fx-rates-card">
+        <h3 className="font-display text-lg font-semibold mb-4">Invoice FX Rates</h3>
+        <p className="text-xs text-gray-500">Loading…</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card-axistra p-6" data-testid="fx-rates-card">
+      <h3 className="font-display text-lg font-semibold mb-2">Invoice FX Rates</h3>
+      <p className="text-xs text-gray-500 mb-4 leading-relaxed">
+        Every invoice — old or new — is billed in <strong>AED</strong>. Choose <em>Auto</em> to convert EUR at
+        the live ECB rate and USD at the pegged 3.6725, or <em>Manual</em> to lock rates for consistent
+        historical reporting. The final AED total is shown on every PDF and invoice list.
+      </p>
+      <form onSubmit={save} className="space-y-3 text-sm">
+        <Field label="Mode">
+          <select
+            className="input-axistra"
+            value={form.mode}
+            onChange={(e) => setForm({ ...form, mode: e.target.value })}
+            data-testid="fx-mode-select"
+          >
+            <option value="auto">Auto (live ECB · USD pegged)</option>
+            <option value="manual">Manual (locked rates)</option>
+          </select>
+        </Field>
+        <Field label="EUR → AED">
+          <input
+            type="number"
+            step="0.0001"
+            min="0"
+            className="input-axistra font-mono"
+            value={form.eur_to_aed}
+            onChange={(e) => setForm({ ...form, eur_to_aed: e.target.value })}
+            required
+            data-testid="fx-eur-rate-input"
+          />
+        </Field>
+        <Field label="USD → AED">
+          <input
+            type="number"
+            step="0.0001"
+            min="0"
+            className="input-axistra font-mono"
+            value={form.usd_to_aed}
+            onChange={(e) => setForm({ ...form, usd_to_aed: e.target.value })}
+            required
+            data-testid="fx-usd-rate-input"
+          />
+        </Field>
+        <div className="flex items-center justify-between pt-2">
+          <div className="text-xs text-gray-500">
+            {settings.updated_at ? `Last saved ${new Date(settings.updated_at).toLocaleString()}${settings.updated_by ? ` by ${settings.updated_by}` : ''}` : 'Never customised yet.'}
+          </div>
+          <button type="submit" className="btn-primary" disabled={saving} data-testid="fx-save-btn">
+            {saving ? 'Saving…' : 'Save FX Rates'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
 
 /* ---------------- Receiving Wallets ---------------- */
 

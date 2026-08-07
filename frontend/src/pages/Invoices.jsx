@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import api, { API_BASE } from '../lib/api';
 import { PageHeader, Modal } from '../components/Atoms';
 import { fmtDate, downloadBlob } from '../lib/format';
-import { useCurrency } from '../lib/currency';
 import { DownloadSimple, FileText, Eye, Trash } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 
@@ -10,7 +9,6 @@ export default function Invoices() {
   const [items, setItems] = useState([]);
   const [preview, setPreview] = useState(null);
   const [loadingId, setLoadingId] = useState(null);
-  const { format } = useCurrency();
   useEffect(() => { api.get('/invoices').then((r) => setItems(r.data)); }, []);
 
   const printPreview = () => {
@@ -62,15 +60,21 @@ export default function Invoices() {
       <div className="card-axistra overflow-x-auto">
         <table className="table-axistra">
           <thead>
-            <tr><th>Invoice #</th><th>Customer</th><th>Amount</th><th>Method</th><th>Status</th><th>Issued</th><th>Actions</th></tr>
+            <tr><th>Invoice #</th><th>Customer</th><th>Amount (Source)</th><th>Total (AED)</th><th>Method</th><th>Status</th><th>Issued</th><th>Actions</th></tr>
           </thead>
           <tbody>
-            {items.length === 0 && <tr><td colSpan="7" className="text-center text-gray-500 py-10">Invoices will appear here once you create recharges.</td></tr>}
+            {items.length === 0 && <tr><td colSpan="8" className="text-center text-gray-500 py-10">Invoices will appear here once you create recharges.</td></tr>}
             {items.map((i) => (
               <tr key={i.id} data-testid={`invoice-row-${i.invoice_number}`}>
                 <td className="font-mono font-medium text-axistra-green"><FileText size={14} className="inline mr-1" />{i.invoice_number}</td>
                 <td>{i.customer_name}<div className="text-xs text-gray-500">{i.customer_email}</div></td>
-                <td className="font-mono font-semibold">{format(i.amount, i.currency)}</td>
+                <td className="font-mono">{String(i.currency || 'USD').toUpperCase()} {parseFloat(i.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                <td className="font-mono font-semibold text-axistra-green">
+                  AED {parseFloat(i.aed_total ?? i.amount ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  {i.aed_rate && String(i.currency).toUpperCase() !== 'AED' ? (
+                    <div className="text-[10px] text-gray-500 font-normal">@ {Number(i.aed_rate).toFixed(4)}</div>
+                  ) : null}
+                </td>
                 <td className="text-xs">{i.payment_method || '—'}</td>
                 <td>
                   <span className={`badge ${i.status === 'paid' ? 'badge-success' : 'badge-warning'}`}>{i.status}</span>

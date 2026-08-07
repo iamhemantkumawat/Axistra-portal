@@ -8,6 +8,7 @@ import { CryptoTransaction } from '../entities/crypto-transaction.entity';
 import { renderInvoiceHtml, renderInvoicePdf } from './invoice-template';
 import { renderMinimalInvoiceHtml, renderMinimalInvoicePdf } from './invoice-template-minimal';
 import { AuditService } from '../audit/audit.service';
+import { FxService } from '../fx/fx.service';
 
 @Injectable()
 export class InvoicesService {
@@ -17,6 +18,7 @@ export class InvoicesService {
     @InjectRepository(Recharge) private rechargeRepo: Repository<Recharge>,
     @InjectRepository(CryptoTransaction) private cryptoRepo: Repository<CryptoTransaction>,
     private audit: AuditService,
+    private fx: FxService,
   ) {}
 
   /**
@@ -80,8 +82,10 @@ export class InvoicesService {
       ? await this.cryptoRepo.find({ where: { recharge_id: rechargeId }, order: { created_at: 'ASC' } })
       : [];
 
+    const aedInfo = await this.buildAedInfo(invoice);
+
     if (!this.isWithinRefreshWindow(invoice)) {
-      return { ...invoice, recharge_id: rechargeId, payment_transactions: paymentTransactions };
+      return { ...invoice, recharge_id: rechargeId, payment_transactions: paymentTransactions, ...aedInfo };
     }
 
     const customer = invoice.customer_id
@@ -99,6 +103,7 @@ export class InvoicesService {
       customer_address: customer?.address || invoice.customer_address,
       status: this.deriveStatus(invoice, recharge),
       payment_transactions: paymentTransactions,
+      ...aedInfo,
     };
 
     const changed =
@@ -121,10 +126,29 @@ export class InvoicesService {
       invoice.customer_address = merged.customer_address;
       invoice.status = merged.status;
       await this.repo.save(invoice);
-      return { ...invoice, payment_transactions: paymentTransactions };
+      return { ...invoice, payment_transactions: paymentTransactions, ...aedInfo };
     }
 
     return merged;
+  }
+
+  /**
+   * Compute the AED-denominated total for an invoice using either the
+   * live/pegged rate or the admin-configured fixed rate (Settings → FX Rates).
+   * Returned on every invoice so the frontend + PDF template can show the
+   * final "billed in AED" amount regardless of source currency.
+   */
+  private async buildAedInfo(invoice: Invoice) {
+    const currency = String(invoice.currency || 'AED').toUpperCase();
+    const amount = parseFloat(String(invoice.amount || '0'));
+    const rate = await this.fx.rateToAed(currency);
+    const aedTotal = Number.isFinite(amount) ? amount * rate : 0;
+    return {
+      aed_rate: Number(rate.toFixed(4)),
+      aed_total: Number(aedTotal.toFixed(2)),
+      billing_currency: 'AED',
+      source_currency: currency,
+    };
   }
 
   async list() {

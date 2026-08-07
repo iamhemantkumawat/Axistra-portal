@@ -18,6 +18,10 @@ type InvoiceView = Invoice & {
   customer_phone?: string;
   customer_address?: string;
   payment_transactions?: PaymentTx[];
+  aed_rate?: number;
+  aed_total?: number;
+  billing_currency?: string;
+  source_currency?: string;
 };
 
 const COMPANY = {
@@ -75,12 +79,13 @@ async function getBrowser() {
 }
 
 function cacheKey(inv: InvoiceView) {
-  return 'minimal-v3::' + JSON.stringify({
+  return 'minimal-v4-aed::' + JSON.stringify({
     n: inv.invoice_number, s: inv.status, a: inv.amount, c: inv.currency,
     t: inv.tx_hash, m: inv.payment_method, co: inv.crypto_coin, nw: inv.crypto_network,
     i: inv.issued_date, cn: inv.customer_name, ce: inv.customer_email,
     cc: inv.customer_company, cp: inv.customer_phone, ca: inv.customer_address,
     px: inv.payment_transactions,
+    ar: inv.aed_rate, at: inv.aed_total,
   });
 }
 
@@ -136,7 +141,10 @@ export function renderMinimalInvoiceHtml(inv: InvoiceView): string {
   const vat = (subtotal - discount) * (vatPct / 100);
   const total = subtotal - discount + vat;
   const currency = (inv.currency || 'AED').toUpperCase();
-  const currencyWordLabel = currency === 'AED' ? 'Dirhams' : currency === 'USD' ? 'US Dollars' : currency === 'EUR' ? 'Euros' : currency;
+  const isAedNative = currency === 'AED';
+  const aedRate = Number(inv.aed_rate) > 0 ? Number(inv.aed_rate) : 1;
+  const aedTotal = Number(inv.aed_total) > 0 ? Number(inv.aed_total) : total * aedRate;
+  const showAedConversion = !isAedNative && aedRate > 0;
 
   const txs = Array.isArray(inv.payment_transactions) ? inv.payment_transactions : [];
   const firstTx = txs[0];
@@ -357,7 +365,7 @@ export function renderMinimalInvoiceHtml(inv: InvoiceView): string {
             <tr><td class="k">Invoice Date</td><td class="sep">:</td><td class="v">${formatDate(issued)}</td></tr>
             <tr><td class="k">Due Date</td><td class="sep">:</td><td class="v">${formatDate(due)}</td></tr>
             <tr><td class="k">Issue Date</td><td class="sep">:</td><td class="v">${formatDate(issued)}</td></tr>
-            <tr><td class="k">Currency</td><td class="sep">:</td><td class="v">${escapeHtml(currency)}</td></tr>
+            <tr><td class="k">Currency</td><td class="sep">:</td><td class="v">AED${!isAedNative ? ` <span style="color:var(--muted);font-size:8pt;">(billed from ${escapeHtml(currency)})</span>` : ''}</td></tr>
           </table>
         </div>
       </section>
@@ -390,11 +398,14 @@ export function renderMinimalInvoiceHtml(inv: InvoiceView): string {
           ${txList ? `<div class="tx-list">${txList}</div>` : ''}
         </div>
         <div class="totals">
-          <div class="row"><span class="k">Subtotal</span><span class="v">${moneyFmt(subtotal)}</span></div>
+          <div class="row"><span class="k">Subtotal (${escapeHtml(currency)})</span><span class="v">${moneyFmt(subtotal)}</span></div>
           <div class="row"><span class="k">Discount${discountPct ? ` (${discountPct}%)` : ''}</span><span class="v">${discount > 0 ? '-' + moneyFmt(discount) : moneyFmt(0)}</span></div>
           <div class="row"><span class="k">VAT${vatPct ? ` (${vatPct}%)` : ' (0%, zero-rated)'}</span><span class="v">${moneyFmt(vat)}</span></div>
-          <div class="row grand"><span class="k">Total (${escapeHtml(currency)})</span><span class="v">${moneyFmt(total)}</span></div>
-          <div class="amount-words"><span class="lbl">Amount in Words:</span><br/>${escapeHtml(amountInWords(total, currencyWordLabel))}</div>
+          ${showAedConversion ? `<div class="row"><span class="k">Total (${escapeHtml(currency)})</span><span class="v">${moneyFmt(total)}</span></div>
+          <div class="row"><span class="k">FX Rate</span><span class="v">1 ${escapeHtml(currency)} = ${aedRate.toFixed(4)} AED</span></div>` : ''}
+          <div class="row grand"><span class="k">Total Billed (AED)</span><span class="v">${moneyFmt(aedTotal)}</span></div>
+          <div class="amount-words"><span class="lbl">Amount in Words:</span><br/>${escapeHtml(amountInWords(aedTotal, 'Dirhams'))}</div>
+          ${showAedConversion ? `<div class="amount-words" style="opacity:0.75;margin-top:1mm;"><span class="lbl">Reference (${escapeHtml(currency)}):</span> ${moneyFmt(total)} ${escapeHtml(currency)}</div>` : ''}
         </div>
       </section>
 
