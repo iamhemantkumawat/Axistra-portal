@@ -127,7 +127,9 @@ function buildLineItems(inv: InvoiceView): LineItem[] {
   return [{ description, detail, qty: 1, unit_price: amount, amount }];
 }
 
-export function renderMinimalInvoiceHtml(inv: InvoiceView): string {
+type Branding = { director_signature?: string; director_name?: string };
+
+export function renderMinimalInvoiceHtml(inv: InvoiceView, branding: Branding = {}): string {
   const issued = inv.issued_date ? new Date(inv.issued_date) : new Date(inv.created_at);
   const due = new Date(issued); due.setDate(due.getDate() + 7);
   const logo = getAssetDataUri('axistra-landscape.png') || getAssetDataUri('axistra-invoice-logo.png');
@@ -294,34 +296,38 @@ export function renderMinimalInvoiceHtml(inv: InvoiceView): string {
   .amount-words .lbl { color: var(--green); font-weight: 700; font-style: italic; }
 
   /* ====== NOTES + STAMP ====== */
-  .notes-stamp { display: grid; grid-template-columns: 1fr auto; gap: 8mm; align-items: end; margin-top: 4mm; }
-  .notes { font-size: 9pt; color: var(--soft); }
-  .notes .lbl { font-size: 8.5pt; letter-spacing: 0.18em; color: var(--gold); text-transform: uppercase; font-weight: 700; margin-bottom: 1.5mm; }
-  .stamp { text-align: right; }
-  .stamp img { height: 28mm; width: 28mm; object-fit: contain; opacity: 0.95; }
-  .stamp .seal-meta { font-size: 7.5pt; color: var(--muted); margin-top: 1mm; letter-spacing: 0.1em; }
+  .notes-stamp { display: grid; grid-template-columns: 1fr auto; gap: 6mm; align-items: flex-end; margin-top: 3mm; padding-bottom: 3mm; }
+  .notes { font-size: 8.5pt; color: var(--soft); }
+  .notes .lbl { font-size: 8pt; letter-spacing: 0.18em; color: var(--gold); text-transform: uppercase; font-weight: 700; margin-bottom: 1mm; }
+  .stamp { text-align: right; display: flex; align-items: flex-end; gap: 4mm; justify-content: flex-end; }
+  .stamp .sig-col { text-align: center; }
+  .stamp .sig-col img { height: 14mm; width: 32mm; object-fit: contain; }
+  .stamp .sig-col .sig-line { border-top: 0.6pt solid #4B5C56; margin-top: 1mm; padding-top: 0.8mm; font-size: 7pt; color: var(--soft); letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600; }
+  .stamp .seal-col { text-align: right; }
+  .stamp .seal-col img { height: 22mm; width: 22mm; object-fit: contain; opacity: 0.95; }
+  .stamp .seal-meta { font-size: 6.5pt; color: var(--muted); margin-top: 0.6mm; letter-spacing: 0.08em; }
 
-  /* ====== FOOTER pinned to A4 bottom ====== */
+  /* ====== FOOTER pinned to A4 bottom (compact) ====== */
   footer.green-bar {
     position: absolute;
     left: 0; right: 0; bottom: 0;
     background: var(--green-deep);
     color: #fff;
-    padding: 5mm 12mm 5mm;
+    padding: 3mm 12mm 3mm;
   }
   footer.green-bar::before { content: ''; position: absolute; inset: 0; background: radial-gradient(circle at 80% 100%, rgba(255,255,255,0.06), transparent 60%); pointer-events: none; }
-  footer.green-bar .row1 { display: grid; grid-template-columns: 1.1fr 1fr 1fr 1fr; align-items: center; gap: 6mm; position: relative; }
-  footer.green-bar .ty { display: flex; align-items: center; gap: 4mm; }
-  footer.green-bar .ty img { height: 12mm; }
+  footer.green-bar .row1 { display: grid; grid-template-columns: 1.1fr 1fr 1fr 1fr; align-items: center; gap: 5mm; position: relative; }
+  footer.green-bar .ty { display: flex; align-items: center; gap: 3mm; }
+  footer.green-bar .ty img { height: 9mm; }
   footer.green-bar .ty .text { line-height: 1.05; }
-  footer.green-bar .ty .text .l1 { font-family: "Plus Jakarta Sans",sans-serif; font-size: 13pt; font-weight: 800; letter-spacing: 0.04em; }
-  footer.green-bar .ty .text .l2 { color: var(--gold); font-size: 9pt; font-weight: 700; letter-spacing: 0.18em; }
-  footer.green-bar .feat { display: flex; align-items: center; gap: 3.5mm; }
-  footer.green-bar .feat .ico { width: 9mm; height: 9mm; border: 1.4px solid var(--gold); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: var(--gold); flex-shrink: 0; }
-  footer.green-bar .feat .ico svg { width: 4.5mm; height: 4.5mm; stroke: currentColor; }
-  footer.green-bar .feat .t .ttl { font-size: 9pt; font-weight: 700; color: #fff; }
-  footer.green-bar .feat .t .sub { font-size: 7.5pt; color: rgba(255,255,255,0.78); line-height: 1.35; max-width: 38mm; }
-  footer.green-bar .row2 { margin-top: 4mm; padding-top: 3mm; border-top: 1px solid rgba(255,255,255,0.18); text-align: center; font-size: 8pt; letter-spacing: 0.12em; color: rgba(255,255,255,0.92); }
+  footer.green-bar .ty .text .l1 { font-family: "Plus Jakarta Sans",sans-serif; font-size: 11pt; font-weight: 800; letter-spacing: 0.04em; }
+  footer.green-bar .ty .text .l2 { color: var(--gold); font-size: 7.5pt; font-weight: 700; letter-spacing: 0.16em; }
+  footer.green-bar .feat { display: flex; align-items: center; gap: 2.5mm; }
+  footer.green-bar .feat .ico { width: 7mm; height: 7mm; border: 1.2px solid var(--gold); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: var(--gold); flex-shrink: 0; }
+  footer.green-bar .feat .ico svg { width: 3.5mm; height: 3.5mm; stroke: currentColor; }
+  footer.green-bar .feat .t .ttl { font-size: 8pt; font-weight: 700; color: #fff; }
+  footer.green-bar .feat .t .sub { font-size: 6.5pt; color: rgba(255,255,255,0.78); line-height: 1.3; max-width: 34mm; }
+  footer.green-bar .row2 { margin-top: 2.5mm; padding-top: 2mm; border-top: 1px solid rgba(255,255,255,0.18); text-align: center; font-size: 7pt; letter-spacing: 0.1em; color: rgba(255,255,255,0.92); }
 </style></head>
 <body>
   <div class="page">
@@ -415,8 +421,15 @@ export function renderMinimalInvoiceHtml(inv: InvoiceView): string {
           Thank you for your business! Please make the payment within the due date.
         </div>
         <div class="stamp">
-          ${stamp ? `<img src="${stamp}" alt="Axistra Digital Seal" />` : ''}
-          <div class="seal-meta">Digitally certified · ${formatDate(new Date())}</div>
+          ${branding.director_signature ? `
+            <div class="sig-col">
+              <img src="data:image/png;base64,${branding.director_signature}" alt="Authorised Signature" />
+              <div class="sig-line">${escapeHtml(branding.director_name || 'Authorised Signatory')}</div>
+            </div>` : ''}
+          <div class="seal-col">
+            ${stamp ? `<img src="${stamp}" alt="Axistra Digital Seal" />` : ''}
+            <div class="seal-meta">Digitally certified · ${formatDate(new Date())}</div>
+          </div>
         </div>
       </section>
     </div>
@@ -449,10 +462,10 @@ export function renderMinimalInvoiceHtml(inv: InvoiceView): string {
 </body></html>`;
 }
 
-export async function renderMinimalInvoicePdf(inv: InvoiceView): Promise<Buffer> {
-  const key = cacheKey(inv);
+export async function renderMinimalInvoicePdf(inv: InvoiceView, branding: Branding = {}): Promise<Buffer> {
+  const key = cacheKey(inv) + '::' + (branding.director_signature ? 'sig1' : 'sig0');
   if (pdfCache.has(key)) return pdfCache.get(key)!;
-  const html = renderMinimalInvoiceHtml(inv);
+  const html = renderMinimalInvoiceHtml(inv, branding);
   try {
     const browser = await getBrowser();
     const page = await browser.newPage();

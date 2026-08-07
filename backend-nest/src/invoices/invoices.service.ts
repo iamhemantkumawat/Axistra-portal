@@ -5,6 +5,7 @@ import { Invoice } from '../entities/invoice.entity';
 import { Customer } from '../entities/customer.entity';
 import { Recharge } from '../entities/recharge.entity';
 import { CryptoTransaction } from '../entities/crypto-transaction.entity';
+import { AppSetting } from '../entities/app-setting.entity';
 import { renderInvoiceHtml, renderInvoicePdf } from './invoice-template';
 import { renderMinimalInvoiceHtml, renderMinimalInvoicePdf } from './invoice-template-minimal';
 import { AuditService } from '../audit/audit.service';
@@ -17,9 +18,23 @@ export class InvoicesService {
     @InjectRepository(Customer) private customerRepo: Repository<Customer>,
     @InjectRepository(Recharge) private rechargeRepo: Repository<Recharge>,
     @InjectRepository(CryptoTransaction) private cryptoRepo: Repository<CryptoTransaction>,
+    @InjectRepository(AppSetting) private appSettings: Repository<AppSetting>,
     private audit: AuditService,
     private fx: FxService,
   ) {}
+
+  private async loadBranding(): Promise<{ director_signature?: string; director_name?: string }> {
+    try {
+      const row = await this.appSettings.findOne({ where: { key: 'company_branding' } });
+      const v: any = row?.value || {};
+      return {
+        director_signature: v.director_signature || undefined,
+        director_name: v.director_name || undefined,
+      };
+    } catch {
+      return {};
+    }
+  }
 
   /**
    * Gap-aware next invoice number.
@@ -214,12 +229,14 @@ export class InvoicesService {
 
   async html(id: string, style: 'branded' | 'minimal' = 'minimal') {
     const inv = await this.get(id);
-    return style === 'minimal' ? renderMinimalInvoiceHtml(inv) : renderInvoiceHtml(inv);
+    const branding = await this.loadBranding();
+    return style === 'minimal' ? renderMinimalInvoiceHtml(inv, branding) : renderInvoiceHtml(inv);
   }
 
   async pdf(id: string, style: 'branded' | 'minimal' = 'minimal'): Promise<Buffer> {
     const inv = await this.get(id);
-    return style === 'minimal' ? renderMinimalInvoicePdf(inv) : renderInvoicePdf(inv);
+    const branding = await this.loadBranding();
+    return style === 'minimal' ? renderMinimalInvoicePdf(inv, branding) : renderInvoicePdf(inv);
   }
 
   /**
