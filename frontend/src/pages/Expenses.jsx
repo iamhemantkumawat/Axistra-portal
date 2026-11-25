@@ -35,14 +35,15 @@ const PAYMENT_METHODS = [
   { value: 'Other', label: 'Other' },
 ];
 
-const vendorDefaults = (v, f) => ({
+const vendorDefaults = (v) => ({
   vendor_id: v?.id || '',
   vendor_name: v?.name || '',
-  payment_method: v?.default_payment_method || f.payment_method,
-  currency: v?.default_currency || f.currency,
-  source_wallet: v?.default_wallet || f.source_wallet,
-  crypto_network: v?.default_network || f.crypto_network,
-  vendor_wallet: v?.default_vendor_wallet || f.vendor_wallet,
+  payment_method: v?.default_payment_method || empty.payment_method,
+  currency: v?.default_currency || empty.currency,
+  source_wallet: v?.default_wallet || empty.source_wallet,
+  crypto_network: v?.default_network || empty.crypto_network,
+  vendor_wallet: v?.default_vendor_wallet || empty.vendor_wallet,
+  bank_name: '',
 });
 
 export default function Expenses() {
@@ -77,7 +78,7 @@ export default function Expenses() {
     setEditingId(null);
     setForm({
       ...empty,
-      ...vendorDefaults(v, empty),
+      ...vendorDefaults(v),
       category: v.type === 'SaaS' ? 'Software' : v.type === 'VPS / Hosting' ? 'VPS' : 'Vendor',
     });
     setOpen(true);
@@ -126,7 +127,7 @@ export default function Expenses() {
   const onVendorChange = (e) => {
     const id = e.target.value;
     const v = vendors.find((x) => x.id === id);
-    setForm((f) => ({ ...f, ...vendorDefaults(v, f), vendor_id: id }));
+    setForm((f) => ({ ...f, ...vendorDefaults(v), vendor_id: id }));
   };
 
   const submit = async (e) => {
@@ -298,7 +299,7 @@ export default function Expenses() {
                 <input required className="input-axistra font-mono" value={form.tx_hash} onChange={(e) => setForm({ ...form, tx_hash: e.target.value })} placeholder={method === 'BinancePay' ? 'Binance internal TX ID' : 'On-chain TX hash'} data-testid="exp-form-tx" />
               </Field>
               <div className="col-span-2 text-xs text-gray-500 -mt-1">
-                The selected wallet will be debited by {form.amount || '—'} {form.currency} — a negative ledger entry tagged to this vendor.
+                The selected wallet will be debited by {form.amount ? `${form.amount} ${form.currency}` : 'the amount above'} — a negative ledger entry tagged to this vendor.
               </div>
             </>
           )}

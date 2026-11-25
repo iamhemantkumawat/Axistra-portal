@@ -472,3 +472,7 @@ See `/app/deploy-fork/` (or `/opt/axistra/deploy` on the VPS): `backup.sh`, `ngi
 - Tested: iteration_31 (backend 18/18 + 1 skip, frontend 100%).
 - Backlog: Nest 11 major upgrade; payroll accrual vs cash P&L; customer country picker; VAT201 PDF; custom date-range report.
 - 2026-11-25: Preview DB replaced with live backup axistra-manual-2026-11-25_16-53-38 (3215 invoices, 492 customers, 3215 recharges). Previous preview data saved at /app/imports/preview-before-nov25.sql.gz; old DB kept as `axistra_old`.
+- 2026-11-25 (b): Webhook Logs "Paused (N)" tab — held OxaPay/BTCPay payments (error_message 'PAUSED:'), confirm modal with amount/customer/Magnus user, `POST /api/webhooks/logs/:id/release` (admin, atomic claim, audit `release_paused_webhook`). Intake also applies when any source reports gateway OxaPay/BTCPay; informational events while OFF stored as processed (not in Paused). Intake changes audited (`update_webhook_intake`).
+- Settings split into tabs (?tab=company|payments|vendors|security).
+- Vendors: default currency, network, vendor wallet/Pay ID (+ existing method & source wallet). Columns auto-added on startup (SettingsService.onModuleInit) + migration 1795700000000. Add Expense: Vendor first; picking vendor fills method/currency/source wallet/network/vendor wallet (resets to blank when the vendor has no default).
+- Tested: iteration_32 (backend 100%, frontend all flows; stale-autofill + release race + audit fixed afterwards and verified via curl).

@@ -42,13 +42,13 @@ export class WebhooksController {
   @UseGuards(AuthGuard('jwt'), AdminGuard)
   @Put('intake-settings')
   setIntake(@Body() body: any, @Req() req: any) {
-    return this.svc.setIntake(body || {}, req.user?.email);
+    return this.svc.setIntake(body || {}, req.user);
   }
 
   @UseGuards(AuthGuard('jwt'), AdminGuard)
   @Post('logs/:id/release')
-  release(@Param('id') id: string) {
-    return this.svc.releasePaused(id);
+  release(@Param('id') id: string, @Req() req: any) {
+    return this.svc.releasePaused(id, req.user);
   }
 
   @UseGuards(AuthGuard('jwt'))

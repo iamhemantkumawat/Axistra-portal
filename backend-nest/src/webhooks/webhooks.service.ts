@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PaymentWebhook } from '../entities/payment-webhook.entity';
 import { AppSetting } from '../entities/app-setting.entity';
+import { AuditService } from '../audit/audit.service';
 import { RechargesService } from '../recharges/recharges.service';
 
 type Source = 'btcpay' | 'oxapay' | 'telegram_manual' | 'manual';
@@ -17,6 +18,7 @@ export class WebhooksService {
     @InjectRepository(PaymentWebhook) private repo: Repository<PaymentWebhook>,
     @InjectRepository(AppSetting) private appSettings: Repository<AppSetting>,
     private recharges: RechargesService,
+    private audit: AuditService,
   ) {}
 
   async getIntake(): Promise<Intake> {
@@ -24,7 +26,8 @@ export class WebhooksService {
     return { oxapay: true, btcpay: true, ...(row?.value || {}) };
   }
 
-  async setIntake(body: Partial<Intake>, by?: string): Promise<Intake> {
+  async setIntake(body: Partial<Intake>, actor?: any): Promise<Intake> {
+    const by = actor?.email;
     const current = await this.getIntake();
     const next: Intake = {
       oxapay: typeof body.oxapay === 'boolean' ? body.oxapay : current.oxapay,
@@ -33,6 +36,11 @@ export class WebhooksService {
       updated_by: by,
     };
     await this.appSettings.save({ key: INTAKE_KEY, value: next } as AppSetting);
+    await this.audit.log({
+      actor_id: actor?.id, actor_email: by,
+      action: 'update_webhook_intake', entity_type: 'app_setting', entity_id: INTAKE_KEY,
+      details: `OxaPay ${next.oxapay ? 'ON' : 'OFF'} · BTCPay ${next.btcpay ? 'ON' : 'OFF'}`,
+    });
     return next;
   }
 
@@ -150,13 +158,25 @@ export class WebhooksService {
     return null;
   }
 
-  async releasePaused(id: string) {
-    const row = await this.repo.findOne({ where: { id } });
-    if (!row) throw new NotFoundException('Webhook log not found');
-    if (row.processed || !String(row.error_message || '').startsWith('PAUSED:')) {
+  async releasePaused(id: string, actor?: any) {
+    const claim = await this.repo.createQueryBuilder()
+      .update(PaymentWebhook)
+      .set({ error_message: 'RELEASING: Create entry requested' })
+      .where('id = :id AND processed = false AND error_message LIKE :p', { id, p: 'PAUSED:%' })
+      .execute();
+    if (!claim.affected) {
+      const exists = await this.repo.findOne({ where: { id } });
+      if (!exists) throw new NotFoundException('Webhook log not found');
       throw new BadRequestException('This webhook is not a paused payment');
     }
-    return this.ingest(row.source as Source, JSON.parse(row.raw_payload), row);
+    const row = await this.repo.findOne({ where: { id } });
+    const result: any = await this.ingest(row!.source as Source, JSON.parse(row!.raw_payload), row!);
+    await this.audit.log({
+      actor_id: actor?.id, actor_email: actor?.email,
+      action: 'release_paused_webhook', entity_type: 'payment_webhook', entity_id: id,
+      details: `Created entry from paused ${row!.source} payment${result?.invoice_number ? ` · invoice ${result.invoice_number}` : ''}`,
+    });
+    return result;
   }
 
   async listLogs(options: { source?: string; processed?: string; q?: string; limit?: number; offset?: number }) {

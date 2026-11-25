@@ -1,0 +1,36 @@
+{
+  "summary": "Tested the 4 requested features with the QA admin, through the backend API and the UI. (1) Settings has 4 tabs (Company/Payments/Vendors/Security & Backup), each shows the right cards, and ?tab= stays after reload. (2) Vendor defaults: created 'TEST Vendor QA' in the UI with USDT/BINANCE/USDT/TRC20/TTESTaddr123. The table shows all columns and Edit keeps the values. (3) Add Expense: Vendor is the first field, and picking the vendor fills method USDT, currency USDT, source wallet BINANCE, network TRC20 and the vendor wallet. No expense was submitted. (4) Intake OFF: an OxaPay webhook gives paused:true and the recharge/customer/invoice counts did not change. A BTCPay Settled payload sent to /webhooks/recharge with intake OFF is also paused. An informational BTCPay InvoiceCreated event is stored as processed and does not show in the Paused tab. The Paused (N) tab lists the held payments with a Paused badge and the Create entry now button. The confirm modal shows '7 USD' and the customer email. Cancel closes it and nothing is created. Confirm creates the entry (toast 'Entry created — invoice AX-2611-00508') and the row leaves the tab; the count went from 3 to 2. A second release returns 400, release without a token returns 401, and an unknown id returns 404/400. Releasing two paused BTCPay rows with the same invoice_id linked both to one recharge (no duplicate). Cleanup is done: both intake toggles are ON, counts are back to 3215/492/3215 (crypto_tx 3277, webhooks 8906, vendors 13), and no TEST-QA rows remain.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/webhooks/logs/:id/release", "issue": "No admin audit entry is written. The audit log shows create_recharge with actor 'oxapay-webhook@axistra.local' and does not record which admin chose to create the entry. PUT /api/webhooks/intake-settings is also not written to audit_logs; only updated_by is stored in app_settings."},
+      {"endpoint": "POST /api/webhooks/logs/:id/release", "issue": "Two release calls at the same time could both pass the processed=false check before either saves, and create two recharges. The UI only disables the button. Consider an atomic UPDATE ... WHERE processed=false AND error_message LIKE 'PAUSED:%' (or a row lock) before ingest."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Expenses.jsx vendorDefaults / onVendorChange", "issue": "Values from the previous vendor are kept. In the UI, picking TEST Vendor QA and then Skyspace (which has no default vendor wallet or currency) kept vendor_wallet='TTESTaddr123' and currency USDT. A user could record the wrong payee address. Fix: when the vendor changes, reset vendor_wallet (and the currency/network that came from the old vendor) to empty or the form default instead of falling back to the previous value f.*.", "selector": "[data-testid=exp-form-vendor-wallet]", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Add Expense modal", "issues": ["Date uses the browser's native date input (existing behaviour, not a shadcn calendar)", "The helper text reads 'debited by — USDT' while the amount is empty"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter32_paused_release_vendors.py", "/app/test_reports/pytest/iter32.xml"],
+  "action_items": [
+    "Expenses: clear vendor_wallet/currency/network/source_wallet when switching to a vendor that has no defaults (do not carry over the previous vendor's values)",
+    "Optional: write an audit_logs entry for paused-webhook release (admin actor + webhook id) and for intake toggle changes",
+    "Optional: make release atomic to prevent a double-create race"
+  ],
+  "critical_code_review_comments": [
+    "webhooks.service.ts is 698 lines, close to the 700-line limit. Consider moving normalize()/OxaPay helpers into a separate normalizer module.",
+    "releasePaused re-runs ingest() with the existing row. The intake check is skipped correctly and duplicate/existing-invoice linking works. For OxaPay it also schedules history enrichment (5 min external call), which is expected.",
+    "Release preview (getLog.preview) is computed only for paused rows. Good."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter32_paused_release_vendors.py"],
+  "success_rate": {"backend": "100% (8/8 pytest + manual curl checks for 400 on second release and duplicate linking)", "frontend": "95% (all requested flows pass; 1 medium stale-autofill bug)"},
+  "seed_data_creation": "Temporary data only, all deleted via SQL/API: payment_webhooks (4, TEST-QA*), 2 recharges, 2 invoices (AX-2611-00508/00509), 2 treasury_movements, customer tqa@test.local, vendors 'TEST Vendor QA' and 'TEST Vendor QA API'. 15 audit_logs rows from QA actions (logins, vendor create/update/delete, 2 create_recharge, auto_create_customer) were left in place because the audit log is append-only. Invoice numbering fills the smallest gap, so no permanent gap remains.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Use qa-admin@preview.local / Qa-94aee970e113c3f5 (accept_terms:true). Run pytest with TEST_PAYMENT_WEBHOOK_SECRET from backend-nest/.env and REACT_APP_BACKEND_URL. The native /api/webhooks/btcpay route needs an HMAC signature, so use /api/webhooks/recharge with source:'btcpay' instead. Vendor update is PATCH /api/settings/vendors/:id; the source wallet field is default_wallet. Baseline counts: invoices 3215, customers 492, recharges 3215, crypto_tx 3277, webhooks 8906, vendors 13. Released entries also create treasury_movements rows, so delete those too."
+}

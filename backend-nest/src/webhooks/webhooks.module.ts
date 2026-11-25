@@ -6,6 +6,7 @@ import { PaymentWebhook } from '../entities/payment-webhook.entity';
 import { WalletLedger } from '../entities/wallet-ledger.entity';
 import { Recharge } from '../entities/recharge.entity';
 import { CryptoTransaction } from '../entities/crypto-transaction.entity';
+import { AuditModule } from '../audit/audit.module';
 import { RechargesModule } from '../recharges/recharges.module';
 import { WebhooksController } from './webhooks.controller';
 import { WebhooksService } from './webhooks.service';
@@ -16,6 +17,7 @@ import { OxaPaySyncService } from './oxapay-sync.service';
     TypeOrmModule.forFeature([AppSetting, PaymentWebhook, WalletLedger, Recharge, CryptoTransaction]),
     ScheduleModule.forRoot(),
     RechargesModule,
+    AuditModule,
   ],
   controllers: [WebhooksController],
   providers: [WebhooksService, OxaPaySyncService],
