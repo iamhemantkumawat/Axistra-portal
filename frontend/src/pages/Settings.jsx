@@ -384,7 +384,7 @@ function ReceivingWalletsCard() {
                   </button>
                 </td>
                 <td><span className={`badge ${r.is_active ? 'badge-success' : 'badge-neutral'}`}>{r.is_active ? 'Active' : 'Disabled'}</span></td>
-                <td className="text-right">
+                <td className="text-right whitespace-nowrap">
                   <button onClick={() => onEdit(r)} className="text-gray-500 hover:text-axistra-green p-1" title="Edit" data-testid={`wallet-edit-${r.gateway}-${r.coin}`}><Pencil size={14} /></button>
                   <button onClick={() => onDelete(r)} className="text-gray-500 hover:text-red-600 p-1 ml-1" title="Delete" data-testid={`wallet-delete-${r.gateway}-${r.coin}`}><Trash size={14} /></button>
                 </td>
@@ -524,7 +524,7 @@ function VendorsCard() {
                 <td className="text-sm">{r.default_network || '—'}</td>
                 <td className="font-mono text-xs max-w-[180px] truncate" title={r.default_vendor_wallet || ''}>{r.default_vendor_wallet || '—'}</td>
                 <td><span className={`badge ${r.is_active ? 'badge-success' : 'badge-neutral'}`}>{r.is_active ? 'Active' : 'Disabled'}</span></td>
-                <td className="text-right">
+                <td className="text-right whitespace-nowrap">
                   <button
                     onClick={() => nav(`/expenses?pay_vendor=${r.id}`)}
                     className="text-axistra-green hover:text-[var(--axistra-green-dark)] p-1"
