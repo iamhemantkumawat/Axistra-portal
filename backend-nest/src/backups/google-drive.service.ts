@@ -33,9 +33,10 @@ export class GoogleDriveService {
   // Cached OAuth metadata so the frontend can render "Connected as foo@gmail.com".
   private oauthEmail: string | null = null;
   private oauthExpiresAt: number | null = null;
+  private verified = false;
 
   constructor(@InjectRepository(AppSetting) private settings: Repository<AppSetting>) {
-    // Async init: try OAuth from DB first, then fall back to service account.
+    // Credentials are provisioned by the server operator, outside PostgreSQL.
     this.init().catch((err) => this.logger.warn(`init failed: ${err?.message}`));
   }
 
@@ -45,24 +46,26 @@ export class GoogleDriveService {
       this.lastError = 'GOOGLE_DRIVE_FOLDER_ID env var not set';
       return;
     }
-    // Path 1: OAuth refresh_token stored in DB
-    const stored = await this.settings.findOne({ where: { key: OAUTH_KEY } });
-    if (stored?.value?.refresh_token && process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET) {
+    const credentialsPath = '/app/secrets/google-drive-oauth.json';
+    if (fs.existsSync(credentialsPath)) {
       try {
+        const stat = fs.lstatSync(credentialsPath);
+        if (!stat.isFile() || (stat.mode & 0o077) !== 0) throw new Error();
+        const { client_id, client_secret, refresh_token } = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'));
+        if (![client_id, client_secret, refresh_token].every((value) => typeof value === 'string' && value.length > 0)) throw new Error();
         this.oauthClient = new google.auth.OAuth2(
-          process.env.GOOGLE_OAUTH_CLIENT_ID,
-          process.env.GOOGLE_OAUTH_CLIENT_SECRET,
+          client_id,
+          client_secret,
           this.callbackUrl(),
         );
-        this.oauthClient.setCredentials({ refresh_token: stored.value.refresh_token });
+        this.oauthClient.setCredentials({ refresh_token });
         this.mode = 'oauth';
-        this.oauthEmail = stored.value.email || null;
         this.lastError = null;
-        this.logger.log(`Google Drive (OAuth) ready — connected as ${this.oauthEmail || 'unknown'}, folder=${this.folderId}`);
+        this.logger.log('Google Drive OAuth credentials loaded from server storage');
         return;
-      } catch (err) {
-        this.lastError = `OAuth client init failed: ${(err as any)?.message}`;
-        this.logger.warn(this.lastError);
+      } catch {
+        this.lastError = 'Invalid Drive OAuth credential file.';
+        return;
       }
     }
     // Path 2: Service account file
@@ -75,8 +78,7 @@ export class GoogleDriveService {
       try { creds = JSON.parse(fs.readFileSync(p, 'utf8')); }
       catch (err) { this.lastError = `Service-account key read: ${(err as any)?.message}`; return; }
     } else {
-      // Not connected via OAuth and no service account either.
-      this.lastError = stored ? this.lastError || 'OAuth refresh_token present but GOOGLE_OAUTH_CLIENT_ID/SECRET env vars are missing' : 'Not connected. Click "Connect Google Drive" in Settings, or set GOOGLE_SERVICE_ACCOUNT_KEY_JSON for service-account mode.';
+      this.lastError = 'Drive credentials have not been configured on the server.';
       return;
     }
     try {
@@ -98,6 +100,7 @@ export class GoogleDriveService {
   status() {
     return {
       configured: this.isConfigured(),
+      verified: this.verified,
       mode: this.mode,
       connected_email: this.mode === 'oauth' ? this.oauthEmail : this.serviceEmail,
       folder_id: this.folderId,
@@ -193,12 +196,19 @@ export class GoogleDriveService {
   async uploadFile(localPath: string) {
     const drive = await this.drive();
     const name = path.basename(localPath);
-    const res = await drive.files.create({
-      requestBody: { name, parents: [this.folderId!] },
-      media: { mimeType: 'application/gzip', body: fs.createReadStream(localPath) },
-      fields: 'id, name, webViewLink, size',
-      supportsAllDrives: true,
-    });
+    let res;
+    try {
+      res = await drive.files.create({
+        requestBody: { name, parents: [this.folderId!] },
+        media: { mimeType: 'application/gzip', body: fs.createReadStream(localPath) },
+        fields: 'id, name, webViewLink, size',
+        supportsAllDrives: true,
+      });
+    } catch {
+      this.verified = false;
+      throw new Error('Google Drive rejected the backup upload');
+    }
+    this.verified = true;
     this.logger.log(`Uploaded ${name} → Drive (${res.data.id})`);
     return {
       id: res.data.id!,

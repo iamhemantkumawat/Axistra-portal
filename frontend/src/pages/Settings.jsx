@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import api from '../lib/api';
 import { PageHeader, Modal, Field } from '../components/Atoms';
-import BackupRestoreCard from '../components/BackupRestoreCard';
+import BackupRestoreCard from '../components/ProtectedBackupCard';
 import TwoFactorCard from '../components/TwoFactorCard';
 import CompanyBrandingCard from '../components/CompanyBrandingCard';
 import { useCurrency } from '../lib/currency';

@@ -3,14 +3,14 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuditModule } from '../audit/audit.module';
 import { AppSetting } from '../entities/app-setting.entity';
-import { BackupsController } from './backups.controller';
 import { BackupsService } from './backups.service';
 import { GoogleDriveService } from './google-drive.service';
-import { DriveOAuthCallbackController } from './drive-oauth-callback.controller';
+import { BackupStatusController, BackupTwoFactorGuard } from './backup-status.controller';
 
 @Module({
   imports: [ScheduleModule.forRoot(), TypeOrmModule.forFeature([AppSetting]), AuditModule],
-  controllers: [BackupsController, DriveOAuthCallbackController],
-  providers: [BackupsService, GoogleDriveService],
+  // Downloads, arbitrary uploads, and restores remain operator-only.
+  controllers: [BackupStatusController],
+  providers: [BackupsService, GoogleDriveService, BackupTwoFactorGuard],
 })
 export class BackupsModule {}
