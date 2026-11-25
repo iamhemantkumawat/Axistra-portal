@@ -182,7 +182,7 @@ class TestTelegramWebhookDefault:
         """POST /api/webhooks/telegram with minimal payload (no wallet_tag) should set payment_gateway='Binance'."""
         magnus_user = f"TEST_{TAG_PREFIX}_tg_{uuid.uuid4().hex[:6]}"
         tx_hash = f"TEST_{TAG_PREFIX}_TG_{uuid.uuid4().hex[:10]}"
-        secret = os.environ.get("PAYMENT_WEBHOOK_SECRET", "964dffaf381126785ca1275422dae351d38286ef78f65460")
+        secret = os.environ.get("PAYMENT_WEBHOOK_SECRET")
         payload = {
             "source": "telegram_manual",
             "magnus_username": magnus_user,

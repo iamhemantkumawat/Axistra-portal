@@ -462,3 +462,12 @@ See `/app/deploy-fork/` (or `/opt/axistra/deploy` on the VPS): `backup.sh`, `ngi
 - **Accountant-ready export (P2)**: `GET /api/reports/bundle/accountant-pack?year=YYYY` returns a full-year ZIP — cover PDF, PDF + XLSX for 10 reports (yearly-pl, monthly-sales, quarterly-sales, vat-threshold, corporate-tax, customer-recharge, crypto-to-aed, bank-reconciliation, expenses, suspicious), CSV manifest + README. Wired to "Accountant Pack" button in `/reports`.
 - Tests: `/app/backend/tests/test_2fa_and_accountant_pack_iter20.py` — 12/12 pass.
 
+
+## 2026-11-25 — Security merge, package updates, Gateway Intake toggle
+- Merged GitHub `emergent` branch commit 4f1991a (Nov incident hardening: JWT active-user + 2FA claim checks, admin-only staff mgmt, backup download/upload/restore routes removed, backup status/create need admin+2FA, KYC path-traversal fixes, no startup password resets, Drive creds from private file). `node --test tests/security-hardening.test.cjs` 10/10.
+- Package security updates: backend Nest 10.4.22, puppeteer 24, multer 2.5, exceljs/googleapis latest + yarn `resolutions` (proxy-addr, body-parser, lodash, qs, tmp, js-yaml, basic-ftp, ip-address, brace-expansion). Critical 0. Remaining: extract-zip/zod inside puppeteer (unused download/BiDi paths) + moderates needing Nest 11 major. Frontend: axios, react-router-dom, zod 4 → 0 vulnerabilities. Dockerfiles: node 22-alpine, nginx 1.29.
+- Puppeteer 24 returns Uint8Array → all `page.pdf` calls wrapped in `Buffer.from` (invoices, reports, payroll, net-worth).
+- NEW: Settings → "Gateway Recharge Intake" card. `GET/PUT /api/webhooks/intake-settings` (app_settings key `webhook_intake`, PUT admin-only). When OxaPay/BTCPay is OFF, webhook is logged (processed=false, "Intake paused in Settings") and returns 200 `{paused:true}`; no customer/recharge/invoice created.
+- Fix: gateway webhook with tx_hash but no crypto amount no longer leaves an orphan recharge/invoice (validated before create).
+- Tested: iteration_31 (backend 18/18 + 1 skip, frontend 100%).
+- Backlog: Nest 11 major upgrade; payroll accrual vs cash P&L; customer country picker; VAT201 PDF; custom date-range report.

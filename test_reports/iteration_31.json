@@ -1,0 +1,38 @@
+{
+  "summary": "Tested the new Gateway Recharge Intake toggle feature (webhook pause when OFF), auth on intake-settings, regression of PDF/export endpoints after package upgrades, and security hardening (commit 4f1991a). Backend: 19 pytest cases (18 pass, 1 skip) + 10 node security tests all pass. CA-role 403 confirmed via bash (created+DB-cleaned a TEST CA). Frontend smoke (login, dashboard, invoices+search, reports, settings toggle persistence) all pass with no console errors. Both intake toggles left ON. All TEST data cleaned up.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/webhooks/recharge (manual/oxapay with tx_hash but missing crypto_amount)", "issue": "createFromGatewayPayment() inserts the recharge+invoice row BEFORE addGatewayCryptoTx() validates tx_hash+crypto_amount; when that validation throws 400, the recharge/invoice are left orphaned (confirmed 2 orphans created, cleaned up manually). Not intake-feature related but worth wrapping in a transaction or validating before create."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter31_webhook_intake.py",
+    "/app/test_reports/pytest/iter31_results.xml",
+    "/app/backend-nest/tests/security-hardening.test.cjs"
+  ],
+  "action_items": [
+    "Documented CA credentials (ca@axistratech.com / ca123456 in test_credentials.md) do NOT work against the restored Aug-7 DB (returns 401 Invalid credentials). admin@axistratech.com/admin123 works. Either reseed the CA password or update the credentials doc.",
+    "Consider making gateway recharge creation transactional so a late crypto-tx validation failure does not leave orphan recharge+invoice rows (minor, pre-existing)."
+  ],
+  "critical_code_review_comments": [
+    "Intake pause check in webhooks.service.ts ingest() is correctly placed AFTER the webhook log row is saved, so paused webhooks are still logged with error_message 'Intake paused in Settings' and processed=false, and return {ok:true,paused:true} with no recharge created — matches spec.",
+    "PUT /api/webhooks/intake-settings is correctly guarded by AuthGuard('jwt')+AdminGuard (CA gets 403, GET is JWT-only and CA gets 200). Good.",
+    "Removed backup download/upload/restore routes return 404; GET /api/backups is 401 unauthenticated — security hardening verified by both pytest and node test suite."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter31_webhook_intake.py"
+  ],
+  "success_rate": {"backend": "100% (18/18 run, 1 skipped by design; 10/10 node security)", "frontend": "100%"},
+  "test_credentials": "admin@axistratech.com / admin123 (works). CA ca@axistratech.com/ca123456 FAILS on restored DB.",
+  "seed_data_creation": "None persisted. Created transient TEST recharges (oxapay/manual) and a TEST CA admin user for 403 check — all deleted (recharges via API DELETE, CA via DB delete by id). Both intake toggles restored to ON.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Webhook intake feature fully verified end-to-end (backend pause logic, auth, UI toggle persistence). Regression PDFs/exports (invoice pdf, report pdf/excel/csv, period bundle zip, payroll board-resolution.pdf, dashboard net-worth/pdf) all return correct content-types. Reusable test: /app/backend/tests/test_iter31_webhook_intake.py. Note the CA credential mismatch on the restored DB.",
+  "rca of the issue": "No feature bug found. The only backend assertion failures during the run were my test-payload issues (missing crypto_amount) which also surfaced a minor pre-existing orphan-on-error behavior in createFromGatewayPayment — reported as minor."
+}

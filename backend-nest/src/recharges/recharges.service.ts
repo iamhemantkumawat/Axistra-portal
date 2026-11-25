@@ -655,6 +655,12 @@ export class RechargesService implements OnModuleInit {
       return merged;
     }
 
+    const hasTx = data.tx_hash || data.gateway_transactions?.length;
+    if (hasTx && !this.gatewayTransactions(data, { crypto_amount: '0' } as Recharge)
+      .some((tx) => tx.tx_hash?.trim() && this.isPositiveNumber(tx.crypto_amount))) {
+      throw new BadRequestException('At least one payment TX hash and crypto amount is required');
+    }
+
     const recharge = await this.create({
       customer_id: customer.id,
       magnus_username: data.magnus_username || customer.magnus_username,
@@ -669,7 +675,7 @@ export class RechargesService implements OnModuleInit {
       admin_notes: data.admin_notes,
     }, actor);
 
-    if (data.tx_hash || data.gateway_transactions?.length) {
+    if (hasTx) {
       await this.addGatewayCryptoTx(recharge.id, { ...data, received_wallet: data.received_wallet, wallet_tag: data.wallet_tag }, actor);
     }
     if (data.magnus_credit_added || data.magnus_reference_id) {
