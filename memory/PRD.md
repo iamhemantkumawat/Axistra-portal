@@ -471,3 +471,4 @@ See `/app/deploy-fork/` (or `/opt/axistra/deploy` on the VPS): `backup.sh`, `ngi
 - Fix: gateway webhook with tx_hash but no crypto amount no longer leaves an orphan recharge/invoice (validated before create).
 - Tested: iteration_31 (backend 18/18 + 1 skip, frontend 100%).
 - Backlog: Nest 11 major upgrade; payroll accrual vs cash P&L; customer country picker; VAT201 PDF; custom date-range report.
+- 2026-11-25: Preview DB replaced with live backup axistra-manual-2026-11-25_16-53-38 (3215 invoices, 492 customers, 3215 recharges). Previous preview data saved at /app/imports/preview-before-nov25.sql.gz; old DB kept as `axistra_old`.
