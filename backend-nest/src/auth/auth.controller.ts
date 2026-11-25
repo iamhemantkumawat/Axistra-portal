@@ -1,5 +1,6 @@
 import { Body, Controller, Get, HttpCode, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { AdminGuard } from './admin.guard';
 import { AuthService } from './auth.service';
 import { TwoFaService } from './two-fa.service';
 
@@ -70,13 +71,13 @@ export class AuthController {
 
   // ---------- Admin user management ----------
 
-  @UseGuards(AuthGuard('jwt'))
+  @UseGuards(AuthGuard('jwt'), AdminGuard)
   @Get('admins')
   async listAdmins() {
     return this.auth.listAdmins();
   }
 
-  @UseGuards(AuthGuard('jwt'))
+  @UseGuards(AuthGuard('jwt'), AdminGuard)
   @Post('admins')
   async createAdmin(@Body() body: any) {
     const created = await this.auth.createAdmin(body);

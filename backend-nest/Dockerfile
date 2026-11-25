@@ -3,7 +3,8 @@
 # package-lock.json because yarn + npm cannot share the same project — keeping
 # them in sync is impossible and `npm ci` would otherwise install the stale
 # lockfile, missing dependencies added through `yarn add`.
-FROM node:20-alpine AS build
+FROM node:22-alpine AS build
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 WORKDIR /app
 RUN corepack enable
 COPY package.json yarn.lock ./
@@ -12,13 +13,14 @@ COPY tsconfig*.json nest-cli.json ./
 COPY src ./src
 RUN yarn build
 
-FROM node:20-alpine AS runtime
+FROM node:22-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 # Install Chromium for Puppeteer (PDF generation) + Postgres client for backups
 RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont postgresql-client \
   && rm -rf /var/cache/apk/*
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+ENV PUPPETEER_SKIP_DOWNLOAD=true \
+    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 RUN corepack enable

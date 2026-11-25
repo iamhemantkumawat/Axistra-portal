@@ -3,7 +3,7 @@
 # so the image MUST install with `yarn install --frozen-lockfile`. If you
 # previously saw "missing frontend/package-lock.json" errors on the VPS, that
 # was because an older Dockerfile used `npm ci`.
-FROM node:20-alpine AS build
+FROM node:22-alpine AS build
 WORKDIR /app
 RUN corepack enable
 
@@ -16,7 +16,7 @@ ARG REACT_APP_BACKEND_URL
 ENV REACT_APP_BACKEND_URL=$REACT_APP_BACKEND_URL
 RUN yarn build
 
-FROM nginx:1.27-alpine AS runtime
+FROM nginx:1.29-alpine AS runtime
 RUN apk add --no-cache curl
 COPY --from=build /app/dist /usr/share/nginx/html
 # SPA fallback so client-side routes always serve index.html

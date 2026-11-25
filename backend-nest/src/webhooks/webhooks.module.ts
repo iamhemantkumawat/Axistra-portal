@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
+import { AppSetting } from '../entities/app-setting.entity';
 import { PaymentWebhook } from '../entities/payment-webhook.entity';
 import { WalletLedger } from '../entities/wallet-ledger.entity';
 import { Recharge } from '../entities/recharge.entity';
@@ -12,7 +13,7 @@ import { OxaPaySyncService } from './oxapay-sync.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([PaymentWebhook, WalletLedger, Recharge, CryptoTransaction]),
+    TypeOrmModule.forFeature([AppSetting, PaymentWebhook, WalletLedger, Recharge, CryptoTransaction]),
     ScheduleModule.forRoot(),
     RechargesModule,
   ],

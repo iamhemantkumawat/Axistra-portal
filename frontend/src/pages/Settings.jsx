@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import api from '../lib/api';
 import { PageHeader, Modal, Field } from '../components/Atoms';
-import BackupRestoreCard from '../components/BackupRestoreCard';
+import BackupRestoreCard from '../components/ProtectedBackupCard';
 import TwoFactorCard from '../components/TwoFactorCard';
 import CompanyBrandingCard from '../components/CompanyBrandingCard';
 import { useCurrency } from '../lib/currency';
@@ -42,6 +42,7 @@ export default function Settings() {
         <CompanyCard />
         <ComplianceCard />
         <FxRatesCard />
+        <WebhookIntakeCard />
         <CompanyBrandingCard />
         <TwoFactorCard />
         <ReceivingWalletsCard />
@@ -196,6 +197,78 @@ function FxRatesCard() {
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+/* ---------------- Gateway Webhook Intake ---------------- */
+
+const INTAKE_GATEWAYS = [
+  { key: 'oxapay', label: 'OxaPay' },
+  { key: 'btcpay', label: 'BTCPay' },
+];
+
+function WebhookIntakeCard() {
+  const [intake, setIntake] = useState(null);
+  const [busy, setBusy] = useState('');
+
+  useEffect(() => {
+    api.get('/webhooks/intake-settings').then((r) => setIntake(r.data)).catch(() => {});
+  }, []);
+
+  const toggle = async (key) => {
+    setBusy(key);
+    try {
+      const r = await api.put('/webhooks/intake-settings', { [key]: !intake[key] });
+      setIntake(r.data);
+      toast.success(`${key === 'oxapay' ? 'OxaPay' : 'BTCPay'} new entries ${r.data[key] ? 'turned ON' : 'turned OFF'}`);
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Save failed');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  return (
+    <div className="card-axistra p-6" data-testid="webhook-intake-card">
+      <h3 className="font-display text-lg font-semibold mb-2">Gateway Recharge Intake</h3>
+      <p className="text-xs text-gray-500 mb-4 leading-relaxed">
+        When a gateway is <strong>OFF</strong>, its webhooks are still received and logged, but no customer,
+        recharge or invoice is created. Turn it back ON to resume automatic entries.
+      </p>
+      {!intake ? (
+        <p className="text-xs text-gray-500">Loading…</p>
+      ) : (
+        <div className="space-y-3">
+          {INTAKE_GATEWAYS.map((g) => {
+            const on = intake[g.key];
+            return (
+              <div key={g.key} className="flex items-center justify-between border border-gray-200 rounded-lg px-4 py-3">
+                <div>
+                  <div className="text-sm font-semibold">{g.label}</div>
+                  <div className={`text-xs ${on ? 'text-emerald-600' : 'text-red-600'}`} data-testid={`intake-${g.key}-status`}>
+                    {on ? 'New entries ON' : 'New entries OFF — paused'}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={on}
+                  disabled={busy === g.key}
+                  onClick={() => toggle(g.key)}
+                  className={`relative w-12 h-6 rounded-full transition-colors ${on ? 'bg-emerald-500' : 'bg-gray-300'}`}
+                  data-testid={`intake-${g.key}-toggle`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${on ? 'translate-x-6' : ''}`} />
+                </button>
+              </div>
+            );
+          })}
+          <div className="text-xs text-gray-500">
+            {intake.updated_at ? `Last changed ${new Date(intake.updated_at).toLocaleString()}${intake.updated_by ? ` by ${intake.updated_by}` : ''}` : 'Both gateways are ON by default.'}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

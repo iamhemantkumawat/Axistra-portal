@@ -1,6 +1,7 @@
-import { BadRequestException, Body, Controller, Get, Headers, Param, Post, Query, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Headers, Param, Post, Put, Query, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import * as crypto from 'crypto';
+import { AdminGuard } from '../auth/admin.guard';
 import { WebhooksService } from './webhooks.service';
 import { OxaPaySyncService } from './oxapay-sync.service';
 
@@ -30,6 +31,18 @@ export class WebhooksController {
   @Get('logs/stats')
   stats() {
     return this.svc.stats();
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Get('intake-settings')
+  intake() {
+    return this.svc.getIntake();
+  }
+
+  @UseGuards(AuthGuard('jwt'), AdminGuard)
+  @Put('intake-settings')
+  setIntake(@Body() body: any, @Req() req: any) {
+    return this.svc.setIntake(body || {}, req.user?.email);
   }
 
   @UseGuards(AuthGuard('jwt'))

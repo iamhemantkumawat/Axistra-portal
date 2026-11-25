@@ -120,7 +120,7 @@ export async function renderReportPdf(input: ReportPdfInput): Promise<Buffer> {
     const browser = await getBrowser();
     const page = await browser.newPage();
     await page.setContent(html, { waitUntil: 'networkidle0' });
-    const buf = await page.pdf({ format: 'A4', printBackground: true, preferCSSPageSize: true });
+    const buf = Buffer.from(await page.pdf({ format: 'A4', printBackground: true, preferCSSPageSize: true }));
     await page.close();
     return buf;
   } catch (err) {
@@ -167,7 +167,7 @@ export async function renderCoverPdf(input: { title: string; subtitle?: string; 
     const browser = await getBrowser();
     const page = await browser.newPage();
     await page.setContent(html, { waitUntil: 'networkidle0' });
-    const buf = await page.pdf({ format: 'A4', printBackground: true, preferCSSPageSize: true, margin: { top: 0, right: 0, bottom: 0, left: 0 } });
+    const buf = Buffer.from(await page.pdf({ format: 'A4', printBackground: true, preferCSSPageSize: true, margin: { top: 0, right: 0, bottom: 0, left: 0 } }));
     await page.close();
     return buf;
   } catch (err) {

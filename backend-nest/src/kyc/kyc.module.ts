@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { BadRequestException, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { MulterModule } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
@@ -22,10 +22,20 @@ fs.mkdirSync(UPLOAD_ROOT, { recursive: true });
     MulterModule.register({
       storage: diskStorage({
         destination: (req: any, _file, cb) => {
-          const customerId = req.params?.customerId || 'misc';
-          const dir = path.join(UPLOAD_ROOT, customerId);
-          fs.mkdirSync(dir, { recursive: true });
-          cb(null, dir);
+          const customerId = req.params?.customerId;
+          if (typeof customerId !== 'string' || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(customerId)) {
+            return cb(new BadRequestException('Invalid customer ID'), '');
+          }
+          try {
+            const dir = path.join(fs.realpathSync(UPLOAD_ROOT), customerId);
+            fs.mkdirSync(dir, { recursive: true });
+            if (!fs.lstatSync(dir).isDirectory()) {
+              return cb(new BadRequestException('Invalid upload directory'), '');
+            }
+            cb(null, dir);
+          } catch {
+            cb(new BadRequestException('Upload directory unavailable'), '');
+          }
         },
         filename: (_req, file, cb) => {
           const safe = file.originalname.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 80);

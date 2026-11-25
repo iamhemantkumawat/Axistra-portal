@@ -78,8 +78,7 @@ export class KycService {
     if (doc.file_url) {
       try {
         const fname = doc.file_url.split('/').pop();
-        const uploadRoot = path.resolve(process.cwd(), process.env.KYC_UPLOAD_DIR || '/app/uploads/kyc');
-        fs.unlinkSync(path.join(uploadRoot, doc.customer_id, fname));
+        if (fname) fs.unlinkSync(await this.download(doc.customer_id, fname));
       } catch (_) { /* ignore */ }
     }
     await this.repo.delete(docId);
@@ -92,9 +91,20 @@ export class KycService {
   }
 
   async download(customerId: string, fileName: string) {
-    const uploadRoot = path.resolve(process.cwd(), process.env.KYC_UPLOAD_DIR || '/app/uploads/kyc');
-    const filePath = path.join(uploadRoot, customerId, fileName);
-    if (!fs.existsSync(filePath)) throw new NotFoundException('File not found');
-    return filePath;
+    if (!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(customerId) ||
+        !/^[a-z0-9][a-z0-9._-]{0,127}$/i.test(fileName)) {
+      throw new NotFoundException('File not found');
+    }
+    try {
+      const root = fs.realpathSync(path.resolve(process.env.KYC_UPLOAD_DIR || '/app/uploads/kyc'));
+      const directory = path.join(root, customerId);
+      const filePath = path.join(directory, fileName);
+      if (!fs.lstatSync(directory).isDirectory() || !fs.lstatSync(filePath).isFile()) {
+        throw new NotFoundException('File not found');
+      }
+      return filePath;
+    } catch {
+      throw new NotFoundException('File not found');
+    }
   }
 }

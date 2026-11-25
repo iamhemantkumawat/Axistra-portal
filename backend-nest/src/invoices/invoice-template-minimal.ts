@@ -470,13 +470,13 @@ export async function renderMinimalInvoicePdf(inv: InvoiceView, branding: Brandi
     const browser = await getBrowser();
     const page = await browser.newPage();
     await page.setContent(html, { waitUntil: 'networkidle0' });
-    const buf = await page.pdf({
+    const buf = Buffer.from(await page.pdf({
       format: 'A4',
       printBackground: true,
       preferCSSPageSize: true,
       pageRanges: '1',
       margin: { top: 0, right: 0, bottom: 0, left: 0 },
-    });
+    }));
     await page.close();
     pdfCache.set(key, buf);
     return buf;

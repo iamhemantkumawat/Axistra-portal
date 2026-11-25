@@ -1,8 +1,11 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { spawn } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { randomBytes } from 'crypto';
+import { pipeline } from 'stream/promises';
+import { createGzip } from 'zlib';
 import { AuditService } from '../audit/audit.service';
 import { GoogleDriveService } from './google-drive.service';
 
@@ -33,7 +36,8 @@ export class BackupsService {
   async createBackup(opts: { kind?: 'manual' | 'scheduled' | 'safety'; actor?: any; uploadToDrive?: boolean } = {}): Promise<any> {
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19);
     const kind = opts.kind || 'manual';
-    const fileName = `axistra-${kind}-${stamp}.sql.gz`;
+    const suffix = randomBytes(4).toString('hex');
+    const fileName = `axistra-${kind}-${stamp}-${suffix}.sql.gz`;
     const filePath = path.join(BACKUP_DIR, fileName);
     const dbHost = process.env.DATABASE_HOST || 'localhost';
     const dbPort = process.env.DATABASE_PORT || '5432';
@@ -41,24 +45,26 @@ export class BackupsService {
     const dbName = process.env.DATABASE_NAME || 'axistra_db';
     const dbPass = process.env.DATABASE_PASSWORD || '';
 
-    await new Promise<void>((resolve, reject) => {
-      const env = { ...process.env, PGPASSWORD: dbPass };
-      const dump = spawn('pg_dump', [
-        '-h', dbHost, '-p', dbPort, '-U', dbUser,
-        '--no-owner', '--no-privileges', '--format=plain', dbName,
-      ], { env });
-      const gzip = spawn('gzip', ['-9']);
-      const out = fs.createWriteStream(filePath);
-      dump.stdout.pipe(gzip.stdin);
-      gzip.stdout.pipe(out);
-      let stderr = '';
-      dump.stderr.on('data', (d) => { stderr += d.toString(); });
-      gzip.on('close', (code) => {
-        if (code === 0) resolve(); else reject(new Error(`gzip exited ${code}: ${stderr}`));
-      });
-      dump.on('error', reject);
-      gzip.on('error', reject);
+    const staging = `${filePath}.partial`;
+    const dump = spawn('pg_dump', [
+      '-h', dbHost, '-p', dbPort, '-U', dbUser,
+      '--no-owner', '--no-privileges', '--format=plain', '-d', dbName,
+    ], { env: { ...process.env, PGPASSWORD: dbPass }, stdio: ['ignore', 'pipe', 'ignore'] });
+    const finished = new Promise<void>((resolve, reject) => {
+      dump.once('error', reject);
+      dump.once('close', (code) => code === 0 ? resolve() : reject(new Error('pg_dump failed')));
     });
+    const output = pipeline(dump.stdout, createGzip({ level: 6 }),
+      fs.createWriteStream(staging, { flags: 'wx', mode: 0o600 }));
+    try {
+      await Promise.all([finished, output]);
+      await fs.promises.rename(staging, filePath);
+    } catch (error) {
+      dump.kill();
+      await Promise.allSettled([finished, output]);
+      await fs.promises.unlink(staging).catch(() => undefined);
+      throw error;
+    }
 
     const stat = fs.statSync(filePath);
     await this.audit.log({
@@ -95,7 +101,8 @@ export class BackupsService {
     try {
       return fs.readdirSync(BACKUP_DIR)
         .filter((n) => n.endsWith('.sql.gz') || n.endsWith('.dump.gz'))
-        .map((n) => this.toMeta(n, fs.statSync(path.join(BACKUP_DIR, n))))
+        .map((n) => ({ n, stat: fs.lstatSync(path.join(BACKUP_DIR, n), { throwIfNoEntry: false }) }))
+        .flatMap(({ n, stat }) => stat?.isFile() ? [this.toMeta(n, stat)] : [])
         .sort((a, b) => b.created_at.localeCompare(a.created_at));
     } catch {
       return [];
@@ -107,7 +114,10 @@ export class BackupsService {
     if (name.includes('..') || name.includes('/') || name.includes('\\')) {
       throw new BadRequestException('Invalid backup name');
     }
-    const fp = path.join(BACKUP_DIR, name);
+    const fp = path.resolve(BACKUP_DIR, name);
+    if (path.dirname(fp) !== path.resolve(BACKUP_DIR)) {
+      throw new BadRequestException('Invalid backup name');
+    }
     if (!fs.existsSync(fp)) throw new NotFoundException(`Backup ${name} not found`);
     return fp;
   }
@@ -218,7 +228,15 @@ export class BackupsService {
       throw new BadRequestException('Only .sql.gz or .dump.gz uploads are allowed');
     }
     const target = path.join(BACKUP_DIR, safe);
-    fs.writeFileSync(target, file.buffer);
+    const staging = `${target}.uploading-${process.pid}-${Date.now()}`;
+    fs.writeFileSync(staging, file.buffer, { flag: 'wx' });
+    try {
+      this.validateDumpFile(staging);
+      fs.renameSync(staging, target);
+    } catch (err) {
+      try { fs.unlinkSync(staging); } catch {}
+      throw err;
+    }
     const stat = fs.statSync(target);
     await this.audit.log({
       actor_id: actor?.id, actor_email: actor?.email,
@@ -237,6 +255,9 @@ export class BackupsService {
       throw new BadRequestException('Confirmation phrase missing or wrong. Pass {confirm:"I_UNDERSTAND_THIS_REPLACES_ALL_DATA"} in the body.');
     }
     const fp = this.fullPath(name);
+    // Validate the archive before taking the database offline. A malformed
+    // upload must never be able to leave the live schema empty.
+    this.validateDumpFile(fp);
     const dbHost = process.env.DATABASE_HOST || 'localhost';
     const dbPort = process.env.DATABASE_PORT || '5432';
     const dbUser = process.env.DATABASE_USER || 'axistra';
@@ -258,7 +279,7 @@ export class BackupsService {
       reset.on('close', (code) => {
         if (code !== 0) return reject(new Error(`reset failed: ${resetErr}`));
         const gunzip = spawn('gunzip', ['-c', fp]);
-        const psql = spawn('psql', ['-h', dbHost, '-p', dbPort, '-U', dbUser, '-d', dbName, '-q'], { env });
+        const psql = spawn('psql', ['-h', dbHost, '-p', dbPort, '-U', dbUser, '-d', dbName, '-q', '-v', 'ON_ERROR_STOP=1'], { env });
         gunzip.stdout.pipe(psql.stdin);
         let stderr = '';
         psql.stderr.on('data', (d) => { stderr += d.toString(); });
@@ -324,5 +345,25 @@ export class BackupsService {
     if (n < 1024) return `${n} B`;
     if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
     return `${(n / 1024 / 1024).toFixed(2)} MB`;
+  }
+
+  private validateDumpFile(fp: string) {
+    const stat = fs.statSync(fp);
+    // Reject probe/test files and other non-dumps before any destructive step.
+    if (stat.size < 64 * 1024) {
+      throw new BadRequestException('Backup is too small to be a valid Axistra database dump');
+    }
+    const gzip = spawnSync('gzip', ['-t', '--', fp], { encoding: 'utf8' });
+    if (gzip.status !== 0) {
+      throw new BadRequestException('Backup archive is not a valid gzip file');
+    }
+    const preview = spawnSync('bash', ['-lc', 'gunzip -c -- "$1" | head -c 262144', 'validate-dump', fp], {
+      encoding: 'utf8',
+      maxBuffer: 512 * 1024,
+    });
+    const text = preview.stdout || '';
+    if (preview.status !== 0 || !/PostgreSQL database dump|CREATE TABLE|COPY public\./i.test(text)) {
+      throw new BadRequestException('Backup does not look like a PostgreSQL SQL dump');
+    }
   }
 }

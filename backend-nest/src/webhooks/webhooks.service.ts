@@ -2,16 +2,37 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PaymentWebhook } from '../entities/payment-webhook.entity';
+import { AppSetting } from '../entities/app-setting.entity';
 import { RechargesService } from '../recharges/recharges.service';
 
 type Source = 'btcpay' | 'oxapay' | 'telegram_manual' | 'manual';
+const INTAKE_KEY = 'webhook_intake';
+type Intake = { oxapay: boolean; btcpay: boolean; updated_at?: string; updated_by?: string };
 
 @Injectable()
 export class WebhooksService {
   constructor(
     @InjectRepository(PaymentWebhook) private repo: Repository<PaymentWebhook>,
+    @InjectRepository(AppSetting) private appSettings: Repository<AppSetting>,
     private recharges: RechargesService,
   ) {}
+
+  async getIntake(): Promise<Intake> {
+    const row = await this.appSettings.findOne({ where: { key: INTAKE_KEY } });
+    return { oxapay: true, btcpay: true, ...(row?.value || {}) };
+  }
+
+  async setIntake(body: Partial<Intake>, by?: string): Promise<Intake> {
+    const current = await this.getIntake();
+    const next: Intake = {
+      oxapay: typeof body.oxapay === 'boolean' ? body.oxapay : current.oxapay,
+      btcpay: typeof body.btcpay === 'boolean' ? body.btcpay : current.btcpay,
+      updated_at: new Date().toISOString(),
+      updated_by: by,
+    };
+    await this.appSettings.save({ key: INTAKE_KEY, value: next } as AppSetting);
+    return next;
+  }
 
   async ingest(source: Source, payload: any) {
     const normalized = this.normalize(source, payload);
@@ -23,6 +44,15 @@ export class WebhooksService {
       tx_hash: normalized.tx_hash,
       raw_payload: JSON.stringify(payload),
     }));
+
+    if (source === 'oxapay' || source === 'btcpay') {
+      const intake = await this.getIntake();
+      if (!intake[source]) {
+        webhook.error_message = 'Intake paused in Settings — no recharge created';
+        await this.repo.save(webhook);
+        return { ok: true, source, webhook_id: webhook.id, paused: true };
+      }
+    }
 
     try {
       if (!normalized.amount && !normalized.should_ignore) {
