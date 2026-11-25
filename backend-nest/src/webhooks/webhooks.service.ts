@@ -7,6 +7,8 @@ import { RechargesService } from '../recharges/recharges.service';
 
 type Source = 'btcpay' | 'oxapay' | 'telegram_manual' | 'manual';
 const INTAKE_KEY = 'webhook_intake';
+const PAUSED_MSG = 'PAUSED: Intake was OFF in Settings — no entry created';
+const INTAKE_SKIPPED_MSG = 'Intake OFF — informational event skipped';
 type Intake = { oxapay: boolean; btcpay: boolean; updated_at?: string; updated_by?: string };
 
 @Injectable()
@@ -34,21 +36,25 @@ export class WebhooksService {
     return next;
   }
 
-  async ingest(source: Source, payload: any) {
+  async ingest(source: Source, payload: any, existing?: PaymentWebhook) {
     const normalized = this.normalize(source, payload);
     const externalId = normalized.external_event_id || normalized.gateway_invoice_id || normalized.tx_hash;
-    const webhook = await this.repo.save(this.repo.create({
-      source,
-      external_event_id: externalId,
-      gateway_invoice_id: normalized.gateway_invoice_id,
-      tx_hash: normalized.tx_hash,
-      raw_payload: JSON.stringify(payload),
-    }));
-
-    if (source === 'oxapay' || source === 'btcpay') {
-      const intake = await this.getIntake();
-      if (!intake[source]) {
-        webhook.error_message = 'Intake paused in Settings — no recharge created';
+    let webhook: PaymentWebhook;
+    if (existing) {
+      existing.error_message = null as any;
+      webhook = await this.repo.save(existing);
+    } else {
+      webhook = await this.repo.save(this.repo.create({
+        source,
+        external_event_id: externalId,
+        gateway_invoice_id: normalized.gateway_invoice_id,
+        tx_hash: normalized.tx_hash,
+        raw_payload: JSON.stringify(payload),
+      }));
+      const gateway = this.intakeGateway(source, normalized);
+      if (gateway && !(await this.getIntake())[gateway]) {
+        webhook.processed = !!normalized.should_ignore;
+        webhook.error_message = normalized.should_ignore ? INTAKE_SKIPPED_MSG : PAUSED_MSG;
         await this.repo.save(webhook);
         return { ok: true, source, webhook_id: webhook.id, paused: true };
       }
@@ -136,6 +142,23 @@ export class WebhooksService {
     }
   }
 
+  private intakeGateway(source: Source, normalized: any): 'oxapay' | 'btcpay' | null {
+    if (source === 'oxapay' || source === 'btcpay') return source;
+    const g = String(normalized.payment_gateway || '').toLowerCase();
+    if (g.includes('oxapay')) return 'oxapay';
+    if (g.includes('btcpay')) return 'btcpay';
+    return null;
+  }
+
+  async releasePaused(id: string) {
+    const row = await this.repo.findOne({ where: { id } });
+    if (!row) throw new NotFoundException('Webhook log not found');
+    if (row.processed || !String(row.error_message || '').startsWith('PAUSED:')) {
+      throw new BadRequestException('This webhook is not a paused payment');
+    }
+    return this.ingest(row.source as Source, JSON.parse(row.raw_payload), row);
+  }
+
   async listLogs(options: { source?: string; processed?: string; q?: string; limit?: number; offset?: number }) {
     const limit = Math.min(Math.max(options.limit || 100, 1), 500);
     const offset = Math.max(options.offset || 0, 0);
@@ -144,7 +167,9 @@ export class WebhooksService {
     if (options.source && options.source !== 'all') {
       qb.andWhere('w.source = :source', { source: options.source });
     }
-    if (options.processed === 'true' || options.processed === 'false') {
+    if (options.processed === 'paused') {
+      qb.andWhere('w.processed = false AND w.error_message LIKE :paused', { paused: 'PAUSED:%' });
+    } else if (options.processed === 'true' || options.processed === 'false') {
       qb.andWhere('w.processed = :processed', { processed: options.processed === 'true' });
     }
     if (options.q) {
@@ -169,7 +194,8 @@ export class WebhooksService {
       .select('w.source', 'source')
       .addSelect('COUNT(*)', 'count')
       .addSelect('SUM(CASE WHEN w.processed = true THEN 1 ELSE 0 END)', 'processed')
-      .addSelect('SUM(CASE WHEN w.error_message IS NOT NULL THEN 1 ELSE 0 END)', 'errors')
+      .addSelect("SUM(CASE WHEN w.error_message IS NOT NULL AND w.error_message NOT LIKE 'PAUSED:%' THEN 1 ELSE 0 END)", 'errors')
+      .addSelect("SUM(CASE WHEN w.processed = false AND w.error_message LIKE 'PAUSED:%' THEN 1 ELSE 0 END)", 'paused')
       .groupBy('w.source')
       .orderBy('w.source', 'ASC')
       .getRawMany();
@@ -182,6 +208,7 @@ export class WebhooksService {
         count: Number(row.count || 0),
         processed: Number(row.processed || 0),
         errors: Number(row.errors || 0),
+        paused: Number(row.paused || 0),
       })),
     };
   }
@@ -189,7 +216,18 @@ export class WebhooksService {
   async getLog(id: string) {
     const row = await this.repo.findOne({ where: { id } });
     if (!row) throw new NotFoundException('Webhook log not found');
-    return this.serializeWebhook(row, true);
+    const out: any = this.serializeWebhook(row, true);
+    if (!row.processed && String(row.error_message || '').startsWith('PAUSED:')) {
+      try {
+        const n = this.normalize(row.source as Source, JSON.parse(row.raw_payload));
+        out.preview = {
+          amount: n.amount, currency: n.currency, crypto_amount: n.crypto_amount, crypto_coin: n.crypto_coin,
+          magnus_username: n.magnus_username, email: n.email, full_name: n.full_name,
+          payment_gateway: n.payment_gateway, tx_hash: n.tx_hash, gateway_invoice_id: n.gateway_invoice_id, paid: n.paid,
+        };
+      } catch { out.preview = null; }
+    }
+    return out;
   }
 
   private scheduleOxaPayEnrichment(rechargeId: string, normalized: any) {

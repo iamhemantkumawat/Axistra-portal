@@ -35,6 +35,16 @@ const PAYMENT_METHODS = [
   { value: 'Other', label: 'Other' },
 ];
 
+const vendorDefaults = (v, f) => ({
+  vendor_id: v?.id || '',
+  vendor_name: v?.name || '',
+  payment_method: v?.default_payment_method || f.payment_method,
+  currency: v?.default_currency || f.currency,
+  source_wallet: v?.default_wallet || f.source_wallet,
+  crypto_network: v?.default_network || f.crypto_network,
+  vendor_wallet: v?.default_vendor_wallet || f.vendor_wallet,
+});
+
 export default function Expenses() {
   const [items, setItems] = useState([]);
   const [vendors, setVendors] = useState([]);
@@ -67,11 +77,8 @@ export default function Expenses() {
     setEditingId(null);
     setForm({
       ...empty,
-      vendor_id: v.id,
-      vendor_name: v.name,
+      ...vendorDefaults(v, empty),
       category: v.type === 'SaaS' ? 'Software' : v.type === 'VPS / Hosting' ? 'VPS' : 'Vendor',
-      payment_method: v.default_payment_method || empty.payment_method,
-      source_wallet: v.default_wallet || empty.source_wallet,
     });
     setOpen(true);
     // Strip the query param so refreshing the page doesn't re-open the modal.
@@ -119,13 +126,7 @@ export default function Expenses() {
   const onVendorChange = (e) => {
     const id = e.target.value;
     const v = vendors.find((x) => x.id === id);
-    setForm((f) => ({
-      ...f,
-      vendor_id: id,
-      vendor_name: v?.name || '',
-      payment_method: v?.default_payment_method || f.payment_method,
-      source_wallet: v?.default_wallet || f.source_wallet,
-    }));
+    setForm((f) => ({ ...f, ...vendorDefaults(v, f), vendor_id: id }));
   };
 
   const submit = async (e) => {
@@ -219,20 +220,6 @@ export default function Expenses() {
 
       <Modal open={open} onClose={() => { setOpen(false); setEditingId(null); }} title={editingId ? 'Edit Expense' : 'Add Expense'} testId="expense-modal" size="lg">
         <form onSubmit={submit} className="grid grid-cols-2 gap-4">
-          {/* Step 1: Payment method FIRST */}
-          <Field label="Payment Method *" span={2}>
-            <select className="input-axistra" value={form.payment_method} onChange={(e) => setForm({ ...form, payment_method: e.target.value, source_wallet: '', bank_name: '' })} data-testid="exp-form-method">
-              {PAYMENT_METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-            </select>
-          </Field>
-
-          <Field label="Date *">
-            <input type="date" required className="input-axistra" value={form.expense_date} onChange={(e) => setForm({ ...form, expense_date: e.target.value })} data-testid="exp-form-date" />
-          </Field>
-          <Field label="Category">
-            <select className="input-axistra" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} data-testid="exp-form-category">{CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select>
-          </Field>
-
           <Field label="Vendor *" span={2}>
             {vendors.length > 0 ? (
               <select required className="input-axistra" value={form.vendor_id} onChange={onVendorChange} data-testid="exp-form-vendor">
@@ -243,10 +230,26 @@ export default function Expenses() {
               <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs flex items-start gap-2">
                 <Info size={14} className="text-amber-700 mt-0.5 flex-shrink-0" />
                 <div>
-                  No vendors yet. <a href="/settings" className="underline font-semibold">Add one under Settings → Vendors</a>, then come back to log this expense.
+                  No vendors yet. <a href="/settings?tab=vendors" className="underline font-semibold">Add one under Settings → Vendors</a>, then come back to log this expense.
                 </div>
               </div>
             )}
+          </Field>
+
+          <Field label="Payment Method *" span={2}>
+            <select className="input-axistra" value={form.payment_method} onChange={(e) => {
+              const v = vendors.find((x) => x.id === form.vendor_id);
+              setForm({ ...form, payment_method: e.target.value, source_wallet: v?.default_wallet || '', bank_name: '' });
+            }} data-testid="exp-form-method">
+              {PAYMENT_METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+            </select>
+          </Field>
+
+          <Field label="Date *">
+            <input type="date" required className="input-axistra" value={form.expense_date} onChange={(e) => setForm({ ...form, expense_date: e.target.value })} data-testid="exp-form-date" />
+          </Field>
+          <Field label="Category">
+            <select className="input-axistra" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} data-testid="exp-form-category">{CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select>
           </Field>
 
           <Field label="Amount *"><input required type="number" step="0.01" className="input-axistra" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} data-testid="exp-form-amount" /></Field>
@@ -284,7 +287,7 @@ export default function Expenses() {
                 </select>
               </Field>
               <Field label="Network">
-                <select className="input-axistra" value={form.crypto_network} onChange={(e) => setForm({ ...form, crypto_network: e.target.value })}>
+                <select className="input-axistra" value={form.crypto_network} onChange={(e) => setForm({ ...form, crypto_network: e.target.value })} data-testid="exp-form-network">
                   <option>TRC20</option><option>ERC20</option><option>BEP20</option><option>Polygon</option><option>OFF_CHAIN</option>
                 </select>
               </Field>

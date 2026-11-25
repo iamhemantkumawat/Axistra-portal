@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import api from '../lib/api';
 import { Badge, Hash, KpiCard, Modal, PageHeader } from '../components/Atoms';
 import { fmtDateTime } from '../lib/format';
-import { ArrowsClockwise, CheckCircle, WarningCircle } from '@phosphor-icons/react';
+import { ArrowsClockwise, CheckCircle, WarningCircle, PauseCircle } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 
 const SOURCE_LABELS = {
@@ -35,13 +35,17 @@ export default function WebhookLogs() {
   const [loading, setLoading] = useState(false);
   const [detail, setDetail] = useState(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [view, setView] = useState('all');
+  const [confirm, setConfirm] = useState(null);
+  const [releasing, setReleasing] = useState(false);
 
   const load = async () => {
     setLoading(true);
     try {
       const params = { limit: 200 };
       if (source !== 'all') params.source = source;
-      if (processed !== 'all') params.processed = processed;
+      if (view === 'paused') params.processed = 'paused';
+      else if (processed !== 'all') params.processed = processed;
       if (q.trim()) params.q = q.trim();
       const [logsRes, statsRes] = await Promise.all([
         api.get('/webhooks/logs', { params }),
@@ -57,7 +61,35 @@ export default function WebhookLogs() {
     }
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [source, processed]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [source, processed, view]);
+
+  const pausedCount = useMemo(
+    () => stats.by_source?.reduce((sum, item) => sum + Number(item.paused || 0), 0) || 0,
+    [stats],
+  );
+
+  const openConfirm = async (id) => {
+    try {
+      const { data } = await api.get(`/webhooks/logs/${id}`);
+      setConfirm(data);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to load paused payment');
+    }
+  };
+
+  const releaseNow = async () => {
+    setReleasing(true);
+    try {
+      const { data } = await api.post(`/webhooks/logs/${confirm.id}/release`);
+      toast.success(data.duplicate ? 'Already recorded — linked to existing recharge' : `Entry created${data.invoice_number ? ` — invoice ${data.invoice_number}` : ''}`);
+      setConfirm(null);
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to create entry');
+    } finally {
+      setReleasing(false);
+    }
+  };
 
   const errorCount = useMemo(
     () => stats.by_source?.reduce((sum, item) => sum + Number(item.errors || 0), 0) || 0,
@@ -93,6 +125,29 @@ export default function WebhookLogs() {
         actions={<button onClick={load} className="btn-secondary inline-flex items-center gap-2"><ArrowsClockwise size={16} /> Refresh</button>}
       />
 
+      <div className="flex gap-2 mb-4 border-b border-gray-200" role="tablist" data-testid="webhook-view-tabs">
+        {[{ k: 'all', l: 'All Webhooks' }, { k: 'paused', l: `Paused (${pausedCount})` }].map((t) => (
+          <button
+            key={t.k}
+            type="button"
+            role="tab"
+            aria-selected={view === t.k}
+            onClick={() => setView(t.k)}
+            className={`px-4 py-2.5 -mb-px text-sm font-semibold border-b-2 transition-colors ${view === t.k ? 'border-axistra-green text-axistra-green' : 'border-transparent text-gray-500 hover:text-gray-900'}`}
+            data-testid={`webhook-tab-${t.k}`}
+          >
+            {t.l}
+          </button>
+        ))}
+      </div>
+
+      {view === 'paused' && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 mb-4 text-sm text-amber-800 flex items-start gap-2" data-testid="paused-info">
+          <PauseCircle size={18} className="flex-shrink-0 mt-0.5" />
+          <div>These payments arrived while Gateway Recharge Intake was OFF (Settings → Payments). No customer, recharge or invoice was created. Use <strong>Create entry now</strong> to record one manually.</div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
         <KpiCard label="Total Webhooks" value={stats.total || 0} sub={`${total} matching current filters`} icon={ArrowsClockwise} />
         <KpiCard label="Processed" value={processedCount} sub="Created, ignored, or duplicate-linked" accent icon={CheckCircle} />
@@ -115,7 +170,7 @@ export default function WebhookLogs() {
           <option value="telegram_manual">Telegram Bot</option>
           <option value="manual">Manual</option>
         </select>
-        <select value={processed} onChange={(e) => setProcessed(e.target.value)} className="input-axistra" data-testid="webhook-processed-filter">
+        <select value={processed} onChange={(e) => setProcessed(e.target.value)} disabled={view === 'paused'} className="input-axistra" data-testid="webhook-processed-filter">
           <option value="all">All statuses</option>
           <option value="true">Processed</option>
           <option value="false">Unprocessed / Error</option>
@@ -152,7 +207,9 @@ export default function WebhookLogs() {
                 <td><Hash value={row.tx_hash} /></td>
                 <td className="font-mono text-xs text-gray-600">{row.recharge_id ? row.recharge_id.slice(0, 8) : '—'}</td>
                 <td>
-                  {row.error_message
+                  {String(row.error_message || '').startsWith('PAUSED:') && !row.processed
+                    ? <Badge className="badge-warning">Paused</Badge>
+                    : row.error_message
                     ? <Badge className="badge-warning">Note</Badge>
                     : row.processed
                       ? <Badge className="badge-success">Processed</Badge>
@@ -160,14 +217,41 @@ export default function WebhookLogs() {
                   {row.error_message && <div className="text-[11px] text-amber-700 max-w-xs truncate mt-1">{row.error_message}</div>}
                 </td>
                 <td className="font-mono text-xs text-gray-500">{row.raw_payload_size || 0} chars</td>
-                <td className="text-right">
-                  <button onClick={() => openDetail(row.id)} className="btn-secondary text-xs">View JSON</button>
+                <td className="text-right whitespace-nowrap">
+                  {String(row.error_message || '').startsWith('PAUSED:') && !row.processed && (
+                    <button onClick={() => openConfirm(row.id)} className="btn-primary text-xs mr-2" data-testid={`webhook-release-${row.id}`}>Create entry now</button>
+                  )}
+                  <button onClick={() => openDetail(row.id)} className="btn-secondary text-xs" data-testid={`webhook-view-${row.id}`}>View JSON</button>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      <Modal open={!!confirm} onClose={() => setConfirm(null)} title="Create entry from paused payment?" testId="webhook-release-modal">
+        {confirm && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div><div className="label-xs">Gateway</div><div>{confirm.preview?.payment_gateway || SOURCE_LABELS[confirm.source]}</div></div>
+              <div><div className="label-xs">Received</div><div>{fmtDateTime(confirm.created_at)}</div></div>
+              <div><div className="label-xs">Amount</div><div className="font-mono font-semibold" data-testid="release-amount">{confirm.preview?.amount || '—'} {confirm.preview?.currency || ''}</div></div>
+              <div><div className="label-xs">Crypto</div><div className="font-mono">{confirm.preview?.crypto_amount || '—'} {confirm.preview?.crypto_coin || ''}</div></div>
+              <div><div className="label-xs">Magnus User</div><div className="font-mono" data-testid="release-magnus">{confirm.preview?.magnus_username || '—'}</div></div>
+              <div><div className="label-xs">Customer</div><div>{confirm.preview?.full_name || confirm.preview?.email || '—'}</div></div>
+              <div className="col-span-2"><div className="label-xs">Gateway Invoice / TX</div><div className="font-mono text-xs break-all">{confirm.preview?.gateway_invoice_id || '—'} · {confirm.preview?.tx_hash || 'no TX yet'}</div></div>
+            </div>
+            {confirm.preview && !confirm.preview.paid && (
+              <div className="rounded border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">The gateway did not mark this payment as paid yet — the recharge will be created as pending.</div>
+            )}
+            <p className="text-xs text-gray-500">This creates the customer (if new), recharge and invoice exactly like a normal webhook, even though intake is OFF.</p>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setConfirm(null)} className="btn-secondary" data-testid="release-cancel">Cancel</button>
+              <button type="button" onClick={releaseNow} disabled={releasing} className="btn-primary" data-testid="release-confirm">{releasing ? 'Creating…' : 'Yes, create entry'}</button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       <Modal open={detailOpen} onClose={() => setDetailOpen(false)} title="Webhook Payload" size="xl" testId="webhook-detail-modal">
         {detail && (

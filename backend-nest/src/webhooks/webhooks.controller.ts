@@ -45,6 +45,12 @@ export class WebhooksController {
     return this.svc.setIntake(body || {}, req.user?.email);
   }
 
+  @UseGuards(AuthGuard('jwt'), AdminGuard)
+  @Post('logs/:id/release')
+  release(@Param('id') id: string) {
+    return this.svc.releasePaused(id);
+  }
+
   @UseGuards(AuthGuard('jwt'))
   @Get('logs/:id')
   log(@Param('id') id: string) {

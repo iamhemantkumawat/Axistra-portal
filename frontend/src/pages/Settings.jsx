@@ -7,7 +7,7 @@ import CompanyBrandingCard from '../components/CompanyBrandingCard';
 import { useCurrency } from '../lib/currency';
 import { Plus, Pencil, Trash, Copy, CreditCard } from '@phosphor-icons/react';
 import { toast } from 'sonner';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 const COMPANY = {
   name: 'AXISTRA TECHNOLOGIES - FZCO',
@@ -29,25 +29,52 @@ const NETWORKS = ['BTC', 'TRC20', 'ERC20', 'BEP20', 'Polygon', 'Solana', 'OFF_CH
 const WALLET_CODES = ['BINANCE', 'OKX', 'OXAPAY', 'BTCPAY', 'WIO_BANK'];
 const PAYMENT_METHODS = ['Bank', 'Card', 'USDT', 'BinancePay', 'Cash', 'Other'];
 
+const TABS = [
+  { key: 'company', label: 'Company', cards: [CompanyCardWrap, ComplianceCardWrap, BrandingWrap] },
+  { key: 'payments', label: 'Payments', cards: [FxWrap, IntakeWrap, WalletsWrap] },
+  { key: 'vendors', label: 'Vendors', cards: [VendorsWrap] },
+  { key: 'security', label: 'Security & Backup', cards: [TwoFaWrap, BackupWrap] },
+];
+
+function CompanyCardWrap() { return <CompanyCard />; }
+function ComplianceCardWrap() { return <ComplianceCard />; }
+function BrandingWrap() { return <CompanyBrandingCard />; }
+function FxWrap() { return <FxRatesCard />; }
+function IntakeWrap() { return <WebhookIntakeCard />; }
+function WalletsWrap() { return <ReceivingWalletsCard />; }
+function VendorsWrap() { return <VendorsCard />; }
+function TwoFaWrap() { return <TwoFactorCard />; }
+function BackupWrap() { return <BackupRestoreCard />; }
+
 export default function Settings() {
+  const [params, setParams] = useSearchParams();
+  const active = TABS.find((t) => t.key === params.get('tab')) || TABS[0];
   return (
     <div>
       <PageHeader
         eyebrow="Configuration"
         title="Settings"
-        subtitle="Company identity, receiving wallets, vendors and audit-chain configuration."
+        subtitle="Company identity, payments, vendors, security and backups."
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <CompanyCard />
-        <ComplianceCard />
-        <FxRatesCard />
-        <WebhookIntakeCard />
-        <CompanyBrandingCard />
-        <TwoFactorCard />
-        <ReceivingWalletsCard />
-        <VendorsCard />
-        <BackupRestoreCard />
+      <div className="flex flex-wrap gap-2 mb-6 border-b border-gray-200" role="tablist" data-testid="settings-tabs">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            role="tab"
+            aria-selected={active.key === t.key}
+            onClick={() => setParams({ tab: t.key }, { replace: true })}
+            className={`px-4 py-2.5 -mb-px text-sm font-semibold border-b-2 transition-colors ${active.key === t.key ? 'border-axistra-green text-axistra-green' : 'border-transparent text-gray-500 hover:text-gray-900'}`}
+            data-testid={`settings-tab-${t.key}`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5" data-testid={`settings-panel-${active.key}`}>
+        {active.cards.map((C, i) => <C key={`${active.key}-${i}`} />)}
       </div>
     </div>
   );
@@ -410,7 +437,9 @@ function ReceivingWalletsCard() {
 
 /* ---------------- Vendors ---------------- */
 
-const emptyVendor = { name: '', type: '', contact: '', default_wallet: '', default_payment_method: '', notes: '', is_active: true };
+const emptyVendor = { name: '', type: '', contact: '', default_wallet: '', default_payment_method: '', default_currency: '', default_network: '', default_vendor_wallet: '', notes: '', is_active: true };
+const VENDOR_CURRENCIES = ['AED', 'USD', 'EUR', 'USDT'];
+const VENDOR_NETWORKS = ['TRC20', 'ERC20', 'BEP20', 'Polygon', 'OFF_CHAIN'];
 const VENDOR_TYPES = ['SaaS', 'Telecom', 'VPS / Hosting', 'Office', 'Legal', 'Bank', 'Marketing', 'Other'];
 
 function VendorsCard() {
@@ -433,6 +462,9 @@ function VendorsCard() {
       contact: row.contact || '',
       default_wallet: row.default_wallet || '',
       default_payment_method: row.default_payment_method || '',
+      default_currency: row.default_currency || '',
+      default_network: row.default_network || '',
+      default_vendor_wallet: row.default_vendor_wallet || '',
       notes: row.notes || '',
       is_active: row.is_active,
     });
@@ -478,16 +510,19 @@ function VendorsCard() {
 
       <div className="overflow-x-auto">
         <table className="table-axistra">
-          <thead><tr><th>Name</th><th>Type</th><th>Contact</th><th>Default Method</th><th>Default Wallet</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>Type</th><th>Contact</th><th>Default Method</th><th>Currency</th><th>Source Wallet</th><th>Network</th><th>Vendor Wallet / Pay ID</th><th>Status</th><th></th></tr></thead>
           <tbody>
-            {rows.length === 0 && <tr><td colSpan={7} className="text-center text-gray-500 py-8">No vendors yet.</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={10} className="text-center text-gray-500 py-8">No vendors yet.</td></tr>}
             {rows.map((r) => (
               <tr key={r.id} data-testid={`vendor-row-${r.name}`}>
                 <td className="font-medium">{r.name}</td>
                 <td className="text-sm">{r.type || '—'}</td>
                 <td className="text-sm font-mono text-xs">{r.contact || '—'}</td>
                 <td className="text-sm">{r.default_payment_method || '—'}</td>
+                <td className="text-sm">{r.default_currency || '—'}</td>
                 <td className="text-sm">{r.default_wallet || '—'}</td>
+                <td className="text-sm">{r.default_network || '—'}</td>
+                <td className="font-mono text-xs max-w-[180px] truncate" title={r.default_vendor_wallet || ''}>{r.default_vendor_wallet || '—'}</td>
                 <td><span className={`badge ${r.is_active ? 'badge-success' : 'badge-neutral'}`}>{r.is_active ? 'Active' : 'Disabled'}</span></td>
                 <td className="text-right">
                   <button
@@ -520,16 +555,31 @@ function VendorsCard() {
             <input value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} placeholder="email / phone / URL" className="input-axistra" />
           </Field>
           <Field label="Default Payment Method">
-            <select value={form.default_payment_method} onChange={(e) => setForm({ ...form, default_payment_method: e.target.value })} className="input-axistra">
+            <select value={form.default_payment_method} onChange={(e) => setForm({ ...form, default_payment_method: e.target.value })} className="input-axistra" data-testid="vendor-form-method">
               <option value="">—</option>
               {PAYMENT_METHODS.map((m) => <option key={m}>{m}</option>)}
             </select>
           </Field>
           <Field label="Default Source Wallet">
-            <select value={form.default_wallet} onChange={(e) => setForm({ ...form, default_wallet: e.target.value })} className="input-axistra">
+            <select value={form.default_wallet} onChange={(e) => setForm({ ...form, default_wallet: e.target.value })} className="input-axistra" data-testid="vendor-form-source-wallet">
               <option value="">—</option>
               {WALLET_CODES.map((w) => <option key={w}>{w}</option>)}
             </select>
+          </Field>
+          <Field label="Default Currency">
+            <select value={form.default_currency} onChange={(e) => setForm({ ...form, default_currency: e.target.value })} className="input-axistra" data-testid="vendor-form-currency">
+              <option value="">—</option>
+              {VENDOR_CURRENCIES.map((c) => <option key={c}>{c}</option>)}
+            </select>
+          </Field>
+          <Field label="Default Network">
+            <select value={form.default_network} onChange={(e) => setForm({ ...form, default_network: e.target.value })} className="input-axistra" data-testid="vendor-form-network">
+              <option value="">—</option>
+              {VENDOR_NETWORKS.map((n) => <option key={n}>{n}</option>)}
+            </select>
+          </Field>
+          <Field label="Default Vendor Wallet / Pay ID" span={2}>
+            <input value={form.default_vendor_wallet} onChange={(e) => setForm({ ...form, default_vendor_wallet: e.target.value })} placeholder="Vendor's receiving wallet address or Binance Pay ID" className="input-axistra font-mono text-sm" data-testid="vendor-form-vendor-wallet" />
           </Field>
           <Field label="Notes" span={2}>
             <textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="input-axistra" />

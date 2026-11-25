@@ -23,6 +23,10 @@ export class Vendor {
   /** Default payment method (Bank | USDT | BinancePay | …) */
   @Column({ type: 'varchar', length: 32, nullable: true }) default_payment_method: string;
 
+  @Column({ type: 'varchar', length: 255, nullable: true }) default_vendor_wallet: string;
+  @Column({ type: 'varchar', length: 8, nullable: true }) default_currency: string;
+  @Column({ type: 'varchar', length: 24, nullable: true }) default_network: string;
+
   @Column({ type: 'text', nullable: true }) notes: string;
 
   @Column({ default: true }) is_active: boolean;

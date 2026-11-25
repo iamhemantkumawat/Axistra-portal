@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ReceivingWallet } from '../entities/receiving-wallet.entity';
@@ -9,12 +9,19 @@ export const GATEWAYS = ['Binance', 'OKX', 'OxaPay', 'BTCPay'] as const;
 export type GatewayCode = (typeof GATEWAYS)[number];
 
 @Injectable()
-export class SettingsService {
+export class SettingsService implements OnModuleInit {
   constructor(
     @InjectRepository(ReceivingWallet) private wallets: Repository<ReceivingWallet>,
     @InjectRepository(Vendor) private vendors: Repository<Vendor>,
     private audit: AuditService,
   ) {}
+
+  async onModuleInit() {
+    await this.vendors.query(`ALTER TABLE "vendors"
+      ADD COLUMN IF NOT EXISTS "default_vendor_wallet" character varying(255),
+      ADD COLUMN IF NOT EXISTS "default_currency" character varying(8),
+      ADD COLUMN IF NOT EXISTS "default_network" character varying(24)`);
+  }
 
   // ---------- Receiving Wallets ----------
   listWallets() {
@@ -101,6 +108,9 @@ export class SettingsService {
       contact: body.contact?.trim() || null,
       default_wallet: body.default_wallet?.trim() || null,
       default_payment_method: body.default_payment_method?.trim() || null,
+      default_vendor_wallet: body.default_vendor_wallet?.trim() || null,
+      default_currency: body.default_currency?.trim() || null,
+      default_network: body.default_network?.trim() || null,
       notes: body.notes?.trim() || null,
       is_active: body.is_active !== false,
     }));
@@ -120,6 +130,9 @@ export class SettingsService {
     if (body.contact !== undefined) v.contact = body.contact?.trim() || null;
     if (body.default_wallet !== undefined) v.default_wallet = body.default_wallet?.trim() || null;
     if (body.default_payment_method !== undefined) v.default_payment_method = body.default_payment_method?.trim() || null;
+    for (const k of ['default_vendor_wallet', 'default_currency', 'default_network'] as const) {
+      if (body[k] !== undefined) (v as any)[k] = body[k]?.trim() || null;
+    }
     if (body.notes !== undefined) v.notes = body.notes?.trim() || null;
     if (body.is_active !== undefined) v.is_active = !!body.is_active;
     const saved = await this.vendors.save(v);
