@@ -11,7 +11,8 @@ COPY package.json yarn.lock ./
 RUN yarn install --frozen-lockfile --network-timeout 600000
 COPY tsconfig*.json nest-cli.json ./
 COPY src ./src
-RUN yarn build
+# TypeScript compilation exceeds Node's default heap on small build hosts.
+RUN NODE_OPTIONS=--max-old-space-size=3072 yarn build
 
 FROM node:22-alpine AS runtime
 WORKDIR /app
