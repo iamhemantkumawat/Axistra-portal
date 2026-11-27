@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Expense } from '../entities/expense.entity';
@@ -6,11 +6,12 @@ import { Vendor } from '../entities/vendor.entity';
 import { AuditService } from '../audit/audit.service';
 import { WalletsService } from '../wallets/wallets.service';
 import { WalletCode } from '../entities/wallet-ledger.entity';
+import { initializeExpenseCounters, nextExpenseCode } from '../common/expense-code';
 
 const VALID_WALLETS: WalletCode[] = ['OXAPAY', 'BTCPAY', 'BINANCE', 'OKX', 'WIO_BANK'];
 
 @Injectable()
-export class ExpensesService {
+export class ExpensesService implements OnModuleInit {
   constructor(
     @InjectRepository(Expense) private repo: Repository<Expense>,
     @InjectRepository(Vendor) private vendorRepo: Repository<Vendor>,
@@ -18,14 +19,8 @@ export class ExpensesService {
     private wallets: WalletsService,
   ) {}
 
-  private async nextExpenseCode() {
-    const now = new Date();
-    const stamp = `${String(now.getFullYear()).slice(-2)}${String(now.getMonth() + 1).padStart(2, '0')}`;
-    const count = await this.repo
-      .createQueryBuilder('e')
-      .where('e.expense_code LIKE :prefix', { prefix: `EXP-${stamp}-%` })
-      .getCount();
-    return `EXP-${stamp}-${String(count + 1).padStart(5, '0')}`;
+  async onModuleInit() {
+    await initializeExpenseCounters(this.repo.manager);
   }
 
   list(query?: { category?: string; search?: string }) {
@@ -84,7 +79,7 @@ export class ExpensesService {
       data.aed_value = (parseFloat(data.amount) * parseFloat(data.aed_rate)).toFixed(2);
     }
     const payload: any = {
-      expense_code: data.expense_code || await this.nextExpenseCode(),
+      expense_code: data.expense_code || await nextExpenseCode(this.repo.manager),
       expense_date: data.expense_date || new Date(),
       vendor_id: data.vendor_id || null,
       vendor_name: data.vendor_name,

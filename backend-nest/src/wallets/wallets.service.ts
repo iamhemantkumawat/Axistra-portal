@@ -7,6 +7,7 @@ import { TreasuryBatch } from '../entities/treasury-batch.entity';
 import { Expense } from '../entities/expense.entity';
 import { AuditService } from '../audit/audit.service';
 import { buildConversionBatch } from '../treasury/batch-builder';
+import { nextExpenseCode } from '../common/expense-code';
 
 export const WALLETS: { code: WalletCode; label: string; type: 'crypto' | 'exchange' | 'bank'; default_coin: string }[] = [
   { code: 'OXAPAY',   label: 'OxaPay',   type: 'crypto',   default_coin: 'USDT' },
@@ -615,9 +616,6 @@ export class WalletsService {
     actor?: any;
   }): Promise<Expense> {
     const existing = await this.expenseRepo.findOne({ where: { bank_reference: args.ref } });
-    const stamp = `${String(args.cashout_date.getFullYear()).slice(-2)}${String(args.cashout_date.getMonth() + 1).padStart(2, '0')}`;
-    const count = await this.expenseRepo
-      .createQueryBuilder('e').where('e.expense_code LIKE :p', { p: `EXP-${stamp}-%` }).getCount();
     const payload: Partial<Expense> = {
       expense_date: args.cashout_date,
       vendor_name: 'Wio Bank wire fee',
@@ -637,7 +635,7 @@ export class WalletsService {
     }
     return await this.expenseRepo.save(this.expenseRepo.create({
       ...payload,
-      expense_code: `EXP-${stamp}-${String(count + 1).padStart(5, '0')}`,
+      expense_code: await nextExpenseCode(this.expenseRepo.manager, args.cashout_date),
     }));
   }
 
